@@ -293,7 +293,7 @@ struct CCT_LIB_GLOBAL_STATE {
     varSet mallocVarSets[2] __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
     struct image_type_s* imageLinkHead; // initial value = NULL
 #endif
-} GLOBAL_STATE;
+} static GLOBAL_STATE;
 
 static void SegvHandler(int);
 
