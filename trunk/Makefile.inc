@@ -1,6 +1,6 @@
 CXX = g++
 
-DEBUG=1
+#DEBUG=1
 
 ifndef  SPARSEHASH_PATH
 	$(error echo "SPARSEHASH_PATH NOT SET!!")
