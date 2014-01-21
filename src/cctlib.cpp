@@ -106,6 +106,7 @@ struct TraceNode;
 struct IPNode;
 struct TraceSplay;
 struct ModuleInfo;
+struct QNode;
 
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 
@@ -113,16 +114,7 @@ struct ModuleInfo;
 #define UNLOCKED (0b0)
 #define UNLOCKED_AND_PREDECESSOR_WAS_WRITER (0b10)
 
-typedef struct QNode {
-    struct QNode* volatile next;
-    union {
-        struct {
-            volatile bool locked: 1;
-            volatile bool predecessorWasWriter: 1;
-        };
-        volatile uint8_t status;
-    };
-} QNode;
+
 
 struct varType;
 typedef set<varType> varSet;
@@ -165,6 +157,17 @@ struct IPNode {
     sparse_hash_map<ADDRINT, TraceNode*>* calleeTraceNodes;
 #endif
 };
+
+typedef struct QNode {
+    struct QNode* volatile next;
+    union {
+        struct {
+            volatile bool locked: 1;
+            volatile bool predecessorWasWriter: 1;
+        };
+        volatile uint8_t status;
+    };
+} QNode;
 
 // should become TLS
 struct ThreadData {
@@ -251,49 +254,49 @@ struct ModuleInfo {
 
 /******** Globals variables **********/
 
+
+struct CCT_LIB_GLOBAL_STATE {
 // Should data-centric attribution be perfomed?
-static bool gDoDataCentric = false; // No by default
-
+    bool doDataCentric; // false  by default
 // key for accessing TLS storage in the threads. initialized once in main()
-static  TLS_KEY gCCTLibTlsKey __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
-FILE* gCCTLibLogFile;
-CCTLibInstrumentInsCallback gUserInstrumentationCallback;
-VOID* gUserInstrumentationCallbackArg;
-static char gDisassemblyBuff[200] = {0};
-uint32_t gNumThreads = 0;
+    TLS_KEY CCTLibTlsKey __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
+    FILE* CCTLibLogFile;
+    CCTLibInstrumentInsCallback userInstrumentationCallback;
+    VOID* userInstrumentationCallbackArg;
+    char disassemblyBuff[200]; // string of 0 by default
+    uint32_t numThreads __attribute__((aligned(128))); // initial value = 0  // align to eliminate any false sharing with other  members
 /// XED state
-xed_state_t  g_xed_state;
+    xed_state_t  cct_xed_state;
 // prefix string for flushing all data for post processing.
-string gCCTLibFilePathPrefix;
-IPNode* gPreAllocatedContextBuffer;
+    string CCTLibFilePathPrefix;
+    IPNode* preAllocatedContextBuffer;
 
-uint32_t gCurPreAllocatedStringPoolIndex;
-char* gPreAllocatedStringPool;
+    uint32_t curPreAllocatedStringPoolIndex __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
+    char* preAllocatedStringPool;
 
-uint64_t gCurPreAllocatedContextBufferIndex;
+    uint64_t curPreAllocatedContextBufferIndex __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
 // keys to associate parent child threads
-volatile uint64_t gThreadCreateCount = 0;
-volatile uint64_t gThreadCaptureCount = 0;
-TraceNode* gThreadCreatorTraceNode;
-IPNode* gThreadCreatorIPNode;
-volatile bool gDSLock;
+    volatile uint64_t threadCreateCount __attribute__((aligned(128))) ; // initial value = 0  // align to eliminate any false sharing with other  members
+    volatile uint64_t threadCaptureCount __attribute__((aligned(128))) ; // initial value = 0  // align to eliminate any false sharing with other  members
+    TraceNode* threadCreatorTraceNode __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
+    IPNode* threadCreatorIPNode __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
+    volatile bool DSLock;
 // SEGVHANDLEING FOR BAD .plt
-static jmp_buf env;
-static struct sigaction gSigAct;
-static void SegvHandler(int);
-//dense_hash_map<ADDRINT, void *> gTraceShadowMap;
-hash_map<ADDRINT, void*> gTraceShadowMap;
-PIN_LOCK lock;
-
-
-
+    jmp_buf env;
+    struct sigaction sigAct;
+//dense_hash_map<ADDRINT, void *> traceShadowMap;
+    hash_map<ADDRINT, void*> traceShadowMap;
+    PIN_LOCK lock;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
-//Data centric support
-static varSet* gLatestMallocVarSet;
-static varSet mallocVarSets[2];
-
-struct image_type_s* image_link_head = NULL;
+    //Data centric support
+    varSet* latestMallocVarSet __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
+    varSet mallocVarSets[2] __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
+    struct image_type_s* imageLinkHead; // initial value = NULL
 #endif
+} GLOBAL_STATE;
+
+static void SegvHandler(int);
+
 
 
 /******** Function definitions **********/
@@ -318,7 +321,7 @@ ADDRINT GetNextTraceKey() {
 // function to access thread-specific data
 static inline ThreadData* CCTLibGetTLS(const THREADID threadId) {
     ThreadData* tdata =
-        static_cast<ThreadData*>(PIN_GetThreadData(gCCTLibTlsKey, threadId));
+        static_cast<ThreadData*>(PIN_GetThreadData(GLOBAL_STATE.CCTLibTlsKey, threadId));
     return tdata;
 }
 
@@ -348,27 +351,27 @@ static int SetJmpOverride(const CONTEXT* 	ctxt, 	THREADID 	tid, AFUNPTR gOrigina
 static inline VOID CaptureSigSetJmpCtxt(ADDRINT buf, THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
     tData->tlsLongJmpMap[buf] = tData->tlsCurrentIPNode;
-    //fprintf(gCCTLibLogFile,"\n CaptureSigSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
+    //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n CaptureSigSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
 }
 
 static inline VOID HoldLongJmpBuf(ADDRINT buf, THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
     tData->tlsLongJmpHoldBuf = buf;
-    //fprintf(gCCTLibLogFile,"\n HoldLongJmpBuf tlsLongJmpHoldBuf = %lu, tData->tlsCurrentIPNode = %p", tData->tlsLongJmpHoldBuf, tData->tlsCurrentIPNode);
+    //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n HoldLongJmpBuf tlsLongJmpHoldBuf = %lu, tData->tlsCurrentIPNode = %p", tData->tlsLongJmpHoldBuf, tData->tlsCurrentIPNode);
 }
 
 static inline VOID RestoreSigLongJmpCtxt(THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
     tData->tlsCurrentIPNode = tData->tlsLongJmpMap[tData->tlsLongJmpHoldBuf];
     tData->tlsCurrentTraceNode = tData->tlsCurrentIPNode->parentTraceNode;
-    //fprintf(gCCTLibLogFile,"\n RestoreSigLongJmpCtxt2 tlsLongJmpHoldBuf = %lu",tData->tlsLongJmpHoldBuf);
+    //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n RestoreSigLongJmpCtxt2 tlsLongJmpHoldBuf = %lu",tData->tlsLongJmpHoldBuf);
 }
 
 static inline VOID CaptureSetJmpCtxt(ADDRINT buf, THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
     // Does not work when a trace has zero IPs!! tData->tlsLongJmpMap[buf] = tData->tlsCurrentIPNode->parentTraceNode->callerIPNode;
     tData->tlsLongJmpMap[buf] = tData->tlsCurrentTraceNode->callerIPNode;
-    //fprintf(gCCTLibLogFile,"\n CaptureSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
+    //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n CaptureSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
 }
 
 static bool IsCallInstruction(ADDRINT ip) {
@@ -393,7 +396,7 @@ static bool IsCallInstruction(ADDRINT ip) {
 #define X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(callsite) (callsite - 2)
 
 bool IsIpPresentInTrace(ADDRINT exceptionCallerReturnAddrIP, TraceNode* traceNode, uint32_t* ipSlot) {
-    ADDRINT* tracesIPs = (ADDRINT*)gTraceShadowMap[traceNode->traceKey];
+    ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[traceNode->traceKey];
     ADDRINT ipDirectCall = X86_DIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
     ADDRINT ipIndirectCall = X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
 
@@ -484,12 +487,12 @@ static VOID SetCurTraceNodeAfterExceptionIfContextIsInstalled(ADDRINT retVal, TH
 
 inline VOID TakeLock() {
     do {
-        while(gDSLock);
-    } while(!__sync_bool_compare_and_swap(&gDSLock, 0, 1));
+        while(GLOBAL_STATE.DSLock);
+    } while(!__sync_bool_compare_and_swap(&GLOBAL_STATE.DSLock, 0, 1));
 }
 
 inline VOID ReleaseLock() {
-    gDSLock = 0;
+    GLOBAL_STATE.DSLock = 0;
 }
 
 
@@ -500,16 +503,16 @@ static inline void ThreadCreatePoint(THREADID threadId) {
     while(1) {
         TakeLock();
 
-        if(gThreadCreateCount > gThreadCaptureCount)
+        if(GLOBAL_STATE.threadCreateCount > GLOBAL_STATE.threadCaptureCount)
             ReleaseLock();
         else
             break;
     }
 
-    gThreadCreatorTraceNode = CCTLibGetTLS(threadId)->tlsCurrentTraceNode;
-    gThreadCreatorIPNode = CCTLibGetTLS(threadId)->tlsCurrentIPNode;
-    //fprintf(gCCTLibLogFile, "\n ThreadCreatePoint, parent Trace = %p, parent ip = %p", gThreadCreatorTraceNode, gThreadCreatorIPNode);
-    gThreadCreateCount++;
+    GLOBAL_STATE.threadCreatorTraceNode = CCTLibGetTLS(threadId)->tlsCurrentTraceNode;
+    GLOBAL_STATE.threadCreatorIPNode = CCTLibGetTLS(threadId)->tlsCurrentIPNode;
+    //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCreatePoint, parent Trace = %p, parent ip = %p", GLOBAL_STATE.threadCreatorTraceNode, GLOBAL_STATE.threadCreatorIPNode);
+    GLOBAL_STATE.threadCreateCount++;
     ReleaseLock();
 }
 
@@ -518,14 +521,14 @@ static inline void ThreadCreatePoint(THREADID threadId) {
 static inline void ThreadCapturePoint(ThreadData* tdata) {
     TakeLock();
 
-    if(gThreadCreateCount == gThreadCaptureCount) {
+    if(GLOBAL_STATE.threadCreateCount == GLOBAL_STATE.threadCaptureCount) {
         // Base thread, no parent
-        //fprintf(gCCTLibLogFile, "\n ThreadCapturePoint, no parent ");
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, no parent ");
     } else {
-        tdata->tlsParentThreadTraceNode = gThreadCreatorTraceNode;
-        tdata->tlsParentThreadIPNode = gThreadCreatorIPNode;
-        //fprintf(gCCTLibLogFile, "\n ThreadCapturePoint, parent Trace = %p, parent ip = %p", gThreadCreatorTraceNode, gThreadCreatorIPNode);
-        gThreadCaptureCount++;
+        tdata->tlsParentThreadTraceNode = GLOBAL_STATE.threadCreatorTraceNode;
+        tdata->tlsParentThreadIPNode = GLOBAL_STATE.threadCreatorIPNode;
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, parent Trace = %p, parent ip = %p", GLOBAL_STATE.threadCreatorTraceNode, GLOBAL_STATE.threadCreatorIPNode);
+        GLOBAL_STATE.threadCaptureCount++;
     }
 
     ReleaseLock();
@@ -533,19 +536,19 @@ static inline void ThreadCapturePoint(ThreadData* tdata) {
 
 
 static inline IPNode* GetNextIPVecBuffer(uint32_t num) {
-    uint64_t  oldBufIndex = __sync_fetch_and_add(&gCurPreAllocatedContextBufferIndex, num);
+    uint64_t  oldBufIndex = __sync_fetch_and_add(&GLOBAL_STATE.curPreAllocatedContextBufferIndex, num);
 
     if(oldBufIndex + num  >= MAX_IPNODES) {
         printf("\nPreallocated IPNodes exhausted. CCTLib couldn't fit your application in its memory. Try a smaller program.\n");
         PIN_ExitProcess(-1);
     }
 
-    return (gPreAllocatedContextBuffer + oldBufIndex);
+    return (GLOBAL_STATE.preAllocatedContextBuffer + oldBufIndex);
 }
 
 static inline uint32_t GetNextStringPoolIndex(char* name) {
     uint32_t len = strlen(name) + 1;
-    uint64_t  oldStringPoolIndex = __sync_fetch_and_add(&gCurPreAllocatedStringPoolIndex, len);
+    uint64_t  oldStringPoolIndex = __sync_fetch_and_add(&GLOBAL_STATE.curPreAllocatedStringPoolIndex, len);
 
     if(oldStringPoolIndex + len  >= MAX_STRING_POOL_NODES) {
         printf("\nPreallocated String Pool exhausted. CCTLib couldn't fit your application in its memory. Try by changing MAX_STRING_POOL_NODES macro.\n");
@@ -553,7 +556,7 @@ static inline uint32_t GetNextStringPoolIndex(char* name) {
     }
 
     // copy contents
-    strncpy(gPreAllocatedStringPool + oldStringPoolIndex, name, len);
+    strncpy(GLOBAL_STATE.preAllocatedStringPool + oldStringPoolIndex, name, len);
     return oldStringPoolIndex;
 }
 
@@ -596,12 +599,12 @@ static inline void CCTLibInitThreadData(ThreadData* const tdata, CONTEXT* ctxt) 
 }
 
 static VOID CCTLibThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
-    GetLock(&lock, threadid + 1);
-    gNumThreads++;
-    ReleaseLock(&lock);
+    GetLock(&GLOBAL_STATE.lock, threadid + 1);
+    GLOBAL_STATE.numThreads++;
+    ReleaseLock(&GLOBAL_STATE.lock);
     ThreadData* tdata = new ThreadData();
     CCTLibInitThreadData(tdata, ctxt);
-    PIN_SetThreadData(gCCTLibTlsKey, tdata, threadid);
+    PIN_SetThreadData(GLOBAL_STATE.CCTLibTlsKey, tdata, threadid);
     ThreadCapturePoint(tdata);
 }
 
@@ -611,7 +614,7 @@ static inline VOID SetCallInitFlag(uint32_t slot, THREADID threadId) {
     tData->tlsInitiatedCall = true;
     tData->tlsCurrentIPNode = &(tData->tlsCurrentTraceNode->childIPs[slot]);
 #if 0
-    ADDRINT* tracesIPs = (ADDRINT*)gTraceShadowMap[tData->tlsCurrentTraceNode->traceKey];
+    ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
     printf("\n Calling from IP = %p", tracesIPs[slot]);
 #endif
 }
@@ -630,7 +633,7 @@ static inline VOID GoUpCallChain(THREADID threadId) {
     tData->tlsCurrentTraceNode = tData->tlsCurrentIPNode->parentTraceNode;
     // RET & CALL end a trace hence the target should trigger a new trace entry for us ... pray pray.
 #if 0
-    ADDRINT* tracesIPs = (ADDRINT*)gTraceShadowMap[tData->tlsCurrentTraceNode->traceKey];
+    ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
     int offset =  tData->tlsCurrentIPNode - tData->tlsCurrentTraceNode->childIPs;
     printf("\n Returning to the caller IP = %p", tracesIPs[offset]);
 #endif
@@ -683,7 +686,7 @@ static inline VOID CCTLibInstrumentImageLoad(IMG img, VOID* v) {
 
 // Called each time a new trace is JITed.
 // Given a trace this function adds instruction to each instruction in the trace.
-// It also adds the trace to a hash table "gTraceShadowMap" to maintain the reverse mapping from an (interesting) instruction's position in CCT back to its IP.
+// It also adds the trace to a hash table "GLOBAL_STATE.traceShadowMap" to maintain the reverse mapping from an (interesting) instruction's position in CCT back to its IP.
 static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, ADDRINT traceKey, uint32_t numInterestingInstInTrace, IsInterestingInsFptr isInterestingIns) {
     // if there were 0 numInterestingInstInTrace, then let us simply return since it makes no sense to record anything about it.
     if(numInterestingInstInTrace == 0)
@@ -695,7 +698,7 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
     // Record the module id as 2nd entry
     ipShadow[1] = IMG_Id(IMG_FindByAddress(TRACE_Address(trace)));
     uint32_t slot = 0;
-    gTraceShadowMap[traceKey] = &ipShadow[2] ; // 0th entry is one behind
+    GLOBAL_STATE.traceShadowMap[traceKey] = &ipShadow[2] ; // 0th entry is one behind
 
     for(BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
@@ -704,10 +707,10 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
             if(INS_IsProcedureCall(ins)) {
                 INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
 
-                if(gUserInstrumentationCallback) {
+                if(GLOBAL_STATE.userInstrumentationCallback) {
                     // Call user instrumentation passing the flag
                     if(isInterestingIns(ins))
-                        gUserInstrumentationCallback(ins, gUserInstrumentationCallbackArg, slot);
+                        GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                 } else {
                     // TLS will remember your slot no.
                     INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
@@ -719,10 +722,10 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
             } else if(INS_IsRet(ins)) {
                 INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_THREAD_ID, IARG_END);
 
-                if(gUserInstrumentationCallback) {
+                if(GLOBAL_STATE.userInstrumentationCallback) {
                     // Call user instrumentation passing the flag
                     if(isInterestingIns(ins))
-                        gUserInstrumentationCallback(ins, gUserInstrumentationCallbackArg, slot);
+                        GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                 } else {
                     // TLS will remember your slot no.
                     INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
@@ -732,9 +735,9 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
                 ipShadow[slot + 2] = INS_Address(ins); // +2 because the first 2 entries hold metadata
                 slot++;
             } else if(isInterestingIns(ins)) {
-                if(gUserInstrumentationCallback) {
+                if(GLOBAL_STATE.userInstrumentationCallback) {
                     // Call user instrumentation passing the flag
-                    gUserInstrumentationCallback(ins, gUserInstrumentationCallbackArg, slot);
+                    GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                 } else {
                     // If, it is an interesting Ins, then we need to hold on to the slot number.
                     // TLS will remember your slot no.
@@ -935,28 +938,28 @@ IPNode* GetPINCCTCurrentContextWithSlot(THREADID id, uint32_t slot) {
 
 uint32_t GetPINCCT32bitCurrentContextWithSlot(THREADID id, uint32_t slot) {
     ThreadData* tData = CCTLibGetTLS(id);
-    return &(tData->tlsCurrentIPNode[slot]) - gPreAllocatedContextBuffer;
+    return &(tData->tlsCurrentIPNode[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
 }
 
 
 uint32_t GetPINCCT32BitContextIndex(IPNode* node) {
-    return node - gPreAllocatedContextBuffer;
+    return node - GLOBAL_STATE.preAllocatedContextBuffer;
 }
 
 IPNode* GetPINCCTContextFrom32BitIndex(uint32_t index) {
-    return  &gPreAllocatedContextBuffer[index];
+    return  &GLOBAL_STATE.preAllocatedContextBuffer[index];
 }
 
 static void SegvHandler(int sig) {
-    longjmp(env, 1);
+    longjmp(GLOBAL_STATE.env, 1);
 }
 
 
 // On program termination output all gathered data and statistics
 static VOID CCTLibFini(INT32 code, VOID* v) {
     // byte count
-    //fprintf(gCCTLibLogFile, "\n#eof");
-    //fclose(gCCTLibLogFile);
+    //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n#eof");
+    //fclose(GLOBAL_STATE.CCTLibLogFile);
 }
 
 // Visit all nodes of the splay tree of child traces.
@@ -978,7 +981,7 @@ static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp) {
         return;
 
     IPNode* parentIPNode = traceNode->callerIPNode ? traceNode->callerIPNode : 0;
-    ADDRINT* traceIPs = (ADDRINT*)(gTraceShadowMap[traceNode->traceKey]);
+    ADDRINT* traceIPs = (ADDRINT*)(GLOBAL_STATE.traceShadowMap[traceNode->traceKey]);
     ADDRINT moduleId = traceIPs[-1];
     ADDRINT loadOffset =   ModuleInfoMap[moduleId].imgLoadOffset;
 
@@ -995,10 +998,10 @@ static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp) {
 }
 
 static void SerializeAllCCTs() {
-    for(uint32_t id = 0 ; id < gNumThreads; id++) {
+    for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
         ThreadData* tData = CCTLibGetTLS(id);
         std::stringstream cctMapFilePath;
-        cctMapFilePath << gCCTLibFilePathPrefix << "-Thread" << id << "-CCTMap.txt";
+        cctMapFilePath << GLOBAL_STATE.CCTLibFilePathPrefix << "-Thread" << id << "-CCTMap.txt";
         FILE* fp = fopen(cctMapFilePath.str().c_str(), "w");
         fprintf(fp, "NodeId:IP:ParentId:ModuleId");
         SerializeCCTNode(tData->tlsRootTraceNode, fp);
@@ -1060,12 +1063,12 @@ static void DottifyCCTNode(TraceNode* traceNode,  uint64_t parentDotId, FILE* co
 
 void DottifyAllCCTs() {
     std::stringstream cctMapFilePath;
-    cctMapFilePath << gCCTLibFilePathPrefix << "-CCTMap.dot";
+    cctMapFilePath << GLOBAL_STATE.CCTLibFilePathPrefix << "-CCTMap.dot";
     FILE* fp = fopen(cctMapFilePath.str().c_str(), "w");
     fprintf(fp, "digraph CCTLibGraph {\n");
     uint64_t dotId;
 
-    for(uint32_t id = 0 ; id < gNumThreads; id++) {
+    for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
         ThreadData* tData = CCTLibGetTLS(id);
         DottifyCCTNode(tData->tlsRootTraceNode, gDotId, fp);
         dotId++;
@@ -1078,7 +1081,7 @@ void DottifyAllCCTs() {
 
 
 static void SerializeMouleInfo() {
-    string moduleFilePath = gCCTLibFilePathPrefix + "-ModuleMap.txt";
+    string moduleFilePath = GLOBAL_STATE.CCTLibFilePathPrefix + "-ModuleMap.txt";
     FILE* fp = fopen(moduleFilePath.c_str(), "w");
     hash_map<UINT32, ModuleInfo>::iterator it;
     fprintf(fp, "ModuleId:ModuleFile:LoadOffset");
@@ -1108,9 +1111,9 @@ size_t getPeakRSS() {
 
 
 static void PrintStats() {
-    fprintf(gCCTLibLogFile, "\nTotal call paths=%lu", gCurPreAllocatedContextBufferIndex);
+    fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%lu", GLOBAL_STATE.curPreAllocatedContextBufferIndex);
     // Peak resource usage
-    fprintf(gCCTLibLogFile, "\nPeak RSS=%lu", getPeakRSS());
+    fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPeak RSS=%lu", getPeakRSS());
 }
 
 
@@ -1132,7 +1135,7 @@ static inline ADDRINT GetIPFromInfo(IPNode* ipNode) {
             break;
     }
 
-    ADDRINT* ip = (ADDRINT*) gTraceShadowMap[traceNode->traceKey] ;
+    ADDRINT* ip = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
     return ip[slotNo];
 }
 
@@ -1149,14 +1152,14 @@ static inline string GetLineFromInfo(const ADDRINT& ip) {
 static void GetDecodedInstFromIP(ADDRINT ip) {
     // Get the instruction in a string
     xed_decoded_inst_t      xedd;
-    gDisassemblyBuff[0] = 0;
-    xed_decoded_inst_zero_set_mode(&xedd, &g_xed_state);
+    GLOBAL_STATE.disassemblyBuff[0] = 0;
+    xed_decoded_inst_zero_set_mode(&xedd, &GLOBAL_STATE.cct_xed_state);
 
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
-        if(0 == xed_decoded_inst_dump_att_format(&xedd, gDisassemblyBuff, 200,  ip))
-            strcpy(gDisassemblyBuff , "xed_decoded_inst_dump_att_format failed");
+        if(0 == xed_decoded_inst_dump_att_format(&xedd, GLOBAL_STATE.disassemblyBuff, 200,  ip))
+            strcpy(GLOBAL_STATE.disassemblyBuff , "xed_decoded_inst_dump_att_format failed");
     } else {
-        strcpy(gDisassemblyBuff , "xed_decode failed");
+        strcpy(GLOBAL_STATE.disassemblyBuff , "xed_decode failed");
     }
 }
 
@@ -1208,7 +1211,7 @@ static inline bool IsValidPLTSignature(const ADDRINT& ip) {
 #define NOT_ROOT_CTX (-1)
 // Return true if the given ContextNode is one of the root context nodes
 static int IsARootIPNode(IPNode* curIPNode) {
-    for(uint32_t id = 0 ; id < gNumThreads; id++) {
+    for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
         ThreadData* tData = CCTLibGetTLS(id);
 
         if(tData->tlsRootIPNode == curIPNode)
@@ -1224,7 +1227,7 @@ static int IsARootIPNode(IPNode* curIPNode) {
 static VOID PrintFullCallingContext(IPNode* curIPNode);
 
 VOID PrintFullCallingContext(uint32_t ctxtHandle) {
-    PrintFullCallingContext(gPreAllocatedContextBuffer + ctxtHandle);
+    PrintFullCallingContext(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle);
 }
 
 static VOID PrintFullCallingContext(IPNode* curIPNode) {
@@ -1234,14 +1237,14 @@ static VOID PrintFullCallingContext(IPNode* curIPNode) {
 #endif         //end MULTI_THREADED
     // set sig handler
     struct sigaction old;
-    sigaction(SIGSEGV, &gSigAct, &old);
+    sigaction(SIGSEGV, &GLOBAL_STATE.sigAct, &old);
 
     // Dont print if the depth is more than MAX_CCT_PRINT_DEPTH since files become too large
     while(curIPNode && (depth ++ < MAX_CCT_PRINT_DEPTH)) {
         int threadCtx = 0;
 
         if((threadCtx = IsARootIPNode(curIPNode)) != NOT_ROOT_CTX) {
-            fprintf(gCCTLibLogFile, "\nTHREAD[%d]_ROOT_CTXT", threadCtx);
+            fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTHREAD[%d]_ROOT_CTXT", threadCtx);
             // if the thread has a parent, recurse over it.
             IPNode* parentThreadIPNode = CCTLibGetTLS(threadCtx)->tlsParentThreadIPNode;
 
@@ -1254,7 +1257,7 @@ static VOID PrintFullCallingContext(IPNode* curIPNode) {
 
             if(IsValidIP(ip)) {
                 if(PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE) == ".plt") {
-                    if(setjmp(env) == 0) {
+                    if(setjmp(GLOBAL_STATE.env) == 0) {
                         if(IsValidPLTSignature(ip)) {
                             uint64_t nextByte = (uint64_t) ip + 2;
                             int* offset = (int*) nextByte;
@@ -1264,26 +1267,26 @@ static VOID PrintFullCallingContext(IPNode* curIPNode) {
                             if(IsValidIP(loc)) {
                                 string line = GetLineFromInfo(ip);
                                 GetDecodedInstFromIP(ip);
-                                fprintf(gCCTLibLogFile, "\n!%p:%s:%s:%s", (void*)ip, gDisassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE).c_str(), line.c_str());
+                                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n!%p:%s:%s:%s", (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE).c_str(), line.c_str());
                             } else {
-                                fprintf(gCCTLibLogFile, "\nIN PLT BUT NOT VALID GOT");
+                                fprintf(GLOBAL_STATE.CCTLibLogFile, "\nIN PLT BUT NOT VALID GOT");
                             }
                         } else {
-                            fprintf(gCCTLibLogFile, "\nUNRECOGNIZED PLT SIGNATURE");
-                            //fprintf(gCCTLibLogFile,"\n plt plt plt %x", * ((UINT32*)curContext->address));
+                            fprintf(GLOBAL_STATE.CCTLibLogFile, "\nUNRECOGNIZED PLT SIGNATURE");
+                            //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n plt plt plt %x", * ((UINT32*)curContext->address));
                             //for(int i = 1; i < 4 ; i++)
-                            //	fprintf(gCCTLibLogFile," %x",  ((UINT32 *)curContext->address)[i]);
+                            //	fprintf(GLOBAL_STATE.CCTLibLogFile," %x",  ((UINT32 *)curContext->address)[i]);
                         }
                     } else {
-                        fprintf(gCCTLibLogFile, "\nCRASHED !!");
+                        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nCRASHED !!");
                     }
                 } else {
                     string line = GetLineFromInfo(ip);
                     GetDecodedInstFromIP(ip);
-                    fprintf(gCCTLibLogFile, "\n%p:%s:%s:%s", (void*)ip, gDisassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), line.c_str());
+                    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%p:%s:%s:%s", (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), line.c_str());
                 }
             } else {
-                fprintf(gCCTLibLogFile, "\nBAD IP ");
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\nBAD IP ");
             }
 
             curIPNode = curIPNode->parentTraceNode->callerIPNode;
@@ -1301,15 +1304,15 @@ static VOID PrintFullCallingContext(IPNode* curIPNode) {
 static void InitBuffers() {
     // prealloc IPNodeVec so that they all come from a continuous memory region.
     // IMPROVEME ... actually this can be as high as 24 GB since lower 3 bits are always zero for pointers
-    gPreAllocatedContextBuffer = (IPNode*) mmap(0, MAX_IPNODES * sizeof(IPNode), PROT_WRITE
-                                 | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    GLOBAL_STATE.preAllocatedContextBuffer = (IPNode*) mmap(0, MAX_IPNODES * sizeof(IPNode), PROT_WRITE
+            | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     // start from index 1 so that we can use 0 as empty key for the google hash table
-    gCurPreAllocatedContextBufferIndex = 1;
+    GLOBAL_STATE.curPreAllocatedContextBufferIndex = 1;
     // Init the string pool
-    gPreAllocatedStringPool = (char*) mmap(0, MAX_STRING_POOL_NODES * sizeof(char), PROT_WRITE
-                                           | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    GLOBAL_STATE.preAllocatedStringPool = (char*) mmap(0, MAX_STRING_POOL_NODES * sizeof(char), PROT_WRITE
+                                          | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     // start from index 1 so that we can use 0 as a special value
-    gCurPreAllocatedStringPoolIndex = 1;
+    GLOBAL_STATE.curPreAllocatedStringPoolIndex = 1;
 }
 
 
@@ -1322,7 +1325,7 @@ static void InitLocks() {
 #endif
 
 static void InitLogFile(FILE* logFile) {
-    gCCTLibLogFile = logFile;
+    GLOBAL_STATE.CCTLibLogFile = logFile;
 }
 
 static void InitMapFilePrefix() {
@@ -1330,7 +1333,7 @@ static void InitMapFilePrefix() {
 
     if(envPath) {
         // assumes max of MAX_FILE_PATH
-        gCCTLibFilePathPrefix = string(envPath) + "-";
+        GLOBAL_STATE.CCTLibFilePathPrefix = string(envPath) + "-";
     }
 
     std::stringstream ss;
@@ -1338,20 +1341,20 @@ static void InitMapFilePrefix() {
     gethostname(hostname, MAX_FILE_PATH);
     pid_t pid = getpid();
     ss << hostname << "-" << pid;
-    gCCTLibFilePathPrefix += ss.str();
+    GLOBAL_STATE.CCTLibFilePathPrefix += ss.str();
 }
 
 
 static void InitSegHandler() {
     // Init the  segv handler that may happen (due to PIN bug) when unwinding the stack during the printing
-    memset(&gSigAct, 0, sizeof(struct sigaction));
-    gSigAct.sa_handler = SegvHandler;
-    gSigAct.sa_flags = SA_NOMASK ;
+    memset(&GLOBAL_STATE.sigAct, 0, sizeof(struct sigaction));
+    GLOBAL_STATE.sigAct.sa_handler = SegvHandler;
+    GLOBAL_STATE.sigAct.sa_flags = SA_NOMASK ;
 }
 
 static void InitXED() {
     // Init XED for decoding instructions
-    xed_state_init(&g_xed_state, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
+    xed_state_init(&GLOBAL_STATE.cct_xed_state, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
     xed_decode_init();
 }
 
@@ -1483,7 +1486,7 @@ DataHandle_t GetDataObjectHandle(VOID* addr, THREADID threadId) {
 
     // publish the most recent MallocVarSet that this thread sees. This allows the concurrent writer to make progress.
     // This is placed here so that we dont update this on each stack access. We favor reader progress.
-    tData->tlsLatestMallocVarSet = gLatestMallocVarSet;
+    tData->tlsLatestMallocVarSet = GLOBAL_STATE.latestMallocVarSet;
     varSet* curMallocVarSet = tData->tlsLatestMallocVarSet;
     tData->tlsMallocDSAccessStatus = START_READING;
     // first check dymanically allocated variables
@@ -1506,7 +1509,7 @@ DataHandle_t GetDataObjectHandle(VOID* addr, THREADID threadId) {
 //            ReadLock staticVarRWlock(gStaticVarRWLock);
 //            gStaticVarRWLock.lock_read();
         // check for static variables
-        struct image_type_s* image_iter = image_link_head;
+        struct image_type_s* image_iter = GLOBAL_STATE.imageLinkHead;
 
         while(image_iter) {
             if((ADDRINT)addr < image_iter->startAddress || (ADDRINT)addr >= image_iter->endAddress) {
@@ -1584,7 +1587,7 @@ static VOID CaptureReallocSize(void* ptr, size_t arg1, THREADID threadId) {
 static void DUMP_STATUS(THREADID threadId, int stuckon, int calledFrom) {
     printf("\n STUCK! threadId = %d, stack waiting for %d, called from %s", threadId, stuckon, calledFrom == 0 ? "malloc" : "free");
 
-    for(uint32_t i = 0; i < gNumThreads; i++) {
+    for(uint32_t i = 0; i < GLOBAL_STATE.numThreads; i++) {
         ThreadData* tData = CCTLibGetTLS(i);
         printf("\n Thread %d,  tlsLatestMallocVarSet = %p, tlsMallocDSAccessStatus = %d", i, tData->tlsLatestMallocVarSet , tData->tlsMallocDSAccessStatus);
     }
@@ -1594,7 +1597,7 @@ static void DUMP_STATUS(THREADID threadId, int stuckon, int calledFrom) {
 
 static void WaitTillAllThreadsProgressIntoNewSet(varSet* latestVarSet, THREADID threadId, int calledFrom) {
     // TODO: if the thread exists in the mean time, it might not have seen the update. We need to ignore such threads.
-    for(uint32_t i = 0; i < gNumThreads; i++) {
+    for(uint32_t i = 0; i < GLOBAL_STATE.numThreads; i++) {
         ThreadData* tData = CCTLibGetTLS(i);
         uint64_t j = 0;
 
@@ -1647,7 +1650,7 @@ static void MCSRelease(QNode* volatile* L, QNode* I, uint8_t releaseVal) {
 
 static void WaitTillAllThreadsProgressIntoNewSet(varSet* latestVarSet) {
     // TODO: if the thread exists in the mean time, it might not have seen the update. We need to ignore such threads.
-    for(uint32_t i = 0; i < gNumThreads; i++) {
+    for(uint32_t i = 0; i < GLOBAL_STATE.numThreads; i++) {
         ThreadData* tData = CCTLibGetTLS(i);
 
         while((tData->tlsLatestMallocVarSet != latestVarSet) && (tData->tlsMallocDSAccessStatus == START_READING)) {
@@ -1705,8 +1708,8 @@ static VOID CaptureMallocPointer(void* ptr, THREADID threadId) {
     MCSAcquire(&MCSLock, &mcsNode);
     // Not waiting anymore
     tData->tlsMallocDSAccessStatus = WRITE_STARTED;
-    varSet* curMallocVarSet = gLatestMallocVarSet;
-    varSet* newMallocVarSet = (curMallocVarSet == (&mallocVarSets[0])) ? (&mallocVarSets[1])  : (&mallocVarSets[0]);
+    varSet* curMallocVarSet = GLOBAL_STATE.latestMallocVarSet;
+    varSet* newMallocVarSet = (curMallocVarSet == (&GLOBAL_STATE.mallocVarSets[0])) ? (&GLOBAL_STATE.mallocVarSets[1])  : (&GLOBAL_STATE.mallocVarSets[0]);
 
     if(mcsNode.status != UNLOCKED_AND_PREDECESSOR_WAS_WRITER /* first writer*/) {
         // Wait for all threads to make progress into curMallocVarSet
@@ -1724,7 +1727,7 @@ static VOID CaptureMallocPointer(void* ptr, THREADID threadId) {
 
     if(mcsNode.next == NULL  /* last writer */) {
         // Publish newMallocVarSet.
-        gLatestMallocVarSet = newMallocVarSet;
+        GLOBAL_STATE.latestMallocVarSet = newMallocVarSet;
         // set self tlsLatestMallocVarSet to be newMallocVarSet
         tData->tlsLatestMallocVarSet = newMallocVarSet;
         MCSRelease(&MCSLock, &mcsNode, UNLOCKED);
@@ -1750,8 +1753,8 @@ static void CaptureFree(void* ptr, THREADID threadId) {
     //GetLock(&mallocVarSetLock, 1);
     // Not waiting anymore
     tData->tlsMallocDSAccessStatus = WRITE_STARTED;
-    varSet* curMallocVarSet = gLatestMallocVarSet;
-    varSet* newMallocVarSet = (curMallocVarSet == (&mallocVarSets[0])) ? (&mallocVarSets[1])  : (&mallocVarSets[0]);
+    varSet* curMallocVarSet = GLOBAL_STATE.latestMallocVarSet;
+    varSet* newMallocVarSet = (curMallocVarSet == (&GLOBAL_STATE.mallocVarSets[0])) ? (&GLOBAL_STATE.mallocVarSets[1])  : (&GLOBAL_STATE.mallocVarSets[0]);
 
     if(mcsNode.status != UNLOCKED_AND_PREDECESSOR_WAS_WRITER /* first writer*/) {
         // Wait for all threads to make progress into curMallocVarSet
@@ -1775,7 +1778,7 @@ static void CaptureFree(void* ptr, THREADID threadId) {
 
     if(mcsNode.next == NULL  /* last writer */) {
         // Publish newMallocVarSet.
-        gLatestMallocVarSet = newMallocVarSet;
+        GLOBAL_STATE.latestMallocVarSet = newMallocVarSet;
         // set self tlsLatestMallocVarSet to be newMallocVarSet
         tData->tlsLatestMallocVarSet = newMallocVarSet;
         MCSRelease(&MCSLock, &mcsNode, UNLOCKED);
@@ -1878,7 +1881,7 @@ DeleteStaticVar(IMG img, VOID* v) {
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
     //NOP
 #else
-    struct image_type_s* pointer = image_link_head;
+    struct image_type_s* pointer = GLOBAL_STATE.imageLinkHead;
 
     if(!pointer) return;
 
@@ -1887,7 +1890,7 @@ DeleteStaticVar(IMG img, VOID* v) {
         pointer->staticVarSet.clear();
         // Simply relink without freeing the node.
         // This allows existing readers to continue walking on the linked list.
-        image_link_head = pointer->next;
+        GLOBAL_STATE.imageLinkHead = pointer->next;
         // Definitely leaking some memory here. But that is very small and hence ok.
         // free(pointer);
         return;
@@ -1923,9 +1926,9 @@ static VOID ComputeVarBounds(IMG img, VOID* v) {
     static struct image_type_s* current_pointer;
 
     // add to the link list
-    if(!image_link_head) {
-        image_link_head = (struct image_type_s*)malloc(sizeof(struct image_type_s));
-        current_pointer = image_link_head;
+    if(!GLOBAL_STATE.imageLinkHead) {
+        GLOBAL_STATE.imageLinkHead = (struct image_type_s*)malloc(sizeof(struct image_type_s));
+        current_pointer = GLOBAL_STATE.imageLinkHead;
     } else {
         struct image_type_s* tmp_image = (struct image_type_s*)malloc(sizeof(struct image_type_s));
         current_pointer->next = tmp_image;
@@ -1978,7 +1981,7 @@ VOID CCTLibImage(IMG img, VOID* v) {
 #endif
 
     if(RTN_Valid(pthread_createRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",PTHREAD_CREATE_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",PTHREAD_CREATE_RTN);
         RTN_Open(pthread_createRtn);
         // Instrument malloc() to print the input argument value and the return value.
         RTN_InsertCall(pthread_createRtn, IPOINT_AFTER, (AFUNPTR)ThreadCreatePoint, IARG_THREAD_ID, IARG_END);
@@ -1988,42 +1991,42 @@ VOID CCTLibImage(IMG img, VOID* v) {
 #if 0
 
     if(RTN_Valid(setjmpRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
         RTN_ReplaceSignature(setjmpRtn, AFUNPTR(SetJmpOverride),  IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_END);
     }
 
 #endif
 
     if(RTN_Valid(setjmpRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
         RTN_Open(setjmpRtn);
         RTN_InsertCall(setjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSetJmpCtxt, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
         RTN_Close(setjmpRtn);
     }
 
     if(RTN_Valid(longjmpRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",LONGJMP_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",LONGJMP_RTN);
         RTN_Open(longjmpRtn);
         RTN_InsertCall(longjmpRtn, IPOINT_BEFORE, (AFUNPTR)HoldLongJmpBuf, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
         RTN_Close(longjmpRtn);
     }
 
     if(RTN_Valid(sigsetjmpRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",SIGSETJMP_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGSETJMP_RTN);
         RTN_Open(sigsetjmpRtn);
         RTN_InsertCall(sigsetjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
         RTN_Close(sigsetjmpRtn);
     }
 
     if(RTN_Valid(siglongjmpRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",SIGLONGJMP_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGLONGJMP_RTN);
         RTN_Open(siglongjmpRtn);
         RTN_InsertCall(siglongjmpRtn, IPOINT_BEFORE, (AFUNPTR)HoldLongJmpBuf, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
         RTN_Close(siglongjmpRtn);
     }
 
     if(RTN_Valid(archlongjmpRtn)) {
-        //fprintf(gCCTLibLogFile, "\n Found RTN %s",ARCH_LONGJMP_RTN);
+        //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",ARCH_LONGJMP_RTN);
         RTN_Open(archlongjmpRtn);
         // Insert after the last JMP Inst.
         INS lastIns = RTN_InsTail(archlongjmpRtn);
@@ -2167,7 +2170,7 @@ VOID CCTLibImage(IMG img, VOID* v) {
     // There are multiple returns in these (_Unwind_RaiseException, _Unwind_ForcedUnwind, _Unwind_Resume_or_Rethrow) functions. Only if the return value is "_URC_INSTALL_CONTEXT" shall we reset the shadow stack.
 
     // if data centric is enabled, capture allocation routines
-    if(gDoDataCentric) {
+    if(GLOBAL_STATE.doDataCentric) {
         RTN mallocRtn = RTN_FindByName(img, MALLOC_FN_NAME);
 
         if(RTN_Valid(mallocRtn)) {
@@ -2215,7 +2218,7 @@ VOID CCTLibImage(IMG img, VOID* v) {
 //DO_DATA_CENTRIC
 static void InitDataCentric() {
     // Set the global variable that data-centric attribution be performed
-    gDoDataCentric = true;
+    GLOBAL_STATE.doDataCentric = true;
 // For shadow memory based approach initialize the L1 page table LEVEL_1_PAGE_TABLE_SIZE
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
     gL1PageTable = (uint8_t***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE * sizeof(uint8_t***), PROT_WRITE
@@ -2226,8 +2229,8 @@ static void InitDataCentric() {
     // delete image from the list at the unloading callback
     IMG_AddUnloadFunction(DeleteStaticVar, 0);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
-    // make gLatestMallocVarSet point to one of mallocVarSets.
-    gLatestMallocVarSet = &mallocVarSets[0];
+    // make GLOBAL_STATE.latestMallocVarSet point to one of GLOBAL_STATE.mallocVarSets.
+    GLOBAL_STATE.latestMallocVarSet = &GLOBAL_STATE.mallocVarSets[0];
 #endif
 }
 
@@ -2244,10 +2247,10 @@ int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibIn
     InitXED();
     //InitLocks();
     // Obtain  a key for TLS storage.
-    gCCTLibTlsKey = PIN_CreateThreadDataKey(0 /*TODO have a destructor*/);
+    GLOBAL_STATE.CCTLibTlsKey = PIN_CreateThreadDataKey(0 /*TODO have a destructor*/);
     // remember user instrumentation callback
-    gUserInstrumentationCallback = userCallback;
-    gUserInstrumentationCallbackArg = userCallbackArg;
+    GLOBAL_STATE.userInstrumentationCallback = userCallback;
+    GLOBAL_STATE.userInstrumentationCallbackArg = userCallbackArg;
     // Register ThreadStart to be called when a thread starts.
     PIN_AddThreadStartFunction(CCTLibThreadStart, 0);
     // Register for context change in case of signals .. Actually this is never used. // Todo: - fix me
