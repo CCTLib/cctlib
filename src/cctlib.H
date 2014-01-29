@@ -39,11 +39,14 @@ inline BOOL InterestingInsMemoryAccess(INS ins) {
 #define INTERESTING_INS_NONE (PinCCTLib::InterestingInsNone)
 #define INTERESTING_INS_MEMORY_ACCESS (PinCCTLib::InterestingInsMemoryAccess)
 
+typedef uint32_t ContextHandle_t;
+
 DataHandle_t GetDataObjectHandle(VOID* addr, THREADID threadId);
 int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
-uint32_t GetPINCCT32bitCurrentContextWithSlot(THREADID id, uint32_t slot);
+ContextHandle_t GetPINCCT32bitCurrentContextWithSlot(THREADID id, uint32_t slot);
 VOID PrintFullCallingContext(uint32_t ctxtHandle);
-void SerializeMetadata();
+void SerializeMetadata(string directoryForSerializationFiles="");
+int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
 void DottifyAllCCTs();
 
 #ifndef USE_TREE_BASED_FOR_DATA_CENTRIC

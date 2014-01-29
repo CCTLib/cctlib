@@ -68,7 +68,7 @@
 #include <unwind.h>
 #include <sys/time.h>
 #include <sys/resource.h>
-
+#include <boost/filesystem.hpp>
 
 #include "libelf.h"
 #include "gelf.h"
@@ -86,6 +86,7 @@ using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
 using namespace __gnu_cxx;
 using namespace std;
+namespace boostFS = ::boost::filesystem;
 
 namespace PinCCTLib {
 
@@ -97,12 +98,28 @@ namespace PinCCTLib {
 #define REALLOC_FN_NAME "realloc"
 #define FREE_FN_NAME "free"
 
+
+#define CCTLIB_SERIALIZATION_DEFAULT_DIR_NAME "cctlib-database-"
 #define MAX_IPNODES (1L << 32)
 #define MAX_STRING_POOL_NODES (1L << 30)
 
+// Assuming 128 byte line size.
+#define CACHE_LINE_SIZE (128)
+
+
+#define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 )
+#define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
+
+
+//Serialization related macros
+#define SERIALIZED_SHADOW_TRACE_IP_FILE_SUFFIX "/TraceMap.traceShadowMap"
+#define SERIALIZED_CCT_FILE_PREFIX "/Thread-"
+#define SERIALIZED_CCT_FILE_EXTN ".cct"
+#define SERIALIZED_CCT_FILE_SUFFIX "-CCTMap.cct"
 
 /******** Fwd declarations **********/
 struct TraceNode;
+struct SerializedTraceNode;
 struct IPNode;
 struct TraceSplay;
 struct ModuleInfo;
@@ -113,8 +130,6 @@ struct QNode;
 #define LOCKED (0b1)
 #define UNLOCKED (0b0)
 #define UNLOCKED_AND_PREDECESSOR_WAS_WRITER (0b10)
-
-
 
 struct varType;
 typedef set<varType> varSet;
@@ -127,6 +142,7 @@ static inline bool IsValidIP(ADDRINT ip);
 static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp);
 
 enum ObjectTypeEnum {STACK_OBJECT, DYNAMIC_OBJECT, STATIC_OBJECT, UNKNOWN_OBJECT};
+enum CCTLibUsageMode {CCT_LIB_MODE_COLLECTION = 1, CCT_LIB_MODE_POSTMORTEM = 2};
 
 
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
@@ -138,9 +154,16 @@ enum AccessStatus {START_READING = 0, END_READING = 1, WAITING_WRITE = 3,  WRITE
 struct TraceNode {
     IPNode* callerIPNode;
     IPNode*   childIPs;
-    ADDRINT traceKey;
+    uint32_t traceKey; // max of 2^32 traces allowed
     uint32_t nSlots;
 };
+
+struct SerializedTraceNode {
+    uint32_t traceKey;
+    uint32_t nSlots;
+    ContextHandle_t  childIPs;
+};
+
 
 struct TraceSplay {
     ADDRINT key;
@@ -201,12 +224,12 @@ struct ThreadData {
     size_t tlsDynamicMemoryAllocationSize;
     uint32_t tlsDynamicMemoryAllocationPathHandle;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
-    uint32_t rwLockStatus __attribute__((aligned(128)));
+    uint32_t rwLockStatus __attribute__((aligned(CACHE_LINE_SIZE)));
     varSet* tlsLatestMallocVarSet;
     volatile uint8_t tlsMallocDSAccessStatus;
 #endif
     // TODO .. identify why perf screws up w/o this buffer
-    uint32_t DUMMY_HELPS_PERF  __attribute__((aligned(128)));
+    uint32_t DUMMY_HELPS_PERF  __attribute__((aligned(CACHE_LINE_SIZE)));
 } __attribute__((aligned));
 
 
@@ -258,39 +281,42 @@ struct ModuleInfo {
 struct CCT_LIB_GLOBAL_STATE {
 // Should data-centric attribution be perfomed?
     bool doDataCentric; // false  by default
-// key for accessing TLS storage in the threads. initialized once in main()
-    TLS_KEY CCTLibTlsKey __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
+    uint8_t cctLibUsageMode;
     FILE* CCTLibLogFile;
     CCTLibInstrumentInsCallback userInstrumentationCallback;
     VOID* userInstrumentationCallbackArg;
     char disassemblyBuff[200]; // string of 0 by default
-    uint32_t numThreads __attribute__((aligned(128))); // initial value = 0  // align to eliminate any false sharing with other  members
-/// XED state
+    /// XED state
     xed_state_t  cct_xed_state;
-// prefix string for flushing all data for post processing.
+    // prefix string for flushing all data for post processing.
     string CCTLibFilePathPrefix;
     IPNode* preAllocatedContextBuffer;
-
-    uint32_t curPreAllocatedStringPoolIndex __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
     char* preAllocatedStringPool;
-
-    uint64_t curPreAllocatedContextBufferIndex __attribute__((aligned(128))); // align to eliminate any false sharing with other  members
-// keys to associate parent child threads
-    volatile uint64_t threadCreateCount __attribute__((aligned(128))) ; // initial value = 0  // align to eliminate any false sharing with other  members
-    volatile uint64_t threadCaptureCount __attribute__((aligned(128))) ; // initial value = 0  // align to eliminate any false sharing with other  members
-    TraceNode* threadCreatorTraceNode __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
-    IPNode* threadCreatorIPNode __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
-    volatile bool DSLock;
-// SEGVHANDLEING FOR BAD .plt
+    // SEGVHANDLEING FOR BAD .plt
     jmp_buf env;
     struct sigaction sigAct;
-//dense_hash_map<ADDRINT, void *> traceShadowMap;
-    hash_map<ADDRINT, void*> traceShadowMap;
+    //Load module info
+    hash_map<UINT32, ModuleInfo> ModuleInfoMap;
+    // serialization directory path
+    string serializationDirectory;
+    //dense_hash_map<ADDRINT, void *> traceShadowMap;
+    hash_map<uint32_t, void*> traceShadowMap;
     PIN_LOCK lock;
+    // key for accessing TLS storage in the threads. initialized once in main()
+    TLS_KEY CCTLibTlsKey __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
+    uint32_t numThreads __attribute__((aligned(CACHE_LINE_SIZE))); // initial value = 0  // align to eliminate any false sharing with other  members
+    uint32_t curPreAllocatedStringPoolIndex __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
+    uint64_t curPreAllocatedContextBufferIndex __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
+    // keys to associate parent child threads
+    volatile uint64_t threadCreateCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
+    volatile uint64_t threadCaptureCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
+    TraceNode* threadCreatorTraceNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+    IPNode* threadCreatorIPNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+    volatile bool DSLock;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
     //Data centric support
-    varSet* latestMallocVarSet __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
-    varSet mallocVarSets[2] __attribute__((aligned(128)));  // align to eliminate any false sharing with other  members
+    varSet* latestMallocVarSet __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+    varSet mallocVarSets[2] __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
     struct image_type_s* imageLinkHead; // initial value = NULL
 #endif
 } static GLOBAL_STATE;
@@ -314,8 +340,15 @@ inline BOOL IsCallOrRetIns(INS ins) {
 
 // function to get the next unique key for a trace
 ADDRINT GetNextTraceKey() {
-    static ADDRINT traceKey = 0;
-    return __sync_fetch_and_add(&traceKey, 1);
+    static uint32_t traceKey = 0;
+    uint32_t key = __sync_fetch_and_add(&traceKey, 1);
+
+    if(key == UINT_MAX) {
+        fprintf(stderr, "\n UINT_MAX traces created! Exiting...\n");
+        PIN_ExitProcess(-1);
+    }
+
+    return key;
 }
 
 // function to access thread-specific data
@@ -674,20 +707,19 @@ static inline uint32_t GetNumInterestingInsInTrace(const TRACE& trace, IsInteres
 
 // Record the data about this image in a table
 // Not written thread safe, but PIN guarantees that instrumentation functions are not called concurrently.
-static hash_map<UINT32, ModuleInfo> ModuleInfoMap;
 static inline VOID CCTLibInstrumentImageLoad(IMG img, VOID* v) {
     UINT32 id = IMG_Id(img);
     ModuleInfo mi;
     mi.moduleName = IMG_Name(img);
     mi.imgLoadOffset = IMG_LoadOffset(img);
-    ModuleInfoMap[id] = mi;
+    GLOBAL_STATE.ModuleInfoMap[id] = mi;
 }
 
 
 // Called each time a new trace is JITed.
 // Given a trace this function adds instruction to each instruction in the trace.
 // It also adds the trace to a hash table "GLOBAL_STATE.traceShadowMap" to maintain the reverse mapping from an (interesting) instruction's position in CCT back to its IP.
-static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, ADDRINT traceKey, uint32_t numInterestingInstInTrace, IsInterestingInsFptr isInterestingIns) {
+static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, uint32_t traceKey, uint32_t numInterestingInstInTrace, IsInterestingInsFptr isInterestingIns) {
     // if there were 0 numInterestingInstInTrace, then let us simply return since it makes no sense to record anything about it.
     if(numInterestingInstInTrace == 0)
         return;
@@ -698,7 +730,7 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
     // Record the module id as 2nd entry
     ipShadow[1] = IMG_Id(IMG_FindByAddress(TRACE_Address(trace)));
     uint32_t slot = 0;
-    GLOBAL_STATE.traceShadowMap[traceKey] = &ipShadow[2] ; // 0th entry is one behind
+    GLOBAL_STATE.traceShadowMap[traceKey] = &ipShadow[2] ; // 0th entry is 2 behind
 
     for(BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
@@ -765,7 +797,7 @@ static struct TraceSplay* splay(struct TraceSplay* root, ADDRINT ip) {
 // 2. Look up the current trace under the CCT node creating new if if needed.
 // 3. Update iterators and curXXXX pointers.
 
-static inline void InstrumentTraceEntry(ADDRINT traceKey, uint32_t numInterestingInstInTrace, THREADID threadId) {
+static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInterestingInstInTrace, THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
 
     // if landed here w/o a call instruction, then let's make this trace a sibling.
@@ -886,8 +918,8 @@ static void CCTLibInstrumentTrace(TRACE trace, void*   isInterestingIns) {
     BBL bbl = TRACE_BblHead(trace);
     INS ins = BBL_InsHead(bbl);
     uint32_t numInterestingInstInTrace = GetNumInterestingInsInTrace(trace, (IsInterestingInsFptr)isInterestingIns);
-    ADDRINT traceKey = GetNextTraceKey();
-    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)InstrumentTraceEntry, IARG_ADDRINT, traceKey, IARG_UINT32, numInterestingInstInTrace, IARG_THREAD_ID, IARG_END);
+    uint32_t traceKey = GetNextTraceKey();
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)InstrumentTraceEntry, IARG_UINT32, traceKey, IARG_UINT32, numInterestingInstInTrace, IARG_THREAD_ID, IARG_END);
     PopulateIPReverseMapAndAccountTraceInstructions(trace, traceKey, numInterestingInstInTrace, (IsInterestingInsFptr)isInterestingIns);
 }
 
@@ -962,6 +994,7 @@ static VOID CCTLibFini(INT32 code, VOID* v) {
     //fclose(GLOBAL_STATE.CCTLibLogFile);
 }
 
+#if 0
 // Visit all nodes of the splay tree of child traces.
 static void VisitAllNodesOfSplayTree(TraceSplay* node, FILE* const fp) {
     if(node == NULL)
@@ -983,7 +1016,7 @@ static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp) {
     IPNode* parentIPNode = traceNode->callerIPNode ? traceNode->callerIPNode : 0;
     ADDRINT* traceIPs = (ADDRINT*)(GLOBAL_STATE.traceShadowMap[traceNode->traceKey]);
     ADDRINT moduleId = traceIPs[-1];
-    ADDRINT loadOffset =   ModuleInfoMap[moduleId].imgLoadOffset;
+    ADDRINT loadOffset =   GLOBAL_STATE.ModuleInfoMap[moduleId].imgLoadOffset;
 
     // Iterate over all IPNodes in this trace
     for(uint32_t i = 0 ; i < traceNode->nSlots; i++) {
@@ -1008,6 +1041,183 @@ static void SerializeAllCCTs() {
         fclose(fp);
     }
 }
+
+#endif
+
+// Visit all nodes of the splay tree of child traces.
+static void VisitAllNodesOfSplayTree(TraceSplay* node, FILE* const fp) {
+    // process self
+    SerializeCCTNode(node->value, fp);
+
+    // visit left
+    if(node->left)
+        VisitAllNodesOfSplayTree(node->left, fp);
+
+    // visit right
+    if(node->right)
+        VisitAllNodesOfSplayTree(node->right, fp);
+}
+
+static uint32_t NO_MORE_TRACE_NODES_IN_SPLAY_TREE = UINT_MAX;
+
+static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp) {
+    SerializedTraceNode serializedTraceNode = {traceNode->traceKey, traceNode->nSlots, GET_CONTEXT_HANDLE_FROM_IP_NODE(traceNode->childIPs) };
+    fwrite(&serializedTraceNode, sizeof(SerializedTraceNode), 1, fp);
+
+    // Iterate over all IPNodes
+    for(uint32_t i = 0 ; i < traceNode->nSlots; i++) {
+        if((traceNode->childIPs[i]).calleeTraceNodes == NULL) {
+            fwrite(&NO_MORE_TRACE_NODES_IN_SPLAY_TREE, sizeof(NO_MORE_TRACE_NODES_IN_SPLAY_TREE), 1, fp);
+        } else {
+            // Iterate over all decendent TraceNode of traceNode->childIPs[i]
+            VisitAllNodesOfSplayTree((traceNode->childIPs[i]).calleeTraceNodes, fp);
+            fwrite(&NO_MORE_TRACE_NODES_IN_SPLAY_TREE, sizeof(NO_MORE_TRACE_NODES_IN_SPLAY_TREE), 1, fp);
+        }
+    }
+}
+
+static TraceNode* DeserializeCCTNode(IPNode* parentIPNode, FILE* const fp) {
+    uint32_t noMoreTrace;
+
+    if(fread(&noMoreTrace, sizeof(noMoreTrace), 1, fp) != 1) {
+        fprintf(stderr, "\n Failed to read at line %d\n", __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
+    if(noMoreTrace == NO_MORE_TRACE_NODES_IN_SPLAY_TREE) {
+        return NULL;
+    }
+
+    // go back 4 bytes;
+    fseek(fp, -sizeof(noMoreTrace), SEEK_CUR);
+    SerializedTraceNode serializedTraceNode;
+
+    if(fread(&serializedTraceNode, sizeof(SerializedTraceNode), 1, fp) != 1) {
+        fprintf(stderr, "\n Failed to read at line %d\n", __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
+    TraceNode* traceNode = new TraceNode();
+    traceNode->traceKey = serializedTraceNode.traceKey;
+    traceNode->nSlots = serializedTraceNode.nSlots;
+    traceNode->childIPs = GET_IPNODE_FROM_CONTEXT_HANDLE(serializedTraceNode.childIPs);
+    traceNode->callerIPNode = parentIPNode;
+
+    // Iterate over all IPNodes
+    for(uint32_t i = 0 ; i < traceNode->nSlots; i++) {
+        traceNode->childIPs[i].parentTraceNode = traceNode;
+
+        while(1) {
+            TraceNode* childTrace =  DeserializeCCTNode(&traceNode->childIPs[i], fp);
+
+            if(childTrace == NULL)
+                break;
+
+            // add childTrace to the splay tree at traceNode->childIPs[i]
+            TraceSplay* newNode = new TraceSplay();
+            newNode->key = childTrace->traceKey;
+            newNode->value = childTrace;
+
+            // if no children
+            if(traceNode->childIPs[i].calleeTraceNodes == NULL) {
+                traceNode->childIPs[i].calleeTraceNodes = newNode;
+                newNode->left = NULL;
+                newNode->right = NULL;
+            } else {
+                TraceSplay* found    = splay(traceNode->childIPs[i].calleeTraceNodes, childTrace->traceKey);
+
+                if(childTrace->traceKey < found->key) {
+                    newNode->left = found->left;
+                    newNode->right = found;
+                    found->left = NULL;
+                } else { // addr > addr of found
+                    newNode->left = found;
+                    newNode->right = found->right;
+                    found->right = NULL;
+                }
+            }
+        }
+    }
+
+    return traceNode;
+}
+
+
+static void SerializeAllCCTs() {
+    for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
+        ThreadData* tData = CCTLibGetTLS(id);
+        std::stringstream cctMapFilePath;
+        cctMapFilePath << GLOBAL_STATE.serializationDirectory << SERIALIZED_CCT_FILE_PREFIX << id << SERIALIZED_CCT_FILE_SUFFIX;
+        FILE* fp = fopen(cctMapFilePath.str().c_str(), "wb");
+
+        if(fp == NULL) {
+            fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", cctMapFilePath.str().c_str(), __LINE__);
+            PIN_ExitProcess(-1);
+        }
+
+        // record path of the parent
+        ContextHandle_t parentIpHandle = GET_CONTEXT_HANDLE_FROM_IP_NODE(tData->tlsParentThreadIPNode);
+        fwrite(&parentIpHandle, sizeof(ContextHandle_t), 1, fp);
+        SerializeCCTNode(tData->tlsRootTraceNode, fp);
+        fclose(fp);
+    }
+}
+
+
+// return the filenames of all files that have the specified extension
+// in the specified directory and all subdirectories
+static void GetAllFilesInDirWithExtn(const boostFS::path& root, const string& ext, vector<boostFS::path>& ret) {
+    if(!boostFS::exists(root)) return;
+
+    if(boostFS::is_directory(root)) {
+        boostFS::directory_iterator it(root);
+        boostFS::directory_iterator endit;
+
+        while(it != endit) {
+            if(boostFS::is_regular_file(*it) && it->path().extension() == ext) {
+                ret.push_back(boostFS::system_complete(it->path()));
+            }
+
+            ++it;
+        }
+    }
+}
+
+static void DeserializeAllCCTs() {
+    // Get all files with
+    vector<boostFS::path> serializedCCTFiles;
+    GetAllFilesInDirWithExtn(GLOBAL_STATE.serializationDirectory, SERIALIZED_CCT_FILE_EXTN, serializedCCTFiles);
+
+    for(uint32_t id = 0 ; id < serializedCCTFiles.size(); id++) {
+        std::stringstream cctMapFilePath;
+        cctMapFilePath << serializedCCTFiles[id].native();
+        //fprintf(stderr, "\nexists = %d\n",boostFS::exists(serializedCCTFiles[id]));
+        FILE* fp = fopen(cctMapFilePath.str().c_str(), "rb");
+
+        if(fp == NULL) {
+            perror("fopen:");
+            fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", cctMapFilePath.str().c_str(), __LINE__);
+            PIN_ExitProcess(-1);
+        }
+
+        // record path of the parent
+        ContextHandle_t parentIpHandle;
+
+        if(fread(&parentIpHandle, sizeof(ContextHandle_t), 1, fp) != 1) {
+            fprintf(stderr, "\n Failed to read at line %d\n", __LINE__);
+            PIN_ExitProcess(-1);
+        }
+
+        DeserializeCCTNode(GET_IPNODE_FROM_CONTEXT_HANDLE(parentIpHandle), fp);
+        // we should be at the end of file now
+        uint8_t dummy;
+        assert(fread(&dummy, sizeof(uint8_t), 1, fp) == 0);
+        fclose(fp);
+    }
+}
+
+
+
 
 static void DottifyCCTNode(TraceNode* traceNode,  uint64_t curDotId, FILE* const fp);
 
@@ -1063,8 +1273,14 @@ static void DottifyCCTNode(TraceNode* traceNode,  uint64_t parentDotId, FILE* co
 
 void DottifyAllCCTs() {
     std::stringstream cctMapFilePath;
-    cctMapFilePath << GLOBAL_STATE.CCTLibFilePathPrefix << "-CCTMap.dot";
+    cctMapFilePath << GLOBAL_STATE.serializationDirectory << "/CCTMap.dot";
     FILE* fp = fopen(cctMapFilePath.str().c_str(), "w");
+
+    if(fp == NULL) {
+        fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", cctMapFilePath.str().c_str(), __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
     fprintf(fp, "digraph CCTLibGraph {\n");
     uint64_t dotId;
 
@@ -1079,23 +1295,158 @@ void DottifyAllCCTs() {
 }
 
 
+#define SERIALIZED_MODULE_MAP_SUFFIX "/ModuleMap.txt"
 
 static void SerializeMouleInfo() {
-    string moduleFilePath = GLOBAL_STATE.CCTLibFilePathPrefix + "-ModuleMap.txt";
+    string moduleFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_MODULE_MAP_SUFFIX;
     FILE* fp = fopen(moduleFilePath.c_str(), "w");
-    hash_map<UINT32, ModuleInfo>::iterator it;
-    fprintf(fp, "ModuleId:ModuleFile:LoadOffset");
 
-    for(it = ModuleInfoMap.begin(); it != ModuleInfoMap.end(); ++it) {
-        fprintf(fp, "\n%u:%s:%p", it->first, (it->second).moduleName.c_str(), (void*)((it->second).imgLoadOffset));
+    if(fp == NULL) {
+        perror("Error:");
+        fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", moduleFilePath.c_str(), __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
+    hash_map<UINT32, ModuleInfo>::iterator it;
+    fprintf(fp, "ModuleId\tModuleFile\tLoadOffset");
+
+    for(it = GLOBAL_STATE.ModuleInfoMap.begin(); it != GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
+        fprintf(fp, "\n%u\t%s\t%p", it->first, (it->second).moduleName.c_str(), (void*)((it->second).imgLoadOffset));
     }
 
     fclose(fp);
 }
 
-void SerializeMetadata() {
+static void DeserializeMouleInfo() {
+    string moduleFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_MODULE_MAP_SUFFIX;
+    FILE* fp = fopen(moduleFilePath.c_str(), "r");
+
+    if(fp == NULL) {
+        perror("Error");
+        fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", moduleFilePath.c_str(), __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
+    // read header and thow it away
+    uint32_t moduleId;
+    ADDRINT offset;
+    char path[MAX_FILE_PATH];
+    //fprintf(fp, "ModuleId\tModuleFile\tLoadOffset");
+    fscanf(fp, "%s%s%s", path, path, path);
+
+    while(EOF != fscanf(fp, "%u%s%p", &moduleId, path, (void**)&offset)) {
+        ModuleInfo minfo;
+        minfo.moduleName = path;
+        minfo.imgLoadOffset = offset;
+        GLOBAL_STATE.ModuleInfoMap[moduleId] = minfo;
+    }
+
+    fclose(fp);
+}
+
+
+static void SerializeTraceIps() {
+    string traceMapFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_SHADOW_TRACE_IP_FILE_SUFFIX;
+    FILE* fp = fopen(traceMapFilePath.c_str(), "wb");
+
+    if(fp == NULL) {
+        fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", traceMapFilePath.c_str(), __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
+    hash_map<uint32_t, void*>::iterator it;
+    //fprintf(fp, "TraceKey:NumSlots:ModuleId:[ip1][ip2]..[ipNumSlots]");
+
+    for(it = GLOBAL_STATE.traceShadowMap.begin(); it != GLOBAL_STATE.traceShadowMap.end(); ++it) {
+        // traceId
+        fwrite(&(it->first), sizeof(it->first), 1, fp);
+        ADDRINT* ptr = (ADDRINT*)(it->second);
+        uint32_t moduleId = (uint32_t) ptr[-1];
+        ADDRINT offset = GLOBAL_STATE.ModuleInfoMap[moduleId].imgLoadOffset;
+        ADDRINT nSlots =  ptr[-2];
+
+        // Normalize all IPs
+        // NOTE --- once this update has happened, the traceShadowMapp[traceId] is rendered unusables without adding the offset in this run.
+        // It must be used in post mortem analysis from this point onwards.
+        for(ADDRINT i = 0; i < nSlots; i++) {
+            ptr[i] = ptr[i] - offset;
+        }
+
+        // Write all slots
+        fwrite(ptr - 2, sizeof(ADDRINT), ptr[-2] + 2 , fp);
+    }
+
+    fclose(fp);
+}
+
+
+static void DeserializeTraceIps() {
+    string traceMapFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_SHADOW_TRACE_IP_FILE_SUFFIX;
+    FILE* fp = fopen(traceMapFilePath.c_str(), "rb");
+
+    if(fp == NULL) {
+        fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", traceMapFilePath.c_str(), __LINE__);
+        PIN_ExitProcess(-1);
+    }
+
+    hash_map<uint32_t, void*>::iterator it;
+    //fprintf(fp, "TraceKey:NumSlots:ModuleId:[ip1][ip2]..[ipNumSlots]");
+    uint32_t traceKey;
+
+    while(fread(&traceKey, sizeof(traceKey), 1, fp) == 1) {
+        // read num entries
+        ADDRINT numSlots;
+
+        if(fread(&numSlots, sizeof(ADDRINT), 1, fp) != 1) {
+            fprintf(stderr, "\n Failed to read in line %d. Exiting\n", __LINE__);
+            PIN_ExitProcess(-1);
+        }
+
+        // allocate the shadow ips
+        ADDRINT* array = (ADDRINT*) malloc((numSlots + 2) * sizeof(ADDRINT));
+        array[0] = numSlots;
+
+        // read remaining entires
+        if(fread(&array[1], sizeof(ADDRINT), numSlots + 1, fp) != (numSlots + 1)) {
+            fprintf(stderr, "\n Failed to read in line %d. Exiting\n", __LINE__);
+            PIN_ExitProcess(-1);
+        }
+
+        // Insert into the shadow map
+        GLOBAL_STATE.traceShadowMap[traceKey] = (void*) array;
+    }
+
+    fclose(fp);
+}
+
+
+
+void SerializeMetadata(string directoryForSerializationFiles) {
+    if(directoryForSerializationFiles != "") {
+        GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
+    } else {
+        // construct one
+        std::stringstream ss;
+        char hostname[MAX_FILE_PATH];
+        gethostname(hostname, MAX_FILE_PATH);
+        pid_t pid = getpid();
+        ss << CCTLIB_SERIALIZATION_DEFAULT_DIR_NAME << hostname << "-" << pid;
+        GLOBAL_STATE.serializationDirectory = ss.str();
+    }
+
+    // create directory
+    string cmd = "mkdir -p " + GLOBAL_STATE.serializationDirectory;
+    system(cmd.c_str());
     SerializeAllCCTs();
     SerializeMouleInfo();
+    SerializeTraceIps();
+}
+
+void DeserializeMetadata(string directoryForSerializationFiles) {
+    GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
+    DeserializeAllCCTs();
+    DeserializeTraceIps();
+    DeserializeMouleInfo();
 }
 
 /**
@@ -2237,6 +2588,12 @@ static void InitDataCentric() {
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 
 int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric) {
+    if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM) {
+        fprintf(stderr, "\n CCTLib was initialized for postmortem analysis using PinCCTLibInitForReading! Exiting...\n");
+        PIN_ExitApplication(-1);
+    }
+
+    GLOBAL_STATE.cctLibUsageMode = CCT_LIB_MODE_COLLECTION;
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();
     // Intialize
@@ -2272,6 +2629,29 @@ int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibIn
     PIN_AddFiniFunction(CCTLibFini, 0);
     // Register Fini to be called when the application exits
     PIN_AddFiniFunction(Fini, 0);
+    return 0;
+}
+
+
+int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory) {
+    if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_COLLECTION) {
+        fprintf(stderr, "\n CCTLib was initialized for online collection using PinCCTLibInit! Exiting...\n");
+        PIN_ExitApplication(-1);
+    }
+
+    GLOBAL_STATE.cctLibUsageMode = CCT_LIB_MODE_POSTMORTEM;
+    // Initialize Symbols, we need them to report functions and lines
+    PIN_InitSymbols();
+    // Intialize
+    InitBuffers();
+    InitLogFile(logFile);
+    InitMapFilePrefix();
+    InitSegHandler();
+    InitXED();
+    //InitLocks();
+    // Obtain  a key for TLS storage.
+    GLOBAL_STATE.CCTLibTlsKey = PIN_CreateThreadDataKey(0 /*TODO have a destructor*/);
+    DeserializeMetadata(serializedFilesDirectory);
     return 0;
 }
 }
