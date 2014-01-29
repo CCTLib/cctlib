@@ -9,6 +9,7 @@ tests: src
 
 clean:
 	rm -f deadspy.out.* client.out.* src/*.o src/*.a tests/*.o tests/*.so
+	rm -rf cctlib-database-*
 
 check:
 	$(PIN_PATH)/pin -t tests/cct_client.so -- ls	
@@ -17,3 +18,4 @@ check:
 	$(PIN_PATH)/pin -t tests/cct_data_centric_client_tree_based.so  -- ls	
 	$(PIN_PATH)/pin -t tests/deadspy_client.so  -- ls	
 	$(PIN_PATH)/pin -t tests/deadspy_client.so  -- tests/deadWrites
+	$(PIN_PATH)/pin -t tests/cctlib_reader.so  -- ls
