@@ -119,6 +119,8 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     PinCCTLibInitForReading(gTraceFile, "DeadSpy-CCTLib-database");
+    vector<Context>  contextVec; 
+    GetFullCallingContext(7122, contextVec); 
     
     return 0;
 }
