@@ -745,7 +745,8 @@ namespace PinCCTLib {
                 // If it is a call/ret instruction, we need to adjust the CCT.
                 // manage context
                 if(INS_IsProcedureCall(ins)) {
-                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
+                    // INS_InsertPredicatedCall if the call is not made, we should not set the flag
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
 
                     if(GLOBAL_STATE.userInstrumentationCallback) {
                         // Call user instrumentation passing the flag
@@ -753,6 +754,7 @@ namespace PinCCTLib {
                             GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                     } else {
                         // TLS will remember your slot no.
+			// TODO: should this be INS_InsertPredicatedCall? not sure. One can argue either ways.
                         INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
                     }
 
@@ -760,7 +762,8 @@ namespace PinCCTLib {
                     ipShadow[slot + 2] = INS_Address(ins); // +2 because the first 2 entries hold metadata
                     slot++;
                 } else if(INS_IsRet(ins)) {
-                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_THREAD_ID, IARG_END);
+                    // INS_InsertPredicatedCall if the RET is not made, we should not change CCT node
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_THREAD_ID, IARG_END);
 
                     if(GLOBAL_STATE.userInstrumentationCallback) {
                         // Call user instrumentation passing the flag
@@ -768,6 +771,7 @@ namespace PinCCTLib {
                             GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                     } else {
                         // TLS will remember your slot no.
+			// TODO: should this be INS_InsertPredicatedCall? not sure. One can argue either ways.
                         INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
                     }
 
