@@ -115,7 +115,7 @@ void ClientInit(int argc, char* argv[]) {
 //IPNode *store;
 VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
     //GetPINCCTCurrentContextWithSlot(id, slot);
-    GetPINCCT32bitCurrentContextWithSlot(id, slot);
+    GetContextHandle(id, slot);
 }
 
 VOID InstrumentIns(INS ins, VOID* v) {

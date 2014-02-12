@@ -134,6 +134,8 @@ namespace PinCCTLib {
 #define UNLOCKED_AND_PREDECESSOR_WAS_WRITER (0b10)
 
     struct varType;
+    struct PendingOps_t;
+    struct ConcurrentReaderWriterTree_t;
     typedef set<varType> varSet;
 #endif
 
@@ -227,10 +229,10 @@ namespace PinCCTLib {
 
 //DO_DATA_CENTRIC
         size_t tlsDynamicMemoryAllocationSize;
-        uint32_t tlsDynamicMemoryAllocationPathHandle;
+        ContextHandle_t tlsDynamicMemoryAllocationPathHandle;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         uint32_t rwLockStatus __attribute__((aligned(CACHE_LINE_SIZE)));
-        varSet* tlsLatestMallocVarSet;
+        struct ConcurrentReaderWriterTree_t* tlsLatestConcurrentTree;
         volatile uint8_t tlsMallocDSAccessStatus;
 #endif
         // TODO .. identify why perf screws up w/o this buffer
@@ -252,20 +254,26 @@ namespace PinCCTLib {
             uint32_t pathHandle;
             uint32_t symName;
         };
-        varType(void* s, void* e, uint32_t handle): start(s), end(e), pathHandle(handle) {}
+        uint8_t objectType;
+        varType(void* s, void* e, uint32_t handle, uint8_t type): start(s), end(e), pathHandle(handle), objectType(type) {}
     };
 
     bool operator < (varType const& a, varType const& b) {
         return (ADDRINT)a.start < (ADDRINT)b.start;
     }
 
+    struct PendingOps_t {
+        uint8_t operation;
+        varType var;
+        PendingOps_t(const uint8_t o, varType const& v): operation(o), var(v) {}
 
-    struct image_type_s {
-        IMG img;
-        varSet staticVarSet;
-        ADDRINT startAddress;
-        ADDRINT endAddress;
-        struct image_type_s* next;
+    } __attribute__((aligned(128)));
+
+    enum {INSERT = 0, DELETE = 1};
+
+    struct ConcurrentReaderWriterTree_t {
+        vector<PendingOps_t> pendingOps;
+        varSet tree;
     };
 
 #endif
@@ -286,6 +294,7 @@ namespace PinCCTLib {
     struct CCT_LIB_GLOBAL_STATE {
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
+        bool applicationStarted ; // false by default
         uint8_t cctLibUsageMode;
         FILE* CCTLibLogFile;
         CCTLibInstrumentInsCallback userInstrumentationCallback;
@@ -317,14 +326,17 @@ namespace PinCCTLib {
         // keys to associate parent child threads
         volatile uint64_t threadCreateCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
         volatile uint64_t threadCaptureCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
-        TraceNode* threadCreatorTraceNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        IPNode* threadCreatorIPNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        volatile TraceNode* threadCreatorTraceNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        volatile IPNode* threadCreatorIPNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
         volatile bool DSLock;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         //Data centric support
-        varSet* latestMallocVarSet __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        varSet mallocVarSets[2] __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        struct image_type_s* imageLinkHead; // initial value = NULL
+        hash_map<UINT32, vector<PendingOps_t> > staticVariablesInModule;
+        __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        volatile ConcurrentReaderWriterTree_t* latestConcurrentTree;
+        __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        ConcurrentReaderWriterTree_t concurrentReaderWriterTree[2];
+        __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
 #endif
     } static GLOBAL_STATE;
 
@@ -565,8 +577,8 @@ namespace PinCCTLib {
             // Base thread, no parent
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, no parent ");
         } else {
-            tdata->tlsParentThreadTraceNode = GLOBAL_STATE.threadCreatorTraceNode;
-            tdata->tlsParentThreadIPNode = GLOBAL_STATE.threadCreatorIPNode;
+            tdata->tlsParentThreadTraceNode = (TraceNode*) GLOBAL_STATE.threadCreatorTraceNode;
+            tdata->tlsParentThreadIPNode = (IPNode*) GLOBAL_STATE.threadCreatorIPNode;
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, parent Trace = %p, parent ip = %p", GLOBAL_STATE.threadCreatorTraceNode, GLOBAL_STATE.threadCreatorIPNode);
             GLOBAL_STATE.threadCaptureCount++;
         }
@@ -754,7 +766,7 @@ namespace PinCCTLib {
                             GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                     } else {
                         // TLS will remember your slot no.
-			// TODO: should this be INS_InsertPredicatedCall? not sure. One can argue either ways.
+                        // TODO: should this be INS_InsertPredicatedCall? not sure. One can argue either ways.
                         INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
                     }
 
@@ -771,7 +783,7 @@ namespace PinCCTLib {
                             GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
                     } else {
                         // TLS will remember your slot no.
-			// TODO: should this be INS_InsertPredicatedCall? not sure. One can argue either ways.
+                        // TODO: should this be INS_InsertPredicatedCall? not sure. One can argue either ways.
                         INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
                     }
 
@@ -980,7 +992,7 @@ namespace PinCCTLib {
         return &(tData->tlsCurrentIPNode[slot]);
     }
 
-    uint32_t GetPINCCT32bitCurrentContextWithSlot(THREADID id, uint32_t slot) {
+    ContextHandle_t GetContextHandle(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         return &(tData->tlsCurrentIPNode[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
     }
@@ -1980,58 +1992,25 @@ namespace PinCCTLib {
 
         // publish the most recent MallocVarSet that this thread sees. This allows the concurrent writer to make progress.
         // This is placed here so that we dont update this on each stack access. We favor reader progress.
-        tData->tlsLatestMallocVarSet = GLOBAL_STATE.latestMallocVarSet;
-        varSet* curMallocVarSet = tData->tlsLatestMallocVarSet;
+        tData->tlsLatestConcurrentTree = (ConcurrentReaderWriterTree_t*) GLOBAL_STATE.latestConcurrentTree;
+        varSet* curTree = & (tData->tlsLatestConcurrentTree->tree);
         tData->tlsMallocDSAccessStatus = START_READING;
         // first check dymanically allocated variables
         //ReadLock mallocRWlock(gMallocVarRWLock);
         // gMallocVarRWLock.lock_read();
         // ReadLock(&(tData->rwLockStatus));
-        varSet::iterator node = curMallocVarSet->lower_bound(varType(addr, addr, 0 /*handle*/));
+        varSet::iterator node = curTree->lower_bound(varType(addr, addr, 0 /*handle*/, UNKNOWN_OBJECT));
 
-        if(node != curMallocVarSet->begin() && node->start != addr) node --;
+        if(node != curTree->begin() && node->start != addr) node --;
 
-        if(node != curMallocVarSet->end() && (addr < node->start || addr >= node->end))
-            node = curMallocVarSet->end();
+        if(node != curTree->end() && (addr < node->start || addr >= node->end))
+            node = curTree->end();
 
-        // ReadUnlock(&(tData->rwLockStatus));
-
-        if(node != curMallocVarSet->end()) {
-            record.objectType = DYNAMIC_OBJECT;
+        if(node != curTree->end()) {
+            record.objectType = node->objectType;
             record.pathHandle = node->pathHandle;
         } else {
-//            ReadLock staticVarRWlock(gStaticVarRWLock);
-//            gStaticVarRWLock.lock_read();
-            // check for static variables
-            struct image_type_s* image_iter = GLOBAL_STATE.imageLinkHead;
-
-            while(image_iter) {
-                if((ADDRINT)addr < image_iter->startAddress || (ADDRINT)addr >= image_iter->endAddress) {
-                    image_iter = image_iter->next;
-                    continue;
-                }
-
-                node = image_iter->staticVarSet.lower_bound(varType(addr, addr, 0 /*handle*/));
-
-                if(node != image_iter->staticVarSet.begin() && node->start != addr) node --;
-
-                if(node != image_iter->staticVarSet.end() && (addr < node->start || addr >= node->end))
-                    node = image_iter->staticVarSet.end();
-
-                if(node != image_iter->staticVarSet.end()) {
-                    record.objectType = STATIC_OBJECT;
-                    record.symName = node->symName;
-                    //fprintf(stdout,"\n%p, %s\n",addr, node->name.c_str());
-                }
-
-                break;
-            }
-
-//            gStaticVarRWLock.unlock();
-            if(image_iter == NULL) {
-                record.objectType = UNKNOWN_OBJECT;
-                return record;
-            }
+            record.objectType = UNKNOWN_OBJECT;
         }
 
         tData->tlsMallocDSAccessStatus = END_READING;
@@ -2050,14 +2029,14 @@ namespace PinCCTLib {
         // Remember the CCT node and the allocation size
         ThreadData* tData = CCTLibGetTLS(threadId);
         tData->tlsDynamicMemoryAllocationSize = arg0;
-        tData->tlsDynamicMemoryAllocationPathHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, 0);
+        tData->tlsDynamicMemoryAllocationPathHandle = GetContextHandle(threadId, 0);
     }
 
     static VOID CaptureCallocSize(size_t arg0, size_t arg1, THREADID threadId) {
         // Remember the CCT node and the allocation size
         ThreadData* tData = CCTLibGetTLS(threadId);
         tData->tlsDynamicMemoryAllocationSize = arg0 * arg1;
-        tData->tlsDynamicMemoryAllocationPathHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, 0);
+        tData->tlsDynamicMemoryAllocationPathHandle = GetContextHandle(threadId, 0);
     }
 
 //Fwd declaration;
@@ -2067,7 +2046,7 @@ namespace PinCCTLib {
         // Remember the CCT node and the allocation size
         ThreadData* tData = CCTLibGetTLS(threadId);
         tData->tlsDynamicMemoryAllocationSize = arg1;
-        tData->tlsDynamicMemoryAllocationPathHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, 0);
+        tData->tlsDynamicMemoryAllocationPathHandle = GetContextHandle(threadId, 0);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         // Simulate free(ptr);
         CaptureFree(ptr, threadId);
@@ -2106,16 +2085,7 @@ namespace PinCCTLib {
 #else
 
     QNode* volatile MCSLock = NULL;
-    struct PendingOps_t {
-        uint8_t operation;
-        varType var;
-        PendingOps_t(const uint8_t o, varType const& v): operation(o), var(v) {}
 
-    };
-
-    enum {INSERT = 0, DELETE = 1};
-
-    vector<PendingOps_t> gPendingOps;
     static void MCSAcquire(QNode* volatile* L, QNode* I) {
         I->next = NULL;
         I->status = LOCKED;
@@ -2142,31 +2112,39 @@ namespace PinCCTLib {
     }
 
 
-    static void WaitTillAllThreadsProgressIntoNewSet(varSet* latestVarSet) {
+    static void WaitTillAllThreadsProgressIntoNewSet(ConcurrentReaderWriterTree_t* latestTree) {
         // TODO: if the thread exists in the mean time, it might not have seen the update. We need to ignore such threads.
         for(uint32_t i = 0; i < GLOBAL_STATE.numThreads; i++) {
             ThreadData* tData = CCTLibGetTLS(i);
 
-            while((tData->tlsLatestMallocVarSet != latestVarSet) && (tData->tlsMallocDSAccessStatus == START_READING)) {
+            while((tData->tlsLatestConcurrentTree != latestTree) && (tData->tlsMallocDSAccessStatus == START_READING)) {
                 // spin
             }
         }
     }
 
-    static void ApplyPendingOperationsToVarSet(varSet* threadFreeVarSet) {
-        for(uint32_t i = 0 ; i < gPendingOps.size(); i++) {
-            switch(gPendingOps[i].operation) {
+    static void ApplyPendingOperationsToTree(ConcurrentReaderWriterTree_t* threadFreeTree) {
+        for(uint32_t i = 0 ; i < threadFreeTree->pendingOps.size(); i++) {
+            switch(threadFreeTree->pendingOps[i].operation) {
             case INSERT: {
-                threadFreeVarSet->insert(gPendingOps[i].var);
+                //fprintf(stderr,"\n Inserting %1d %p - %p",threadFreeTree->pendingOps[i].var.objectType, threadFreeTree->pendingOps[i].var.start, threadFreeTree->pendingOps[i].var.end);
+                threadFreeTree->tree.insert(threadFreeTree->pendingOps[i].var);
                 break;
             }
 
             case DELETE: {
-                varSet::const_iterator iterThreadFreeVarSet = threadFreeVarSet->lower_bound(gPendingOps[i].var);
-                assert(iterThreadFreeVarSet != threadFreeVarSet->end());
-                assert(gPendingOps[i].var.start >= iterThreadFreeVarSet->start);
-                assert(gPendingOps[i].var.start < iterThreadFreeVarSet->end);
-                threadFreeVarSet->erase(*iterThreadFreeVarSet);
+                //fprintf(stderr,"\n Deleting %1d %p\n", threadFreeTree->pendingOps[i].var.objectType, threadFreeTree->pendingOps[i].var.start);
+                varSet::const_iterator iterThreadFreeTree = threadFreeTree->tree.lower_bound(threadFreeTree->pendingOps[i].var);
+
+                //assert(iterThreadFreeTree != threadFreeTree->tree.end());
+                //assert(threadFreeTree->pendingOps[i].var.start >= iterThreadFreeTree->start);
+                //assert(threadFreeTree->pendingOps[i].var.start < iterThreadFreeTree->end);
+                if(threadFreeTree->pendingOps[i].var.start == iterThreadFreeTree->start) {
+                    threadFreeTree->tree.erase(*iterThreadFreeTree);
+                } else {
+                    fprintf(stderr, "\n Can't delete %1d %p\n", threadFreeTree->pendingOps[i].var.objectType, threadFreeTree->pendingOps[i].var.start);
+                }
+
                 break;
             }
 
@@ -2177,16 +2155,72 @@ namespace PinCCTLib {
         }
 
         //clear list
-        gPendingOps.clear();
+        threadFreeTree->pendingOps.clear();
+    }
+#endif
+
+
+    static void UpdateLockLessTree(THREADID threadId, const vector<PendingOps_t>& ops) {
+        static ThreadData dummyThreadData; // we use it when GLOBAL_STATE.applicationStarted is false
+        ThreadData* tData;
+
+        if(GLOBAL_STATE.applicationStarted == false) {
+            tData = &dummyThreadData;
+        } else {
+            tData = CCTLibGetTLS(threadId);
+        }
+
+        // tell that this thread is waiting to write
+        tData->tlsMallocDSAccessStatus = WAITING_WRITE;
+        QNode mcsNode;
+        MCSAcquire(&MCSLock, &mcsNode);
+        // Not waiting anymore
+        tData->tlsMallocDSAccessStatus = WRITE_STARTED;
+        ConcurrentReaderWriterTree_t*   curTree = (ConcurrentReaderWriterTree_t*) GLOBAL_STATE.latestConcurrentTree;
+        ConcurrentReaderWriterTree_t* newTree = (curTree == (&GLOBAL_STATE.concurrentReaderWriterTree[0])) ? (&GLOBAL_STATE.concurrentReaderWriterTree[1])  : (&GLOBAL_STATE.concurrentReaderWriterTree[0]);
+        // Queue up "ops" to both trees
+        curTree->pendingOps.insert(curTree->pendingOps.end(), ops.begin(), ops.end());
+        newTree->pendingOps.insert(newTree->pendingOps.end(), ops.begin(), ops.end());
+#if 0
+
+        // Write batching optimization is disabled since it can cause writer to not find its inserted item immediately if it becomes a reader.
+        if(mcsNode.status != UNLOCKED_AND_PREDECESSOR_WAS_WRITER /* first writer*/) {
+            // Wait for all threads to make progress into curTree
+            WaitTillAllThreadsProgressIntoNewSet(curTree);
+        }
+
+#else
+        // Wait for all threads to make progress into curTree
+        WaitTillAllThreadsProgressIntoNewSet(curTree);
+#endif
+        // All threads will be in curTree, so we can modify newTree
+        // Apply pending operations to newTree
+        ApplyPendingOperationsToTree(newTree);
+#if 0
+
+        // Write batching optimization is disabled since it can cause writer to not find its inserted item immediately if it becomes a reader.
+        if(mcsNode.next == NULL  /* last writer */) {
+            // Publish newTree.
+            GLOBAL_STATE.latestConcurrentTree = newTree;
+            // set self tlsLatestMallocVarSet to be newTree
+            tData->tlsLatestConcurrentTree = newTree;
+            MCSRelease(&MCSLock, &mcsNode, UNLOCKED);
+        } else {
+            MCSRelease(&MCSLock, &mcsNode, UNLOCKED_AND_PREDECESSOR_WAS_WRITER);
+        }
+
+#else
+        // Publish newTree.
+        GLOBAL_STATE.latestConcurrentTree = newTree;
+        // set self tlsLatestMallocVarSet to be newTree
+        tData->tlsLatestConcurrentTree = newTree;
+        MCSRelease(&MCSLock, &mcsNode, UNLOCKED);
+#endif
     }
 
-    static void RecordOpInList(PendingOps_t const& v) {
-        gPendingOps.push_back(v);
-    }
 
 #endif
 
-#endif
 
     static VOID CaptureMallocPointer(void* ptr, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
@@ -2196,39 +2230,9 @@ namespace PinCCTLib {
         dataHandle.pathHandle = tData->tlsDynamicMemoryAllocationPathHandle;
         InitShadowSpaceForDataCentric(ptr, tData->tlsDynamicMemoryAllocationSize, &dataHandle);
 #elif defined(USE_TREE_BASED_FOR_DATA_CENTRIC)
-        // tell that this thread is waiting to write
-        tData->tlsMallocDSAccessStatus = WAITING_WRITE;
-        QNode mcsNode;
-        MCSAcquire(&MCSLock, &mcsNode);
-        // Not waiting anymore
-        tData->tlsMallocDSAccessStatus = WRITE_STARTED;
-        varSet* curMallocVarSet = GLOBAL_STATE.latestMallocVarSet;
-        varSet* newMallocVarSet = (curMallocVarSet == (&GLOBAL_STATE.mallocVarSets[0])) ? (&GLOBAL_STATE.mallocVarSets[1])  : (&GLOBAL_STATE.mallocVarSets[0]);
-
-        if(mcsNode.status != UNLOCKED_AND_PREDECESSOR_WAS_WRITER /* first writer*/) {
-            // Wait for all threads to make progress into curMallocVarSet
-            WaitTillAllThreadsProgressIntoNewSet(curMallocVarSet);
-            // All threads will be in curMallocVarSet, so we can modify newMallocVarSet
-            // Apply pending operations to newMallocVarSet
-            ApplyPendingOperationsToVarSet(newMallocVarSet);
-        }
-
-        varType v(ptr, (void*)((char*)ptr + (tData->tlsDynamicMemoryAllocationSize)), tData->tlsDynamicMemoryAllocationPathHandle);
-        // Record Op in a list to be applied to curMallocVarSet when it becomes newMallocVarSet
-        RecordOpInList(PendingOps_t(INSERT, v));
-        // All threads will be in curMallocVarSet, so we can modify newMallocVarSet
-        newMallocVarSet->insert(v);
-
-        if(mcsNode.next == NULL  /* last writer */) {
-            // Publish newMallocVarSet.
-            GLOBAL_STATE.latestMallocVarSet = newMallocVarSet;
-            // set self tlsLatestMallocVarSet to be newMallocVarSet
-            tData->tlsLatestMallocVarSet = newMallocVarSet;
-            MCSRelease(&MCSLock, &mcsNode, UNLOCKED);
-        } else {
-            MCSRelease(&MCSLock, &mcsNode, UNLOCKED_AND_PREDECESSOR_WAS_WRITER);
-        }
-
+        varType v(ptr, (void*)((char*)ptr + (tData->tlsDynamicMemoryAllocationSize)), tData->tlsDynamicMemoryAllocationPathHandle, DYNAMIC_OBJECT);
+        vector<PendingOps_t> ops(1, PendingOps_t(INSERT, v));
+        UpdateLockLessTree(threadId, ops);
 #else
         assert(0 && "Should not reach here");
 #endif
@@ -2238,64 +2242,28 @@ namespace PinCCTLib {
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
         //NOP
 #elif defined(USE_TREE_BASED_FOR_DATA_CENTRIC)
-        ThreadData* tData = CCTLibGetTLS(threadId);
-        // tell that this thread is waiting to write
-        tData->tlsMallocDSAccessStatus = WAITING_WRITE;
-        QNode mcsNode;
-        MCSAcquire(&MCSLock, &mcsNode);
-        //queuing_mutex::scoped_lock lock(gQueuingMutex);
-        //GetLock(&mallocVarSetLock, 1);
-        // Not waiting anymore
-        tData->tlsMallocDSAccessStatus = WRITE_STARTED;
-        varSet* curMallocVarSet = GLOBAL_STATE.latestMallocVarSet;
-        varSet* newMallocVarSet = (curMallocVarSet == (&GLOBAL_STATE.mallocVarSets[0])) ? (&GLOBAL_STATE.mallocVarSets[1])  : (&GLOBAL_STATE.mallocVarSets[0]);
 
-        if(mcsNode.status != UNLOCKED_AND_PREDECESSOR_WAS_WRITER /* first writer*/) {
-            // Wait for all threads to make progress into curMallocVarSet
-            WaitTillAllThreadsProgressIntoNewSet(curMallocVarSet);
-            // All threads will be in curMallocVarSet, so we can modify newMallocVarSet
-            // Apply pending operations to newMallocVarSet
-            ApplyPendingOperationsToVarSet(newMallocVarSet);
-        }
-
-        varType v(ptr, ptr, 0 /* handle */);
-        // Apply your Op to newMallocVarSet
-        varSet::const_iterator iterNewMallocVarSet = newMallocVarSet->lower_bound(v);
-
-        if(iterNewMallocVarSet != newMallocVarSet->end() && ptr >= iterNewMallocVarSet->start && ptr < iterNewMallocVarSet->end) {
-            newMallocVarSet->erase(*iterNewMallocVarSet);
-            // Record Op in a list to be applied to curMallocVarSet when it becomes newMallocVarSet
-            RecordOpInList(PendingOps_t(DELETE, v));
-        }
-
-        //ReleaseLock(&mallocVarSetLock);
-
-        if(mcsNode.next == NULL  /* last writer */) {
-            // Publish newMallocVarSet.
-            GLOBAL_STATE.latestMallocVarSet = newMallocVarSet;
-            // set self tlsLatestMallocVarSet to be newMallocVarSet
-            tData->tlsLatestMallocVarSet = newMallocVarSet;
-            MCSRelease(&MCSLock, &mcsNode, UNLOCKED);
-        } else {
-            MCSRelease(&MCSLock, &mcsNode, UNLOCKED_AND_PREDECESSOR_WAS_WRITER);
-        }
+        if(ptr) {
+            varType v(ptr, ptr, 0 /* handle */, DYNAMIC_OBJECT);
+            vector<PendingOps_t> ops(1, PendingOps_t(DELETE, v));
+            UpdateLockLessTree(threadId, ops);
+        } // else NOP .. free() does nothing for NULL ptr
 
 #else
         assert(0 && "Should not reach here");
 #endif
     }
 
+
 // compute static variables
 // each image has a splay tree to include all static variables
 // that reside in the image. All images are linked as a link list
 
-    static void
-#ifdef USE_SHADOW_FOR_DATA_CENTRIC
-    compute_static_var(char* filename, IMG img)
-#else
-    compute_static_var(char* filename, struct image_type_s* image_link_node)
+    static void compute_static_var(char* filename, IMG img) {
+#ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
+        vector<PendingOps_t> ops;
+        UINT32 imgId = IMG_Id(img);
 #endif
-    {
         Elf32_Ehdr* elf_header;         /* ELF header */
         Elf* elf;                       /* Our Elf pointer for libelf */
         Elf_Scn* scn = NULL;                   /* Section Descriptor */
@@ -2361,13 +2329,21 @@ namespace PinCCTLib {
 #elif defined(USE_TREE_BASED_FOR_DATA_CENTRIC)
                     char* symname = elf_strptr(elf, shdr.sh_link, sym.st_name);
                     uint32_t handle = symname ? GetNextStringPoolIndex(symname) : 0;
-                    image_link_node->staticVarSet.insert(varType((void*)((IMG_LoadOffset(image_link_node->img)) + sym.st_value), (void*)((IMG_LoadOffset(image_link_node->img)) + sym.st_value + sym.st_size), handle));
+                    varType vInsert((void*)((IMG_LoadOffset(img)) + sym.st_value), (void*)((IMG_LoadOffset(img)) + sym.st_value + sym.st_size), handle, STATIC_OBJECT);
+                    varType vDelete((void*)((IMG_LoadOffset(img)) + sym.st_value), (void*)((IMG_LoadOffset(img)) + sym.st_value), handle, STATIC_OBJECT);
+                    ops.push_back(PendingOps_t(INSERT, vInsert));
+                    // record for later deletion
+                    GLOBAL_STATE.staticVariablesInModule[imgId].push_back(PendingOps_t(INSERT, vDelete));
 #else
                     assert(0 && "Should not reach here");
 #endif
                 }
             }
         }
+
+#ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
+        UpdateLockLessTree(PIN_ThreadId(), ops);
+#endif
     }
 
     static VOID
@@ -2375,73 +2351,14 @@ namespace PinCCTLib {
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
         //NOP
 #else
-        struct image_type_s* pointer = GLOBAL_STATE.imageLinkHead;
-
-        if(!pointer) return;
-
-        if(pointer->img == img) {
-            // Erasing staticVarSet should be fine since there can be no readers in side it.
-            pointer->staticVarSet.clear();
-            // Simply relink without freeing the node.
-            // This allows existing readers to continue walking on the linked list.
-            GLOBAL_STATE.imageLinkHead = pointer->next;
-            // Definitely leaking some memory here. But that is very small and hence ok.
-            // free(pointer);
-            return;
-        }
-
-        while(pointer->next) {
-            if(pointer->next->img == img) {
-                struct image_type_s* del = pointer->next;
-                // Erasing staticVarSet should be fine since there can be no readers in side it.
-                del->staticVarSet.clear();
-                // Simply relink without freeing the node.
-                // This allows existing readers to continue walking on the linked list.
-                pointer->next = del->next;
-                // Definitely leaking some memory here. But that is very small and hence ok.
-                // free(del);
-                return;
-            }
-
-            pointer = pointer->next;
-        }
-
+        UpdateLockLessTree(PIN_ThreadId(), GLOBAL_STATE.staticVariablesInModule[IMG_Id(img)]);
 #endif
     }
 
     static VOID ComputeVarBounds(IMG img, VOID* v) {
-#ifdef USE_SHADOW_FOR_DATA_CENTRIC
         char filename[MAX_PATH_NAME];
         realpath(IMG_Name(img).c_str(), filename);
         compute_static_var(filename, img);
-#else
-        //WriteLock staticVarWLock(gStaticVarRWLock);
-        //gStaticVarRWLock.lock();
-        static struct image_type_s* current_pointer;
-
-        // add to the link list
-        if(!GLOBAL_STATE.imageLinkHead) {
-            GLOBAL_STATE.imageLinkHead = (struct image_type_s*)malloc(sizeof(struct image_type_s));
-            current_pointer = GLOBAL_STATE.imageLinkHead;
-        } else {
-            struct image_type_s* tmp_image = (struct image_type_s*)malloc(sizeof(struct image_type_s));
-            current_pointer->next = tmp_image;
-            current_pointer = tmp_image;
-        }
-
-        current_pointer->img = img;
-        current_pointer->staticVarSet.clear();
-        current_pointer->next = NULL;
-        current_pointer->startAddress = IMG_LowAddress(img);
-        current_pointer->endAddress = IMG_HighAddress(img);
-        // Xu to fill in var bound computation for static variables.
-        //printf("image name is %s\n",IMG_Name(img).c_str());
-        char filename[MAX_PATH_NAME];
-        realpath(IMG_Name(img).c_str(), filename);
-        compute_static_var(filename, current_pointer);
-        //gStaticVarRWLock.unlock();
-#endif
-        //printf("splay is %p\n", current_pointer->splay_tree_root);
     }
 
 // end DO_DATA_CENTRIC #endif
@@ -2587,7 +2504,7 @@ namespace PinCCTLib {
             }
 
             if(lastIns != INS_Invalid())
-                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
             else {
                 //assert(0 && "did not find the last return in unwindRaiseExceptionRtn");
                 printf("\n did not find the last return in unwindRaiseExceptionRtn");
@@ -2609,7 +2526,7 @@ namespace PinCCTLib {
             }
 
             if(lastIns != INS_Invalid())
-                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
             else {
                 // TODO : This function _Unwind_ForcedUnwind also appears in /lib64/libpthread.so.0. in which case, we should ignore it.
                 //assert(0 && "did not find the last return in unwindForceUnwindRtn");
@@ -2629,7 +2546,7 @@ namespace PinCCTLib {
                 if(!INS_IsRet(i))
                     continue;
                 else
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
             }
 
             RTN_Close(unwindRaiseExceptionRtn);
@@ -2643,7 +2560,7 @@ namespace PinCCTLib {
                 if(!INS_IsRet(i))
                     continue;
                 else
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
             }
 
             RTN_Close(unwindForceUnwindRtn);
@@ -2672,7 +2589,7 @@ namespace PinCCTLib {
                 // Capture the allocation size and CCT node
                 RTN_InsertCall(mallocRtn, IPOINT_BEFORE, (AFUNPTR) CaptureMallocSize, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
                 // capture the allocated pointer and initialize the memory with CCT node.
-                RTN_InsertCall(mallocRtn, IPOINT_AFTER, (AFUNPTR) CaptureMallocPointer, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                RTN_InsertCall(mallocRtn, IPOINT_AFTER, (AFUNPTR) CaptureMallocPointer, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
                 RTN_Close(mallocRtn);
             }
 
@@ -2683,7 +2600,7 @@ namespace PinCCTLib {
                 // Capture the allocation size and CCT node
                 RTN_InsertCall(callocRtn, IPOINT_BEFORE, (AFUNPTR) CaptureCallocSize, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_THREAD_ID, IARG_END);
                 // capture the allocated pointer and initialize the memory with CCT node.
-                RTN_InsertCall(callocRtn, IPOINT_AFTER, (AFUNPTR) CaptureMallocPointer, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                RTN_InsertCall(callocRtn, IPOINT_AFTER, (AFUNPTR) CaptureMallocPointer, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
                 RTN_Close(callocRtn);
             }
 
@@ -2694,7 +2611,7 @@ namespace PinCCTLib {
                 // Capture the allocation size and CCT node
                 RTN_InsertCall(reallocRtn, IPOINT_BEFORE, (AFUNPTR) CaptureReallocSize, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_THREAD_ID, IARG_END);
                 // capture the allocated pointer and initialize the memory with CCT node.
-                RTN_InsertCall(reallocRtn, IPOINT_AFTER, (AFUNPTR) CaptureMallocPointer, IARG_REG_VALUE, REG_EAX, IARG_THREAD_ID, IARG_END);
+                RTN_InsertCall(reallocRtn, IPOINT_AFTER, (AFUNPTR) CaptureMallocPointer, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
                 RTN_Close(reallocRtn);
             }
 
@@ -2711,9 +2628,7 @@ namespace PinCCTLib {
 
 //DO_DATA_CENTRIC
     static void InitDataCentric() {
-        // Set the global variable that data-centric attribution be performed
-        GLOBAL_STATE.doDataCentric = true;
-// For shadow memory based approach initialize the L1 page table LEVEL_1_PAGE_TABLE_SIZE
+        // For shadow memory based approach initialize the L1 page table LEVEL_1_PAGE_TABLE_SIZE
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
         gL1PageTable = (uint8_t***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE * sizeof(uint8_t***), PROT_WRITE
                                          | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
@@ -2723,9 +2638,13 @@ namespace PinCCTLib {
         // delete image from the list at the unloading callback
         IMG_AddUnloadFunction(DeleteStaticVar, 0);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
-        // make GLOBAL_STATE.latestMallocVarSet point to one of GLOBAL_STATE.mallocVarSets.
-        GLOBAL_STATE.latestMallocVarSet = &GLOBAL_STATE.mallocVarSets[0];
+        // make gLatestMallocVarSet point to one of mallocVarSets.
+        GLOBAL_STATE.latestConcurrentTree  = & (GLOBAL_STATE.concurrentReaderWriterTree[0]);
 #endif
+    }
+
+    VOID CCTLibAppStartNotification(void* v) {
+        GLOBAL_STATE.applicationStarted = true;
     }
 
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
@@ -2772,6 +2691,8 @@ namespace PinCCTLib {
         PIN_AddFiniFunction(CCTLibFini, 0);
         // Register Fini to be called when the application exits
         PIN_AddFiniFunction(Fini, 0);
+        // We need to know if the applicated has started
+        PIN_AddApplicationStartFunction(CCTLibAppStartNotification, 0);
         return 0;
     }
 

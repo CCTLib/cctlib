@@ -1,5 +1,5 @@
 include ../Makefile.inc
-all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites cctlib_reader.so
+all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
 INCLUDES += -I../src/
@@ -32,9 +32,11 @@ cct_data_centric_client_tree_based.so: cct_data_centric_client_tree_based.cpp
 	$(CXX)  $(CFLAGS) $(INCLUDES)   cct_data_centric_client_tree_based.cpp
 	$(CXX)  $(LINKFLAGS) -o cct_data_centric_client_tree_based.so cct_data_centric_client_tree_based.o -L../src/ -lcctlib_tree_based $(LIBRARIES)
 
-deadWrites: deadWrites.cpp
-	 $(CXX) -g -o deadWrites deadWrites.cpp
+deadWrites.o: deadWrites.cpp
+	 $(CXX) -g -o deadWrites.o deadWrites.cpp
 
+threaded.o: threaded.c
+	 $(CC) -g -fopenmp -o threaded.o threaded.c
 clean:
 	rm -f *.o *.so
 
