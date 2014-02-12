@@ -267,7 +267,7 @@ namespace PinCCTLib {
         varType var;
         PendingOps_t(const uint8_t o, varType const& v): operation(o), var(v) {}
 
-    } __attribute__((aligned(128)));
+    } __attribute__((aligned(CACHE_LINE_SIZE)));
 
     enum {INSERT = 0, DELETE = 1};
 
