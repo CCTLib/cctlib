@@ -526,7 +526,7 @@ inline VOID Record1ByteMemWrite(VOID* addr) {
 #else  // no TESTING_BYTES
 VOID Record1ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     uint32_t* lastIP = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
 
     if(*(status +  PAGE_OFFSET((uint64_t)addr)) == ONE_BYTE_WRITE_ACTION) {
@@ -542,7 +542,7 @@ VOID Record1ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
 
 inline VOID Record1ByteMemWriteWithoutDead(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     uint32_t* lastIP = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
     *(status +  PAGE_OFFSET((uint64_t)addr)) = ONE_BYTE_WRITE_ACTION;
     *lastIP = curCtxtHandle;
@@ -576,7 +576,7 @@ VOID Record2ByteMemWrite(VOID* addr) {
 #else // no bytes test
 VOID Record2ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
     // status == 0 if not created.
     if(PAGE_OFFSET((uint64_t)addr) != PAGE_OFFSET_MASK) {
@@ -649,7 +649,7 @@ VOID Record4ByteMemWrite(VOID* addr) {
 
 VOID Record4ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
     // status == 0 if not created.
     if(PAGE_OFFSET((uint64_t)addr) < (PAGE_OFFSET_MASK - 2)) {
@@ -732,7 +732,7 @@ VOID Record8ByteMemWrite(VOID* addr) {
 
 VOID Record8ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
     // status == 0 if not created.
     if(PAGE_OFFSET((uint64_t)addr) < (PAGE_OFFSET_MASK - 6)) {
@@ -869,7 +869,7 @@ VOID Record10ByteMemWrite(VOID* addr) {
 
 VOID Record10ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
     // status == 0 if not created.
     if(PAGE_OFFSET((uint64_t)addr) < (PAGE_OFFSET_MASK - 8)) {
@@ -1031,7 +1031,7 @@ VOID Record16ByteMemWrite(VOID* addr) {
 
 VOID Record16ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    const uint32_t curCtxtHandle = GetPINCCT32bitCurrentContextWithSlot(threadId, opaqueHandle);
+    const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
     // status == 0 if not created.
     if(PAGE_OFFSET((uint64_t)addr) < (PAGE_OFFSET_MASK - 14)) {

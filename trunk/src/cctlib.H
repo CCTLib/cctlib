@@ -51,7 +51,7 @@ namespace PinCCTLib {
 
     DataHandle_t GetDataObjectHandle(VOID* addr, THREADID threadId);
     int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
-    ContextHandle_t GetPINCCT32bitCurrentContextWithSlot(THREADID id, uint32_t slot);
+    ContextHandle_t GetContextHandle(THREADID id, uint32_t slot);
     VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
     VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec);
     void SerializeMetadata(string directoryForSerializationFiles = "");
