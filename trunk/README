@@ -1,0 +1,118 @@
+CCTLib is a library to ubiquitously collect calling contexts as well as attribute costs to data objects in an execution of a program.
+
+
+--------------------------------------------------
+	Supported platform
+--------------------------------------------------
+1. Linux x86_64
+
+--------------------------------------------------
+	Requirements	
+--------------------------------------------------
+
+1. Download and install the latest Pin framework matching your platform from
+http://www.pintool.org/downloads.html . 
+
+2. Download and install google hash tables (Sparsehash) source from
+http://code.google.com/p/sparsehash/ .
+
+3. Download and install Boost C++ library.
+
+--------------------------------------------------
+	Compiling
+--------------------------------------------------
+
+Set PATH_TO_GOOGLE_SPARSE_HASH, PATH_TO_PIN, and PATH_TO_BOOST to appropriate values in the 
+build.sh file.
+
+ e.g. 
+ PATH_TO_GOOGLE_SPARSE_HASH=/projects/hpc/software/sparsehash-2.0.2
+ PATH_TO_PIN=/projects/hpc/software/pin_rev/pin-2.12-56759-gcc.4.4.7-linux/
+ PATH_TO_BOOST=/projects/pkgs/boost_1_47_0/
+ 
+To build, simply type "sh build.sh"
+This will compile CCTLib and run sanity tests from tests directory.
+
+
+This produces libcctlib.a and libcctlib_tree_based.a in the src directory.
+libcctlib.a is CCTLib with shadow memory-based data-centric attribution.
+libcctlib_tree_based.a is CCTLib with balanced binary tree based data-centric attribution.
+
+
+--------------------------------------------------
+Documentation of CCTLib's key APIs 
+--------------------------------------------------
+
+1. int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
+	Description: 
+   		CCTLib clients must call this before using CCTLib. 
+                Note: For postmortem analysis call PinCCTLibInitForReading() instead.
+	Arguments:
+   		isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context.
+		logFile: file pointer where CCTLib will put its output data.
+		userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value.
+		doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
+
+2. ContextHandle_t GetContextHandle(THREADID threadId, uint32_t opaqueHandle);
+	Description:
+		Client tools call this API when then need the calling context handle (ContextHandle_t).
+	Arguments:
+		threadId: Pin's thread id of the asking thread.
+		opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
+
+3. DataHandle_t GetDataObjectHandle(VOID* address, THREADID threadId);
+	Description:
+		Client tools call this API when then need handle to the data object (DataHandle_t).
+	Arguments:
+		address: effectve address for which the data object is needed.
+		threadId: Pin's thread id of the asking thread.
+
+4. VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
+	Description:
+		Prints the full calling context whose handle is ctxtHandle.
+
+5. VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec);
+	Description:
+		Returns the full calling context whose handle is ctxtHandle.
+
+	Arguments:
+		ctxtHandle: is the context handle for which the full call path is requested.
+		contextVec: is a vector that will be populated with the full call path.
+
+6. int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
+	Description:
+		Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
+	Arguments:
+		logFile: file pointer where CCTLib will put its output data.
+		serializedFilesDirectory: Path to directory where previously files were serialized.
+
+		Caution: This should never be called with PinCCTLibInit().
+
+7. void SerializeMetadata(string directoryForSerializationFiles = "");
+	Description: 
+		Serializes all CCTLib data into files for postmortem analysis.
+
+	Arguments:
+		directoryForSerializationFiles: directory where serialized files are written.
+
+8. void DottifyAllCCTs()
+   Description:
+	Dumps all CCTs into DOT files for visualization.
+
+
+
+--------------------------------------------------
+Example uses of CCTLib	
+--------------------------------------------------
+
+The "tests" directory contains several example uses of CCTLib.
+
+cct_client.cpp is a simple tool that gathers calling context on each instruction.
+cct_client_mem_only.cpp is a simple tool that gathers calling context on each memory access.
+cct_data_centric_client.cpp is a simple tool that associates each memory access to its associated data object via shadow memory technique.
+cct_data_centric_client_tree_based.cpp is a simple tool that associates each memory access to its associated data object via balanced binary tree technique.
+deadspy_client.cpp is an implementation of DeadSpy that uses CCTLib and serializes the CCT.
+cctlib_reader.cpp reads the serialized CCT and build back the CCT for postmortem analysis.
+
+ 
+
