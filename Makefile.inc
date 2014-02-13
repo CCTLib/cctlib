@@ -3,13 +3,13 @@ CXX = g++
 DEBUG=1
 
 ifndef  SPARSEHASH_PATH
-	$(error echo "SPARSEHASH_PATH NOT SET!!")
+$(echo "SPARSEHASH_PATH NOT SET!!")
 endif
 ifndef  PIN_PATH
-	$(error echo "PIN_PATH NOT SET!!")
+$(echo "PIN_PATH NOT SET!!")
 endif
 ifndef  BOOST_PATH
-	$(error echo "BOOST_PATH NOT SET!!")
+$(echo "BOOST_PATH NOT SET!!")
 endif
 
 ifeq ($(DEBUG),1)
