@@ -48,21 +48,21 @@ Documentation of CCTLib's key APIs
    		CCTLib clients must call this before using CCTLib. 
                 Note: For postmortem analysis call PinCCTLibInitForReading() instead.
 	Arguments:
-   		isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context.
+   		isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. Following predefined values are available for client tools: INTERESTING_INS_ALL, INTERESTING_INS_NONE, and INTERESTING_INS_MEMORY_ACCESS.
 		logFile: file pointer where CCTLib will put its output data.
 		userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value.
 		doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
 
 2. ContextHandle_t GetContextHandle(THREADID threadId, uint32_t opaqueHandle);
 	Description:
-		Client tools call this API when then need the calling context handle (ContextHandle_t).
+		Client tools call this API when they need the calling context handle (ContextHandle_t).
 	Arguments:
 		threadId: Pin's thread id of the asking thread.
 		opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
 
 3. DataHandle_t GetDataObjectHandle(VOID* address, THREADID threadId);
 	Description:
-		Client tools call this API when then need handle to the data object (DataHandle_t).
+		Client tools call this API when they need handle to the data object (DataHandle_t).
 	Arguments:
 		address: effectve address for which the data object is needed.
 		threadId: Pin's thread id of the asking thread.
