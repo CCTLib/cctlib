@@ -1,6 +1,6 @@
 // * BeginRiceCopyright *****************************************************
 //
-// Copyright ((c)) 2002-2011, Rice University
+// Copyright ((c)) 2002-2014, Rice University
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
