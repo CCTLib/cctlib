@@ -102,8 +102,13 @@ namespace PinCCTLib {
 
 
 #define CCTLIB_SERIALIZATION_DEFAULT_DIR_NAME "cctlib-database-"
+#ifndef MAX_IPNODES
 #define MAX_IPNODES (1L << 32)
+#endif
+
+#ifndef MAX_STRING_POOL_NODES
 #define MAX_STRING_POOL_NODES (1L << 30)
+#endif
 
 // Assuming 128 byte line size.
 #define CACHE_LINE_SIZE (128)
@@ -500,7 +505,7 @@ namespace PinCCTLib {
         _Unwind_Ptr directExceptionCallerIP = X86_DIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
         _Unwind_Ptr indirectExceptionCallerIP = X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
         //printf("\n directExceptionCallerIP = %p indirectExceptionCallerIP = %p", (void*)directExceptionCallerIP, (void*)indirectExceptionCallerIP);
-        fprintf(GLOBAL_STATE.CCTLibLogFile,"\n directExceptionCallerIP = %p indirectExceptionCallerIP = %p", (void*)directExceptionCallerIP, (void*)indirectExceptionCallerIP);
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\n directExceptionCallerIP = %p indirectExceptionCallerIP = %p", (void*)directExceptionCallerIP, (void*)indirectExceptionCallerIP);
         // Walk the CCT chain staring from tData->tlsCurrentTraceNode looking for the nearest one that has targeIp in the range.
         ThreadData* tData = CCTLibGetTLS(threadId);
         // Record the caller that can handle the exception.
@@ -517,7 +522,7 @@ namespace PinCCTLib {
         tData->tlsCurrentIPNode = tData->tlsExceptionHandlerIPNode;
 #if 1
         //printf("\n reset tData->tlsCurrentTraceNode to the handler");
-        fprintf(GLOBAL_STATE.CCTLibLogFile,"\n reset tData->tlsCurrentTraceNode to the handler");
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\n reset tData->tlsCurrentTraceNode to the handler");
 #endif
     }
 
@@ -533,7 +538,7 @@ namespace PinCCTLib {
         tData->tlsCurrentIPNode = tData->tlsExceptionHandlerIPNode;
 #if 1
         //printf("\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
-        fprintf(GLOBAL_STATE.CCTLibLogFile,"\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
 #endif
     }
 
@@ -594,7 +599,7 @@ namespace PinCCTLib {
 
         if(oldBufIndex + num  >= MAX_IPNODES) {
             //printf("\nPreallocated IPNodes exhausted. CCTLib couldn't fit your application in its memory. Try a smaller program.\n");
-            fprintf(GLOBAL_STATE.CCTLibLogFile,"\nPreallocated IPNodes exhausted. CCTLib couldn't fit your application in its memory. Try a smaller program.\n");
+            fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPreallocated IPNodes exhausted. CCTLib couldn't fit your application in its memory. Try a smaller program.\n");
             PIN_ExitProcess(-1);
         }
 
@@ -633,22 +638,26 @@ namespace PinCCTLib {
         tdata->tlsParentThreadTraceNode = 0;
         tdata->tlsInitiatedCall = true;
         tdata->curSlotNo = 0;
-        // Set stack sizes
-        ADDRINT s =  PIN_GetContextReg(ctxt, REG_STACK_PTR);
-        tdata->tlsStackBase = (void*) s;
-        struct rlimit rlim;
 
-        if(getrlimit(RLIMIT_STACK, &rlim)) {
-            cerr << "\n Failed to getrlimit()\n";
-            PIN_ExitProcess(-1);
+        // Set stack sizes if data-centric is needed
+        if(GLOBAL_STATE.doDataCentric) {
+            ADDRINT s =  PIN_GetContextReg(ctxt, REG_STACK_PTR);
+            tdata->tlsStackBase = (void*) s;
+            struct rlimit rlim;
+
+            if(getrlimit(RLIMIT_STACK, &rlim)) {
+                cerr << "\n Failed to getrlimit()\n";
+                PIN_ExitProcess(-1);
+            }
+
+            if(rlim.rlim_cur == RLIM_INFINITY) {
+                cerr << "\n Need a finite stack size. Dont use unlimited.\n";
+                PIN_ExitProcess(-1);
+            }
+
+            tdata->tlsStackEnd = (void*)(s - rlim.rlim_cur);
         }
 
-        if(rlim.rlim_cur == RLIM_INFINITY) {
-            cerr << "\n Need a finite stack size. Dont use unlimited.\n";
-            PIN_ExitProcess(-1);
-        }
-
-        tdata->tlsStackEnd = (void*)(s - rlim.rlim_cur);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         tdata->tlsMallocDSAccessStatus = END_READING;
 #endif
@@ -2511,7 +2520,7 @@ namespace PinCCTLib {
             else {
                 //assert(0 && "did not find the last return in unwindRaiseExceptionRtn");
                 //printf("\n did not find the last return in unwindRaiseExceptionRtn");
-                fprintf(GLOBAL_STATE.CCTLibLogFile,"\n did not find the last return in unwindRaiseExceptionRtn");
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindRaiseExceptionRtn");
             }
 
             RTN_Close(unwindRaiseExceptionRtn);
@@ -2535,7 +2544,7 @@ namespace PinCCTLib {
                 // TODO : This function _Unwind_ForcedUnwind also appears in /lib64/libpthread.so.0. in which case, we should ignore it.
                 //assert(0 && "did not find the last return in unwindForceUnwindRtn");
                 //printf("\n did not find the last return in unwindForceUnwindRtn");
-                fprintf(GLOBAL_STATE.CCTLibLogFile,"\n did not find the last return in unwindForceUnwindRtn");
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindForceUnwindRtn");
             }
 
             RTN_Close(unwindForceUnwindRtn);
