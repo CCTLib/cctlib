@@ -66,6 +66,7 @@ Documentation of CCTLib's key APIs
 	Arguments:
 		address: effectve address for which the data object is needed.
 		threadId: Pin's thread id of the asking thread.
+	Note: Make sure that you have finite stack size. Don't set "ulimit -s unlimited"
 
 4. VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
 	Description:
@@ -114,5 +115,12 @@ cct_data_centric_client_tree_based.cpp is a simple tool that associates each mem
 deadspy_client.cpp is an implementation of DeadSpy that uses CCTLib and serializes the CCT.
 cctlib_reader.cpp reads the serialized CCT and build back the CCT for postmortem analysis.
 
+--------------------------------------------------
+Some useful control flags / macros
+--------------------------------------------------
  
+1. MAX_IPNODES is the maximum number of call path handles supported. It is by default set to (1<<32). The virtual address space is eagerly allocated get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a buitable value by passing -DMAX_IPNODES=<num> when compiling cctlib.
+
+2. MAX_STRING_POOL_NODES is the maximum number of variable names supported in data-centric analysis. It is by default set to (1<<30). The virtual address space is eagerly allocated to get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a buitable value by passing -DMAX_STRING_POOL_NODES=<num> when compiling cctlib.
+
 
