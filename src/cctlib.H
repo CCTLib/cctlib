@@ -166,9 +166,13 @@ int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
 */
     void DottifyAllCCTs();
 
-#ifndef USE_TREE_BASED_FOR_DATA_CENTRIC
+#ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
+//NOP
+#elif !defined(USE_SHADOW_FOR_DATA_CENTRIC)
+// by default use shadow memory technique
 #define USE_SHADOW_FOR_DATA_CENTRIC
 #endif
+
 }
 
 #endif

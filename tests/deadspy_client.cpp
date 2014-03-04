@@ -1656,7 +1656,7 @@ void InitDeadSpy(int argc, char* argv[]) {
     gethostname(name + strlen(name), MAX_FILE_PATH - strlen(name));
     pid_t pid = getpid();
     sprintf(name + strlen(name), "%d", pid);
-    cerr << "\n Creating dead info file at:" << name << "\n";
+    cerr << "\n Creating log file at:" << name << "\n";
     gTraceFile = fopen(name, "w");
     // print the arguments passed
     fprintf(gTraceFile, "\n");

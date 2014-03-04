@@ -32,44 +32,18 @@
 //
 // ******************************************************* EndRiceCopyright *
 
-
 #include <stdio.h>
 #include <stdlib.h>
-#include "pin.H"
-#include <map>
-#include <ext/hash_map>
-#include <list>
 #include <stdint.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include <stdio.h>
-#include <semaphore.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <iostream>
-#include <locale>
 #include <unistd.h>
-#include <sys/syscall.h>
-#include <iostream>
 #include <assert.h>
-#include <sys/mman.h>
-#include <exception>
-#include <sys/time.h>
-#include <signal.h>
 #include <string.h>
-#include <setjmp.h>
 #include <sstream>
-// Need GOOGLE sparse hash tables
-#include <google/sparse_hash_map>
-#include <google/dense_hash_map>
-using google::sparse_hash_map;      // namespace where class lives by default
-using google::dense_hash_map;      // namespace where class lives by default
+#include "pin.H"
+#include "cctlib.H"
 using namespace __gnu_cxx;
 using namespace std;
-
-#include "cctlib.H"
 using namespace PinCCTLib;
 
 INT32 Usage2() {
@@ -97,7 +71,7 @@ void ClientInit(int argc, char* argv[]) {
     gethostname(name + strlen(name), MAX_FILE_PATH - strlen(name));
     pid_t pid = getpid();
     sprintf(name + strlen(name), "%d", pid);
-    cerr << "\n Creating dead info file at:" << name << "\n";
+    cerr << "\n Creating log file at:" << name << "\n";
     gTraceFile = fopen(name, "w");
     // print the arguments passed
     fprintf(gTraceFile, "\n");
