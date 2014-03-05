@@ -664,9 +664,9 @@ namespace PinCCTLib {
     }
 
     static VOID CCTLibThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
-        GetLock(&GLOBAL_STATE.lock, threadid + 1);
+        PIN_GetLock(&GLOBAL_STATE.lock, threadid + 1);
         GLOBAL_STATE.numThreads++;
-        ReleaseLock(&GLOBAL_STATE.lock);
+        PIN_ReleaseLock(&GLOBAL_STATE.lock);
         ThreadData* tdata = new ThreadData();
         CCTLibInitThreadData(tdata, ctxt, threadid);
         PIN_SetThreadData(GLOBAL_STATE.CCTLibTlsKey, tdata, threadid);
