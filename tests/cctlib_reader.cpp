@@ -95,7 +95,6 @@ int main(int argc, char* argv[]) {
     PinCCTLibInitForReading(gTraceFile, "DeadSpy-CCTLib-database");
     vector<Context>  contextVec;
     GetFullCallingContext(7122, contextVec);
-    printf("Before PrintFullCallingContext\n");
     PrintFullCallingContext(7122);
     return 0;
 }
