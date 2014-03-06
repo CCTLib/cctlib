@@ -1792,6 +1792,7 @@ namespace PinCCTLib {
                         string filePath;
                         uint32_t lineNo;
                         GetLineFromInfo(ip, lineNo, filePath);
+                        GetDecodedInstFromIP(ip);
 #if 0
                         fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%p:%s:%s:%s", (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), li
                                 ne.c_str());
