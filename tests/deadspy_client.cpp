@@ -1441,10 +1441,8 @@ inline void PrintEachSizeWrite() {
 
 // On program termination output all gathered data and statistics
 VOID Fini(INT32 code, VOID* v) {
-
     // Serialize CCTLib
     SerializeMetadata("DeadSpy-CCTLib-database");
-
     // byte count
     uint64_t measurementBaseCount = GetMeasurementBaseCount();
     fprintf(gTraceFile, "\n#deads");

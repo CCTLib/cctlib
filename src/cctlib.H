@@ -64,6 +64,8 @@ namespace PinCCTLib {
     typedef struct Context {
         string functionName;
         string filePath;
+        string disassembly;
+        ContextHandle_t ctxtHandle;
         uint32_t lineNo;
         ADDRINT ip;
     } Context;
@@ -94,76 +96,76 @@ namespace PinCCTLib {
 #define INTERESTING_INS_NONE (PinCCTLib::InterestingInsNone)
 #define INTERESTING_INS_MEMORY_ACCESS (PinCCTLib::InterestingInsMemoryAccess)
 
-/*
-        Description:
-                CCTLib clients must call this before using CCTLib.
-                Note: For postmortem analysis call PinCCTLibInitForReading() instead.
-        Arguments:
-                isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. Following predefined values are available for client tools: INTERESTING_INS_ALL, INTERESTING_INS_NONE, and INTERESTING_INS_MEMORY_ACCESS.
-                logFile: file pointer where CCTLib will put its output data.
-                userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value. See one of the examples in tests directory for example usage.
-                doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
-*/   
+    /*
+            Description:
+                    CCTLib clients must call this before using CCTLib.
+                    Note: For postmortem analysis call PinCCTLibInitForReading() instead.
+            Arguments:
+                    isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. Following predefined values are available for client tools: INTERESTING_INS_ALL, INTERESTING_INS_NONE, and INTERESTING_INS_MEMORY_ACCESS.
+                    logFile: file pointer where CCTLib will put its output data.
+                    userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value. See one of the examples in tests directory for example usage.
+                    doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
+    */
     int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
 
-/*
-int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
-        Description:
-                Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
-        Arguments:
-                logFile: file pointer where CCTLib will put its output data.
-                serializedFilesDirectory: Path to directory where previously files were serialized.
+    /*
+    int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
+            Description:
+                    Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
+            Arguments:
+                    logFile: file pointer where CCTLib will put its output data.
+                    serializedFilesDirectory: Path to directory where previously files were serialized.
 
-                Caution: This should never be called with PinCCTLibInit().
-*/
+                    Caution: This should never be called with PinCCTLibInit().
+    */
     int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
 
-/*
-        Description:
-                Client tools call this API when they need the calling context handle (ContextHandle_t).
-        Arguments:
-                threadId: Pin's thread id of the asking thread.
-                opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
-*/
+    /*
+            Description:
+                    Client tools call this API when they need the calling context handle (ContextHandle_t).
+            Arguments:
+                    threadId: Pin's thread id of the asking thread.
+                    opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
+    */
     ContextHandle_t GetContextHandle(THREADID threadId, uint32_t opaqueHandle);
 
-/*
-        Description:
-                Client tools call this API when they need the handle to a data object (DataHandle_t).
-        Arguments:
-                address: effectve address for which the data object is needed.
-                threadId: Pin's thread id of the asking thread.
-*/
+    /*
+            Description:
+                    Client tools call this API when they need the handle to a data object (DataHandle_t).
+            Arguments:
+                    address: effectve address for which the data object is needed.
+                    threadId: Pin's thread id of the asking thread.
+    */
     DataHandle_t GetDataObjectHandle(VOID* address, THREADID threadId);
-/*
-        Description:
-                Prints the full calling context whose handle is ctxtHandle.
-*/
+    /*
+            Description:
+                    Prints the full calling context whose handle is ctxtHandle.
+    */
     VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
 
-/*
-        Description:
-                Returns the full calling context whose handle is ctxtHandle.
+    /*
+            Description:
+                    Returns the full calling context whose handle is ctxtHandle.
 
-        Arguments:
-                ctxtHandle: is the context handle for which the full call path is requested.
-                contextVec: is a vector that will be populated with the full call path.
-*/
+            Arguments:
+                    ctxtHandle: is the context handle for which the full call path is requested.
+                    contextVec: is a vector that will be populated with the full call path.
+    */
     VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec);
 
-/*
-        Description:
-                Serializes all CCTLib data into files for postmortem analysis.
+    /*
+            Description:
+                    Serializes all CCTLib data into files for postmortem analysis.
 
-        Arguments:
-                directoryForSerializationFiles: directory where serialized files are written.
-*/
+            Arguments:
+                    directoryForSerializationFiles: directory where serialized files are written.
+    */
     void SerializeMetadata(string directoryForSerializationFiles = "");
 
-/*
-   Description:
-        Dumps all CCTs into DOT files for visualization.
-*/
+    /*
+       Description:
+            Dumps all CCTs into DOT files for visualization.
+    */
     void DottifyAllCCTs();
 
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
