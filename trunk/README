@@ -72,11 +72,32 @@ Documentation of CCTLib's key APIs
 
 4. VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
 	Description:
-		Prints the full calling context whose handle is ctxtHandle.
+		Prints the full calling context whose handle is ctxtHandle. Client tools must call PIN_LockClient() before calling this API and release lock via PIN_UnlockClient().
+		I have intentionally made client tool to hold lock (PIN_LockClient) instead of CCTLib holding the lock so that it becomes efficient and the granularity of locking is left to the user.
+		If the client tool is already holding the lock, it does not make sense for CCTLib to acquire it again (It is not clear from Pin manual if this lock is reentrant), hence this design is justified.
+	Typical use:
+		PIN_LockClient();
 
+		for (...) {
+			PrintFullCallingContext(i);
+		}
+
+		PIN_UnlockClient();
+		
 5. VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec);
 	Description:
-		Returns the full calling context whose handle is ctxtHandle.
+		Returns the full calling context whose handle is ctxtHandle. Client tools must call PIN_LockClient() before calling this API and release lock via PIN_UnlockClient().
+                I have intentionally made client tool to hold lock (PIN_LockClient) instead of CCTLib holding the lock so that it becomes efficient and the granularity of locking is left to the user.
+                If the client tool is already holding the lock, it does not make sense for CCTLib to acquire it again (It is not clear from Pin manual if this lock is reentrant), hence this design is justified.
+        Typical use:
+                PIN_LockClient();
+
+                for (...) {
+                        GetFullCallingContext(...);
+                }
+
+                PIN_UnlockClient();
+
 
 	Arguments:
 		ctxtHandle: is the context handle for which the full call path is requested.

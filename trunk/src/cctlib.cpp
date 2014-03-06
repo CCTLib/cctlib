@@ -987,26 +987,21 @@ namespace PinCCTLib {
     }
 
 
-
-
-#define CUR_CTXT (&(tData->tlsCurrentIPNode[tData->curSlotNo]))
-
-
     IPNode* GetPINCCTCurrentContext(THREADID id) {
         ThreadData* tData = CCTLibGetTLS(id);
         uint32_t slot = tData->curSlotNo;
-        return &(tData->tlsCurrentIPNode[slot]);
+        return &(tData->tlsCurrentTraceNode->childIPs[slot]);
     }
 
 
     IPNode* GetPINCCTCurrentContextWithSlot(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
-        return &(tData->tlsCurrentIPNode[slot]);
+        return &(tData->tlsCurrentTraceNode->childIPs[slot]);
     }
 
     ContextHandle_t GetContextHandle(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
-        return &(tData->tlsCurrentIPNode[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
+        return &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
     }
 
 
