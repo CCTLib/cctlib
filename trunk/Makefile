@@ -9,9 +9,11 @@ tests: src
 
 clean:
 	rm -f deadspy.out.* client.out.* src/*.o src/*.a tests/*.o tests/*.so
-	rm -rf cctlib-database-*
+	rm -rf cctlib-database-* DeadSpy-CCTLib-database
 
 check:
+	rm -f deadspy.out.* client.out.* 
+	rm -rf cctlib-database-* DeadSpy-CCTLib-database
 	$(PIN_PATH)/pin -t tests/cct_client.so -- ls	
 	$(PIN_PATH)/pin -t tests/cct_client_mem_only.so -- ls	
 	$(PIN_PATH)/pin -t tests/cct_data_centric_client.so  -- ls	

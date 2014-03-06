@@ -31,7 +31,7 @@ build.sh file.
  PATH_TO_BOOST=/projects/pkgs/boost_1_47_0/
  
 To build, simply type "sh build.sh"
-This will compile CCTLib and run sanity tests from tests directory.
+This will compile CCTLib. 
 
 
 This produces libcctlib.a and libcctlib_tree_based.a in the src directory.
@@ -39,6 +39,12 @@ libcctlib.a is CCTLib with shadow memory-based data-centric attribution.
 libcctlib_tree_based.a is CCTLib with balanced binary tree based data-centric attribution.
 
 Please refer to FAQs if you have compilation errors. If you still have issues compiling contact Milind Chabbi (chabbi.milind@gmail.com).
+
+--------------------------------------------------
+	Running tests
+--------------------------------------------------
+To run sanity tests uncomment the make check line in build.sh and run 'sh build.sh'.
+This will execute examples listed in "Example uses of CCTLib" section below.
 
 
 --------------------------------------------------
