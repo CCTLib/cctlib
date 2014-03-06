@@ -114,7 +114,7 @@ namespace PinCCTLib {
 #define CACHE_LINE_SIZE (128)
 
 
-#define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 )
+#define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ((ContextHandle_t) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 ))
 #define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
 
 
@@ -146,7 +146,7 @@ namespace PinCCTLib {
 
     static inline ADDRINT GetIPFromInfo(IPNode*);
     static inline const string& GetModulePathFromInfo(IPNode* ipNode);
-    static inline string GetLineFromInfo(const ADDRINT& ip);
+    static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath);
 
     static inline bool IsValidIP(ADDRINT ip);
     static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp);
@@ -1553,13 +1553,8 @@ namespace PinCCTLib {
 
 
 // Given a pointer (i.e. slot) within a trace node, returns the Line number corresponding to that slot
-    static inline string GetLineFromInfo(const ADDRINT& ip) {
-        string file;
-        INT32 line;
-        PIN_GetSourceLocation(ip, NULL, &line, &file);
-        std::ostringstream retVal;
-        retVal << line;
-        return file + ":" + retVal.str();
+    static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath) {
+        PIN_GetSourceLocation(ip, NULL, (INT32*) &lineNo, &filePath);
     }
 
     static void GetDecodedInstFromIP(ADDRINT ip) {
@@ -1646,13 +1641,10 @@ namespace PinCCTLib {
 
 
 
+#if 0
 
     static VOID PrintFullCallingContext(IPNode* curIPNode);
 // Given a context node (curContext), traverses up in the chain till the root and prints the entire calling context
-
-    VOID PrintFullCallingContext(ContextHandle_t ctxtHandle) {
-        PrintFullCallingContext(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle);
-    }
 
     static VOID PrintFullCallingContext(IPNode* curIPNode) {
         int depth = 0;
@@ -1689,9 +1681,11 @@ namespace PinCCTLib {
                                 ADDRINT loc = *((uint64_t*)(nextInst + *offset));
 
                                 if(IsValidIP(loc)) {
-                                    string line = GetLineFromInfo(ip);
+                                    string filePath;
+                                    uint32_t lineNo;
+                                    GetLineFromInfo(ip, lineNo, filePath);
                                     GetDecodedInstFromIP(ip);
-                                    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n!%p:%s:%s:%s", (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE).c_str(), line.c_str());
+                                    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%u:!%p:%s:%s:%s:%u", GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode), (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE).c_str(), filePath.c_str(), lineNo);
                                 } else {
                                     fprintf(GLOBAL_STATE.CCTLibLogFile, "\nIN PLT BUT NOT VALID GOT");
                                 }
@@ -1705,13 +1699,15 @@ namespace PinCCTLib {
                             fprintf(GLOBAL_STATE.CCTLibLogFile, "\nCRASHED !!");
                         }
                     } else {
-                        string line = GetLineFromInfo(ip);
+                        string filePath;
+                        uint32_t lineNo;
+                        GetLineFromInfo(ip, lineNo, filePath);
                         GetDecodedInstFromIP(ip);
 #if 0
                         fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%p:%s:%s:%s", (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), line.c_str());
 #else
                         // also print the IPNode handle so that I can debug deserialization
-                        fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%ld:%p:%s:%s:%s", GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode), (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), line.c_str());
+                        fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%u:%p:%s:%s:%s:%u", GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode), (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), filePath.c_str(), lineNo);
 #endif
                     }
                 } else {
@@ -1725,15 +1721,102 @@ namespace PinCCTLib {
         //reset sig handler
         sigaction(SIGSEGV, &old, 0);
     }
+#endif
 
-    VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec);
+    static VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec);
 
     VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec) {
         GetFullCallingContext(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
     }
 
+    static VOID GetFullCallingContextInSitu(IPNode* curIPNode, vector<Context>& contextVec) {
+        int depth = 0;
+#ifdef MULTI_THREADED
+        int root;
+#endif         //end MULTI_THREADED
+        // set sig handler
+        struct sigaction old;
+        sigaction(SIGSEGV, &GLOBAL_STATE.sigAct, &old);
 
-    VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec) {
+        // Dont print if the depth is more than MAX_CCT_PRINT_DEPTH since files become too large
+        while(curIPNode && (depth ++ < MAX_CCT_PRINT_DEPTH)) {
+            int threadCtx = 0;
+
+            if((threadCtx = IsARootIPNode(curIPNode)) != NOT_ROOT_CTX) {
+                // if the thread has a parent, recur over it.
+                IPNode* parentThreadIPNode = CCTLibGetTLS(threadCtx)->tlsParentThreadIPNode;
+                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                contextVec.push_back(ctxt);
+
+                if(parentThreadIPNode)
+                    GetFullCallingContextInSitu(parentThreadIPNode, contextVec);
+
+                break;
+            } else {
+                ADDRINT ip = GetIPFromInfo(curIPNode);
+
+                if(IsValidIP(ip)) {
+                    if(PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE) == ".plt") {
+                        if(setjmp(GLOBAL_STATE.env) == 0) {
+                            if(IsValidPLTSignature(ip)) {
+                                uint64_t nextByte = (uint64_t) ip + 2;
+                                int* offset = (int*) nextByte;
+                                uint64_t nextInst = (uint64_t) ip + 6;
+                                ADDRINT loc = *((uint64_t*)(nextInst + *offset));
+
+                                if(IsValidIP(loc)) {
+                                    string filePath;
+                                    uint32_t lineNo;
+                                    GetLineFromInfo(ip, lineNo, filePath);
+                                    GetDecodedInstFromIP(ip);
+                                    Context ctxt = {PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE)  /*functionName*/, filePath/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, lineNo /*lineNo*/, ip /*ip*/};
+                                    contextVec.push_back(ctxt);
+                                } else {
+                                    GetDecodedInstFromIP(ip);
+                                    Context ctxt = {"IN PLT BUT NOT VALID GOT"  /*functionName*/, ""/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                                    contextVec.push_back(ctxt);
+                                }
+                            } else {
+                                GetDecodedInstFromIP(ip);
+                                Context ctxt = {"UNRECOGNIZED PLT SIGNATURE"  /*functionName*/, ""/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                                contextVec.push_back(ctxt);
+                                //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n plt plt plt %x", * ((UINT32*)curContext->address));
+                                //for(int i = 1; i < 4 ; i++)
+                                //      fprintf(GLOBAL_STATE.CCTLibLogFile," %x",  ((UINT32 *)curContext->address)[i]);
+                            }
+                        } else {
+                            Context ctxt = {"CRASHED !!"  /*functionName*/, ""/*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                            contextVec.push_back(ctxt);
+                        }
+                    } else {
+                        string filePath;
+                        uint32_t lineNo;
+                        GetLineFromInfo(ip, lineNo, filePath);
+#if 0
+                        fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%p:%s:%s:%s", (void*)ip, GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), li
+                                ne.c_str());
+#else
+                        // also print the IPNode handle so that I can debug deserialization
+                        Context ctxt = {PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE)  /*functionName*/, filePath/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, lineNo /*lineNo*/, ip /*ip*/};
+                        contextVec.push_back(ctxt);
+#endif
+                    }
+                } else {
+                    Context ctxt = {"BAD IP !!"  /*functionName*/, ""/*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                    contextVec.push_back(ctxt);
+                }
+
+                curIPNode = curIPNode->parentTraceNode->callerIPNode;
+            }
+        }
+
+        //reset sig handler
+        sigaction(SIGSEGV, &old, 0);
+    }
+
+
+
+    static VOID GetFullCallingContextPostmortem(IPNode* curIPNode, vector<Context>& contextVec) {
         int depth = 0;
 #ifdef MULTI_THREADED
         int root;
@@ -1747,13 +1830,13 @@ namespace PinCCTLib {
             int threadCtx = 0;
 
             if((threadCtx = IsARootIPNode(curIPNode)) != NOT_ROOT_CTX) {
-                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT", "", 0, 0};
+                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, GetPINCCT32BitContextIndex(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
                 contextVec.push_back(ctxt);
                 // if the thread has a parent, recurse over it.
                 IPNode* parentThreadIPNode = GLOBAL_STATE.deserializedCCTs[threadCtx].tlsParentThreadIPNode;
 
                 if(parentThreadIPNode)
-                    GetFullCallingContext(parentThreadIPNode, contextVec);
+                    GetFullCallingContextPostmortem(parentThreadIPNode, contextVec);
 
                 break;
             } else {
@@ -1800,7 +1883,9 @@ namespace PinCCTLib {
                 boost::algorithm::trim(fnName);
                 string flName(fileName);
                 boost::algorithm::trim(flName);
-                Context ctxt = {fnName, flName, lineNo, ip};
+                Context ctxt = {fnName/*functionName*/, flName /*filePath */, "TODO-Disassmebly" /*disassembly*/, GetPINCCT32BitContextIndex(curIPNode) /*ctx
+tHandle*/, lineNo /*lineNo*/, ip /*ip*/
+                               };
                 contextVec.push_back(ctxt);
                 curIPNode = curIPNode->parentTraceNode->callerIPNode;
             }
@@ -1811,6 +1896,25 @@ namespace PinCCTLib {
     }
 
 
+    static VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec) {
+        if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM)
+            GetFullCallingContextPostmortem(curIPNode, contextVec);
+        else
+            GetFullCallingContextInSitu(curIPNode, contextVec);
+    }
+
+    VOID PrintFullCallingContext(ContextHandle_t ctxtHandle) {
+        vector<Context> contextVec;
+
+        if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM)
+            GetFullCallingContextPostmortem(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
+        else
+            GetFullCallingContextInSitu(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
+
+        for(uint32_t i = 0 ; i < contextVec.size(); i++) {
+            fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%u:%p:%s:%s:%s:%u", contextVec[i].ctxtHandle, (void*) contextVec[i].ip, contextVec[i].disassembly.c_str(), contextVec[i].functionName.c_str(), contextVec[i].filePath.c_str(), contextVec[i].lineNo);
+        }
+    }
 
 
 // Initialize the needed data structures before launching the target program
