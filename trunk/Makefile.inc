@@ -2,15 +2,15 @@ CXX = g++
 
 DEBUG=1
 
-ifndef  SPARSEHASH_PATH
-$(echo "SPARSEHASH_PATH NOT SET!!")
-endif
-ifndef  PIN_PATH
-$(echo "PIN_PATH NOT SET!!")
-endif
-ifndef  BOOST_PATH
-$(echo "BOOST_PATH NOT SET!!")
-endif
+#ifndef  SPARSEHASH_PATH
+#$(echo "SPARSEHASH_PATH NOT SET!!")
+#endif
+#ifndef  PIN_PATH
+#$(echo "PIN_PATH NOT SET!!")
+#endif
+#ifndef  BOOST_PATH
+#$(echo "BOOST_PATH NOT SET!!")
+#endif
 
 ifeq ($(DEBUG),1)
 CFLAGS = -c -g -O0 -Wno-deprecated -Wall -Wno-unknown-pragmas   -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E -fPIC -DTARGET_LINUX
