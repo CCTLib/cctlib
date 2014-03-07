@@ -1,4 +1,4 @@
-include Makefile.inc
+#include Makefile.inc
 SUBDIRS = src tests
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)
