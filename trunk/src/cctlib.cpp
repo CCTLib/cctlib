@@ -118,6 +118,8 @@ namespace PinCCTLib {
 #define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
 
 
+#define BREAK_HERE raise(SIGINT)
+
 //Serialization related macros
 #define SERIALIZED_SHADOW_TRACE_IP_FILE_SUFFIX "/TraceMap.traceShadowMap"
 #define SERIALIZED_CCT_FILE_PREFIX "/Thread-"
@@ -209,6 +211,7 @@ namespace PinCCTLib {
 
         uint32_t tlsThreadId; // useful only during deserialization
         struct IPNode* tlsCurrentIPNode;
+        struct IPNode* tlsCurrentChildIPs;
         struct TraceNode* tlsCurrentTraceNode;
         struct IPNode* tlsRootIPNode;
         struct TraceNode* tlsRootTraceNode;
@@ -361,6 +364,7 @@ namespace PinCCTLib {
         return false;
     }
 
+
 // function to get the next unique key for a trace
     ADDRINT GetNextTraceKey() {
         static uint32_t traceKey = 0;
@@ -380,6 +384,23 @@ namespace PinCCTLib {
             static_cast<ThreadData*>(PIN_GetThreadData(GLOBAL_STATE.CCTLibTlsKey, threadId));
         return tdata;
     }
+
+    static void DumpCallStack(THREADID id, uint32_t slot) {
+        ThreadData* tData = CCTLibGetTLS(id);
+        fprintf(stderr, "\n slot =%u, max = %u\n", slot, tData->tlsCurrentTraceNode->nSlots);
+        PIN_LockClient();
+        ContextHandle_t h = &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
+        fprintf(stderr, "\n");
+        vector<Context> contextVec;
+        GetFullCallingContext(h, contextVec);
+
+        for(uint32_t i = 0 ; i < contextVec.size(); i++) {
+            fprintf(stderr, "\n%u:%p:%s:%s:%s:%u", contextVec[i].ctxtHandle, (void*) contextVec[i].ip, contextVec[i].disassembly.c_str(), contextVec[i].functionName.c_str(), contextVec[i].filePath.c_str(), contextVec[i].lineNo);
+        }
+
+        PIN_UnlockClient();
+    }
+
 
 #if 0
     static int SetJmpOverride(const CONTEXT* 	ctxt, 	THREADID 	tid, AFUNPTR gOriginalSetjmpRtn, jmp_buf env) {
@@ -404,10 +425,27 @@ namespace PinCCTLib {
     }
 #endif
 
+    static inline void UpdateCurTraceAndIp(ThreadData* tData, TraceNode* const trace, IPNode* const ipNode) {
+        tData->tlsCurrentTraceNode = trace;
+        tData->tlsCurrentChildIPs = trace->childIPs;
+        tData->tlsCurrentIPNode = ipNode;
+    }
+
+    static inline void UpdateCurTraceAndIp(ThreadData* tData, TraceNode* const trace) {
+        UpdateCurTraceAndIp(tData, trace, trace->childIPs);
+    }
+
+    static inline void UpdateCurTraceOnly(ThreadData* tData, TraceNode* const trace) {
+        tData->tlsCurrentTraceNode = trace;
+        tData->tlsCurrentChildIPs = trace->childIPs;
+    }
+
+
     static inline VOID CaptureSigSetJmpCtxt(ADDRINT buf, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
-        tData->tlsLongJmpMap[buf] = tData->tlsCurrentIPNode;
-        //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n CaptureSigSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
+        // Does not work when a trace has zero IPs!! tData->tlsLongJmpMap[buf] = tData->tlsCurrentIPNode->parentTraceNode->callerIPNode;
+        tData->tlsLongJmpMap[buf] = tData->tlsCurrentTraceNode->callerIPNode;
+        //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n CaptureSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
     }
 
     static inline VOID HoldLongJmpBuf(ADDRINT buf, THREADID threadId) {
@@ -419,16 +457,10 @@ namespace PinCCTLib {
     static inline VOID RestoreSigLongJmpCtxt(THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
         tData->tlsCurrentIPNode = tData->tlsLongJmpMap[tData->tlsLongJmpHoldBuf];
-        tData->tlsCurrentTraceNode = tData->tlsCurrentIPNode->parentTraceNode;
+        UpdateCurTraceOnly(tData, tData->tlsCurrentIPNode->parentTraceNode);
         //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n RestoreSigLongJmpCtxt2 tlsLongJmpHoldBuf = %lu",tData->tlsLongJmpHoldBuf);
     }
 
-    static inline VOID CaptureSetJmpCtxt(ADDRINT buf, THREADID threadId) {
-        ThreadData* tData = CCTLibGetTLS(threadId);
-        // Does not work when a trace has zero IPs!! tData->tlsLongJmpMap[buf] = tData->tlsCurrentIPNode->parentTraceNode->callerIPNode;
-        tData->tlsLongJmpMap[buf] = tData->tlsCurrentTraceNode->callerIPNode;
-        //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n CaptureSetJmpCtxt buf = %lu, tData->tlsCurrentIPNode = %p", buf, tData->tlsCurrentIPNode);
-    }
 
     static bool IsCallInstruction(ADDRINT ip) {
         // Get the instruction in a string
@@ -518,8 +550,7 @@ namespace PinCCTLib {
     static VOID SetCurTraceNodeAfterException(THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
         // Record the caller that can handle the exception.
-        tData->tlsCurrentTraceNode = tData->tlsExceptionHandlerTraceNode;
-        tData->tlsCurrentIPNode = tData->tlsExceptionHandlerIPNode;
+        UpdateCurTraceAndIp(tData, tData->tlsExceptionHandlerTraceNode, tData->tlsExceptionHandlerIPNode);
 #if 1
         //printf("\n reset tData->tlsCurrentTraceNode to the handler");
         fprintf(GLOBAL_STATE.CCTLibLogFile, "\n reset tData->tlsCurrentTraceNode to the handler");
@@ -534,8 +565,7 @@ namespace PinCCTLib {
         //    return;
         ThreadData* tData = CCTLibGetTLS(threadId);
         // Record the caller that can handle the exception.
-        tData->tlsCurrentTraceNode = tData->tlsExceptionHandlerTraceNode;
-        tData->tlsCurrentIPNode = tData->tlsExceptionHandlerIPNode;
+        UpdateCurTraceAndIp(tData, tData->tlsExceptionHandlerTraceNode, tData->tlsExceptionHandlerIPNode);
 #if 1
         //printf("\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
         fprintf(GLOBAL_STATE.CCTLibLogFile, "\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
@@ -632,8 +662,9 @@ namespace PinCCTLib {
         t->childIPs[0].calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*> ();
 #endif
         tdata->tlsThreadId = threadId;
-        tdata->tlsRootTraceNode =  tdata->tlsCurrentTraceNode = t;
-        tdata->tlsRootIPNode = tdata->tlsCurrentIPNode = &(t->childIPs[0]);
+        tdata->tlsRootTraceNode = t;
+        tdata->tlsRootIPNode = &(t->childIPs[0]);
+        UpdateCurTraceAndIp(tdata, t);
         tdata->tlsParentThreadIPNode = 0;
         tdata->tlsParentThreadTraceNode = 0;
         tdata->tlsInitiatedCall = true;
@@ -677,7 +708,7 @@ namespace PinCCTLib {
     static inline VOID SetCallInitFlag(uint32_t slot, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
         tData->tlsInitiatedCall = true;
-        tData->tlsCurrentIPNode = &(tData->tlsCurrentTraceNode->childIPs[slot]);
+        tData->tlsCurrentIPNode = &(tData->tlsCurrentChildIPs[slot]);
 #if 0
         ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
         printf("\n Calling from IP = %p", tracesIPs[slot]);
@@ -695,7 +726,7 @@ namespace PinCCTLib {
         }
 
         tData->tlsCurrentIPNode = tData->tlsCurrentTraceNode->callerIPNode;
-        tData->tlsCurrentTraceNode = tData->tlsCurrentIPNode->parentTraceNode;
+        UpdateCurTraceOnly(tData, tData->tlsCurrentIPNode->parentTraceNode);
         // RET & CALL end a trace hence the target should trigger a new trace entry for us ... pray pray.
 #if 0
         ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
@@ -787,7 +818,8 @@ namespace PinCCTLib {
                     slot++;
                 } else if(INS_IsRet(ins)) {
                     // INS_InsertPredicatedCall if the RET is not made, we should not change CCT node
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_THREAD_ID, IARG_END);
+                    // CALL_ORDER_LAST because we want update context after all analysis routines for RET have executed.
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST,  IARG_THREAD_ID, IARG_END);
 
                     if(GLOBAL_STATE.userInstrumentationCallback) {
                         // Call user instrumentation passing the flag
@@ -853,8 +885,7 @@ namespace PinCCTLib {
         if(found && (traceKey == found->key)) {
             tData->tlsCurrentIPNode->calleeTraceNodes = found;
             // already present, so set current trace to it
-            tData->tlsCurrentTraceNode = found->value;
-            tData->tlsCurrentIPNode = tData->tlsCurrentTraceNode->childIPs;
+            UpdateCurTraceAndIp(tData, found->value);
         } else {
             // Create new trace node and insert under the IPNode.
             TraceNode* newChild = new TraceNode();
@@ -905,11 +936,12 @@ namespace PinCCTLib {
                 found->right = NULL;
             }
 
-            tData->tlsCurrentTraceNode = newChild;
-            tData->tlsCurrentIPNode = newChild->childIPs;
+            UpdateCurTraceAndIp(tData, newChild);
         }
 
 #else
+
+        // TODO: Delete me .. not maintianed
 
         // Check if a trace node with currentIp already exists under this context node
         if((tData->gTraceIter = (tData->tlsCurrentIPNode->calleeTraceNodes->find(currentIp))) != tData->tlsCurrentIPNode->calleeTraceNodes->end()) {
@@ -990,17 +1022,20 @@ namespace PinCCTLib {
     IPNode* GetPINCCTCurrentContext(THREADID id) {
         ThreadData* tData = CCTLibGetTLS(id);
         uint32_t slot = tData->curSlotNo;
+        assert(slot < tData->tlsCurrentTraceNode->nSlots);
         return &(tData->tlsCurrentTraceNode->childIPs[slot]);
     }
 
 
     IPNode* GetPINCCTCurrentContextWithSlot(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
+        assert(slot < tData->tlsCurrentTraceNode->nSlots);
         return &(tData->tlsCurrentTraceNode->childIPs[slot]);
     }
 
     ContextHandle_t GetContextHandle(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
+        assert(slot < tData->tlsCurrentTraceNode->nSlots);
         return &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
     }
 
@@ -2523,7 +2558,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         if(RTN_Valid(setjmpRtn)) {
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
             RTN_Open(setjmpRtn);
-            RTN_InsertCall(setjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSetJmpCtxt, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+            RTN_InsertCall(setjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
             RTN_Close(setjmpRtn);
         }
 
@@ -2537,7 +2572,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         if(RTN_Valid(sigsetjmpRtn)) {
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGSETJMP_RTN);
             RTN_Open(sigsetjmpRtn);
-            RTN_InsertCall(sigsetjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+            //CALL_ORDER_LAST so that cctlib's trace level instrumentation has updated the tlsCurrentIPNode
+            RTN_InsertCall(sigsetjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
             RTN_Close(sigsetjmpRtn);
         }
 
