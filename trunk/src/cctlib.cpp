@@ -72,8 +72,16 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
 
-#include "libelf.h"
-#include "gelf.h"
+#ifdef TARGET_MAC
+#include <libelf/libelf.h>
+#include <libelf/gelf.h>
+#elif defined(TARGET_LINUX)
+#include <libelf.h>
+#include <gelf.h>
+#else
+ "Unsupported platform"
+#endif
+
 
 #include "splay-macros.h"
 // Need GOOGLE sparse hash tables
@@ -125,6 +133,13 @@ namespace PinCCTLib {
 #define SERIALIZED_CCT_FILE_PREFIX "/Thread-"
 #define SERIALIZED_CCT_FILE_EXTN ".cct"
 #define SERIALIZED_CCT_FILE_SUFFIX "-CCTMap.cct"
+
+// Platform specific macros
+#ifdef TARGET_MAC
+#define MAP_ANONYMOUS MAP_ANON
+typedef uintptr_t _Unwind_Ptr ;
+#endif
+
 
     /******** Fwd declarations **********/
     struct TraceNode;
@@ -2002,7 +2017,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         // Init the  segv handler that may happen (due to PIN bug) when unwinding the stack during the printing
         memset(&GLOBAL_STATE.sigAct, 0, sizeof(struct sigaction));
         GLOBAL_STATE.sigAct.sa_handler = SegvHandler;
-        GLOBAL_STATE.sigAct.sa_flags = SA_NOMASK ;
+        GLOBAL_STATE.sigAct.sa_flags = SA_NODEFER;
     }
 
     static void InitXED() {

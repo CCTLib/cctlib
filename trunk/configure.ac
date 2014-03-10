@@ -69,14 +69,37 @@ if test "$SPARSEHASH_PATH" = "" ; then
 AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
 fi
 
+CFLAGS=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas   -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E -fPIC"
+LINKFLAGS=" -g"
 
+#############################
+# Platform specific setup
+#############################
+AC_CANONICAL_HOST
+# Check for which host we are on and setup a few things
+# specifically based on the host
+case $host_os in
+  darwin* )
+        # Do something specific for mac
+        CFLAGS+=" -DTARGET_MAC"
+        ;;
+  linux*)
+        # Do something specific for linux
+        CFLAGS+=" -DTARGET_LINUX"
+        LINKFLAGS+=" -Wl,--hash-style=sysv -shared -Wl,-Bsymbolic -Wl,--version-script=${PIN_PATH}/source/include/pin/pintool.ver"
+        ;;
+    *)
+        #Default Case
+        AC_MSG_ERROR([Your platform is not currently supported])
+        ;;
+esac
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
-  CFLAGS="-c -g -O0 -Wno-deprecated -Wall -Wno-unknown-pragmas   -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E -fPIC -DTARGET_LINUX"
-  LINKFLAGS="-g -O0 -Wl,--hash-style=sysv -shared -Wl,-Bsymbolic -Wl,--version-script=${PIN_PATH}/source/include/pin/pintool.ver"
+  CFLAGS+=" -O0"
+  LINKFLAGS+=" -O0"
 else
-  CFLAGS="-c -g -O3 -Wno-deprecated -Wall  -Wno-unknown-pragmas  -fomit-frame-pointer -fno-stack-protector -fno-strict-aliasing -DNDEBUG -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E -fPIC -DTARGET_LINUX"
-  LINKFLAGS="-g -O3 -Wl,--hash-style=sysv -shared -Wl,-Bsymbolic -Wl,--version-script=${PIN_PATH}/source/include/pin/pintool.ver"
+  CFLAGS+=" -O3 -fomit-frame-pointer -fno-stack-protector -fno-strict-aliasing -DNDEBUG"
+  LINKFLAGS+=" -O3"
 fi
 
 
