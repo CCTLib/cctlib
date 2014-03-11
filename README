@@ -212,5 +212,5 @@ Q: How can I compile CCTLib for development?
 A: Pass --enable-develop switch to the ./configure step.
 
 Q: make check gives the following error: " E:Unable to load /home/mc29/software/cctlib-read-only/tests/cct_client.so: libboost_filesystem.so.1.50.0: cannot open shared object file: No such file or directory. make: *** [check] Error 255."
-A: Add your BOOST library path to LD_LIBRARY_PATH environment variable. E,g, export LD_LIBRARY_PATH=/home/software/boost_1_50_0-install/lib/:$LD_LIBRARY_PATH
+A: Add your BOOST library path to LD_LIBRARY_PATH environment variable. E.g, export LD_LIBRARY_PATH=/home/software/boost_1_50_0-install/lib/:$LD_LIBRARY_PATH
 
