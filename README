@@ -56,13 +56,14 @@ Documentation of CCTLib's key APIs
    		CCTLib clients must call this before using CCTLib. 
                 Note: For postmortem analysis call PinCCTLibInitForPostmortemAnalysis() instead.
 	Arguments:
-     isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. 
-       Following predefined values are available for client tools: 
-           INTERESTING_INS_ALL => client tool needs the calling context on each instruction. tests/cct_client.cpp is a good example to demonstrate this use case.
-           INTERESTING_INS_MEMORY_ACCESS => client tool needs the calling context on each load/store instruction. tests/cct_client_mem_only.cpp is a good example to demonstrate this use case.
-           INTERESTING_INS_NONE => client tool does not require calling context only to the level of function names and callsites, leaf level instructions are ignored.
+                isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. 
+                    Following predefined values are available for client tools: 
+                        INTERESTING_INS_ALL => client tool needs the calling context on each instruction. tests/cct_client.cpp is a good example to demonstrate this use case.
+                        INTERESTING_INS_MEMORY_ACCESS => client tool needs the calling context on each load/store instruction. tests/cct_client_mem_only.cpp is a good example to demonstrate this use case.
+                        INTERESTING_INS_NONE => client tool does not require calling context only to the level of function names and callsites, leaf level instructions are ignored.
 		logFile: file pointer where CCTLib will put its output data.
 		userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value.
+                userCallbackArg: is a void pointer that CCTLib takes and passes back to the client tool callback provided by userCallback argument.
 		doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
 
 2. ContextHandle_t GetContextHandle(THREADID threadId, uint32_t opaqueHandle);
