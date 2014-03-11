@@ -47,7 +47,7 @@ using namespace std;
 using namespace PinCCTLib;
 
 INT32 Usage2() {
-    PIN_ERROR("DeadSPy is a PinTool which tracks each memory access and reports dead writes.\n" + KNOB_BASE::StringKnobSummary() + "\n");
+    PIN_ERROR("CCTLib client Pin tool to gather calling context on each instruction.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
 
@@ -82,15 +82,9 @@ void ClientInit(int argc, char* argv[]) {
 
     fprintf(gTraceFile, "\n");
 }
-//IPNode *store;
-VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
-    //GetPINCCTCurrentContextWithSlot(id, slot);
-    GetContextHandle(id, slot);
-}
 
-VOID InstrumentIns(INS ins, VOID* v) {
-    if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_END);
+VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
+    GetContextHandle(id, slot);
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
@@ -106,13 +100,8 @@ int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     // Init Client
     ClientInit(argc, argv);
-    // Intialize CCT
-    //PinCCTLibInit(INTERESTING_INS_NONE, gTraceFile);
-    // PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile);
-    //PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
+    // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
-    // Instruction instrumentation
-    //INS_AddInstrumentFunction (InstrumentIns, 0);
     // Launch program now
     PIN_StartProgram();
     return 0;
