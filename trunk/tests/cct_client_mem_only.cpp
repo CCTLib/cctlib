@@ -48,21 +48,18 @@ using namespace std;
 using namespace PinCCTLib;
 
 INT32 Usage2() {
-    PIN_ERROR("DeadSPy is a PinTool which tracks each memory access and reports dead writes.\n" + KNOB_BASE::StringKnobSummary() + "\n");
+    PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
 
-
-
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 FILE* gTraceFile;
-
 
 // Initialized the needed data structures before launching the target program
 void ClientInit(int argc, char* argv[]) {
     // Create output file
     char name[MAX_FILE_PATH] = "client.out.";
-    char* envPath = getenv("DEADSPY_OUTPUT_FILE");
+    char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
     if(envPath) {
         // assumes max of MAX_FILE_PATH
@@ -83,9 +80,8 @@ void ClientInit(int argc, char* argv[]) {
 
     fprintf(gTraceFile, "\n");
 }
-//IPNode *store;
-VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
-    //GetPINCCTCurrentContextWithSlot(id, slot);
+
+VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
 }
 
@@ -95,7 +91,7 @@ VOID InstrumentIns(INS ins, VOID* v) {
 }
 
 
-VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
+VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
         INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
 }
@@ -109,16 +105,10 @@ int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     // Init Client
     ClientInit(argc, argv);
-    // Intialize CCT
-    //PinCCTLibInit(INTERESTING_INS_NONE, gTraceFile);
-    // PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile);
+    // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
-    //PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
-    // Instruction instrumentation
-    //INS_AddInstrumentFunction (InstrumentIns, 0);
     // Launch program now
     PIN_StartProgram();
     return 0;
 }
-
 

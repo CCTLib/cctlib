@@ -61,7 +61,7 @@ FILE* gTraceFile;
 void ClientInit(int argc, char* argv[]) {
     // Create output file
     char name[MAX_FILE_PATH] = "client.out.";
-    char* envPath = getenv("DEADSPY_OUTPUT_FILE");
+    char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
     if(envPath) {
         // assumes max of MAX_FILE_PATH
@@ -83,11 +83,11 @@ void ClientInit(int argc, char* argv[]) {
     fprintf(gTraceFile, "\n");
 }
 
-VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
+VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
 }
 
-VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
+VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
 }
 

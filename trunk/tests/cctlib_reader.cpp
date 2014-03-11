@@ -61,7 +61,7 @@ FILE* gTraceFile;
 void ClientInit(int argc, char* argv[]) {
     // Create output file
     char name[MAX_FILE_PATH] = "client.out.";
-    char* envPath = getenv("DEADSPY_OUTPUT_FILE");
+    char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
     if(envPath) {
         // assumes max of MAX_FILE_PATH
@@ -92,10 +92,14 @@ int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     // Init Client
     ClientInit(argc, argv);
-    PinCCTLibInitForReading(gTraceFile, "DeadSpy-CCTLib-database");
+    // Init CCTLib postmortem analysis
+    PinCCTLibInitForPostmortemAnalysis(gTraceFile, "DeadSpy-CCTLib-database");
     vector<Context>  contextVec;
-    GetFullCallingContext(7122, contextVec);
-    PrintFullCallingContext(7122);
+    // Gather full human-readable calling context for a reasonably expected value of context handle.
+    ContextHandle_t ctxtHndl = 7122; // some reasonably OK handle number
+    GetFullCallingContext(ctxtHndl, contextVec);
+    // Print to the log file full human-readable calling context.
+    PrintFullCallingContext(ctxtHndl);
     return 0;
 }
 

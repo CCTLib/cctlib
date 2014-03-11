@@ -54,7 +54,7 @@ Documentation of CCTLib's key APIs
 1. int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
 	Description: 
    		CCTLib clients must call this before using CCTLib. 
-                Note: For postmortem analysis call PinCCTLibInitForReading() instead.
+                Note: For postmortem analysis call PinCCTLibInitForPostmortemAnalysis() instead.
 	Arguments:
      isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. 
        Following predefined values are available for client tools: 
@@ -113,7 +113,7 @@ Documentation of CCTLib's key APIs
 		ctxtHandle: is the context handle for which the full call path is requested.
 		contextVec: is a vector that will be populated with the full call path.
 
-6. int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
+6. int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);
 	Description:
 		Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
 	Arguments:

@@ -51,13 +51,10 @@ using namespace std;
 using namespace PinCCTLib;
 
 INT32 Usage2() {
-    PIN_ERROR("DeadSPy is a PinTool which tracks each memory access and reports dead writes.\n" + KNOB_BASE::StringKnobSummary() + "\n");
+    PIN_ERROR("Pin tool to gather calling context on each instruction and associate each memory access to its data object (shadow memory technique).\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
 
-
-
-// Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 FILE* gTraceFile;
 
 
@@ -65,7 +62,7 @@ FILE* gTraceFile;
 void ClientInit(int argc, char* argv[]) {
     // Create output file
     char name[MAX_FILE_PATH] = "client.out.";
-    char* envPath = getenv("DEADSPY_OUTPUT_FILE");
+    char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
     if(envPath) {
         // assumes max of MAX_FILE_PATH
@@ -86,23 +83,17 @@ void ClientInit(int argc, char* argv[]) {
 
     fprintf(gTraceFile, "\n");
 }
-//IPNode *store;
-VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
-    //GetPINCCTCurrentContextWithSlot(id, slot);
+
+VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
 }
 
-VOID InstrumentIns(INS ins, VOID* v) {
-    if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_END);
-}
 
 VOID MemAnalysisRoutine(void* addr, THREADID threadId) {
     GetDataObjectHandle(addr, threadId);
 }
 
-VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
-    //if (INS_IsMemoryRead (ins) || INS_IsMemoryWrite(ins))
+VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
 
     // Data centric for mem inst
@@ -135,13 +126,8 @@ int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     // Init Client
     ClientInit(argc, argv);
-    // Intialize CCT
-    //PinCCTLibInit(INTERESTING_INS_NONE, gTraceFile);
-    // PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile);
-    //PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
+    // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0 ,/*doDataCentric=*/ true);
-    // Instruction instrumentation
-    //INS_AddInstrumentFunction (InstrumentIns, 0);
     // Launch program now
     PIN_StartProgram();
     return 0;
