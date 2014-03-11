@@ -524,7 +524,7 @@ inline VOID Record1ByteMemWrite(VOID* addr) {
 }
 
 #else  // no TESTING_BYTES
-VOID Record1ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+VOID Record1ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     uint32_t* lastIP = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
@@ -540,7 +540,7 @@ VOID Record1ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
 }
 #endif // end TESTING_BYTES
 
-inline VOID Record1ByteMemWriteWithoutDead(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+inline VOID Record1ByteMemWriteWithoutDead(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     uint32_t* lastIP = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
@@ -574,7 +574,7 @@ VOID Record2ByteMemWrite(VOID* addr) {
     RecordNByteMemWrite(uint16_t, 2, TWO);
 }
 #else // no bytes test
-VOID Record2ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+VOID Record2ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
@@ -647,7 +647,7 @@ VOID Record4ByteMemWrite(VOID* addr) {
 }
 #else // no TESTING_BYTES
 
-VOID Record4ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+VOID Record4ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
@@ -730,7 +730,7 @@ VOID Record8ByteMemWrite(VOID* addr) {
 }
 #else // no TESTING_BYTES
 
-VOID Record8ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+VOID Record8ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
@@ -867,7 +867,7 @@ VOID Record10ByteMemWrite(VOID* addr) {
 }
 #else // no TESTING_BYTES
 
-VOID Record10ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+VOID Record10ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
@@ -1029,7 +1029,7 @@ VOID Record16ByteMemWrite(VOID* addr) {
 }
 #else // no TESTING_BYTES
 
-VOID Record16ByteMemWrite(VOID* addr, uint32_t opaqueHandle, THREADID threadId) {
+VOID Record16ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threadId) {
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
@@ -1181,7 +1181,7 @@ VOID RecordLargeMemWrite(VOID* addr, UINT32 size) {
 #else // no TESTING_BYTES
 
 //// IMPROVE  ME
-VOID RecordLargeMemWrite(VOID* addr, UINT32 size, uint32_t opaqueHandle, THREADID threadId) {
+VOID RecordLargeMemWrite(VOID* addr, UINT32 size, const uint32_t opaqueHandle, THREADID threadId) {
     for(UINT32 i = 0 ; i < size ; i++) {
         // report dead for first byte if needed
         Record1ByteMemWrite((char*)addr + i, opaqueHandle, threadId);
@@ -1196,7 +1196,7 @@ void InspectMemRead(VOID* addr, UINT32 sz) {
 
 
 // Is called for every instruction and instruments reads and writes
-VOID Instruction(INS ins, void* v, uint32_t opaqueHandle) {
+VOID Instruction(INS ins, void* v, const uint32_t opaqueHandle) {
     // Note: predicated instructions are correctly handled as given in PIN's sample example pinatrace.cpp
     /* Comment taken from PIN sample :
      Instruments memory accesses using a predicated call, i.e.
@@ -1703,7 +1703,7 @@ int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     // Intialize DeadSpy
     InitDeadSpy(argc, argv);
-    // Intialize CCT
+    // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, Instruction, 0, /*doDataCentric=*/ false);
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);

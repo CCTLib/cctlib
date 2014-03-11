@@ -75,7 +75,7 @@ namespace PinCCTLib {
     typedef BOOL (* IsInterestingInsFptr)(INS ins);
 
     // Client callback made from CCTLib for each instruction indicated to be tracked by the client.
-    typedef VOID (*CCTLibInstrumentInsCallback)(INS ins, VOID* v, uint32_t slot);
+    typedef VOID (*CCTLibInstrumentInsCallback)(INS ins, VOID* v, const uint32_t slot);
 
     // Predefined callback for tracking no INS
     inline BOOL InterestingInsNone(INS ins) {
@@ -99,7 +99,7 @@ namespace PinCCTLib {
     /*
             Description:
                     CCTLib clients must call this before using CCTLib.
-                    Note: For postmortem analysis call PinCCTLibInitForReading() instead.
+                    Note: For postmortem analysis call PinCCTLibInitForPostmortemAnalysis() instead.
             Arguments:
                     isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. Following predefined values are available for client tools: INTERESTING_INS_ALL, INTERESTING_INS_NONE, and INTERESTING_INS_MEMORY_ACCESS.
                     logFile: file pointer where CCTLib will put its output data.
@@ -109,7 +109,7 @@ namespace PinCCTLib {
     int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
 
     /*
-    int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);
             Description:
                     Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
             Arguments:
@@ -118,7 +118,7 @@ namespace PinCCTLib {
 
                     Caution: This should never be called with PinCCTLibInit().
     */
-    int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory);
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);
 
     /*
             Description:
@@ -127,7 +127,7 @@ namespace PinCCTLib {
                     threadId: Pin's thread id of the asking thread.
                     opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
     */
-    ContextHandle_t GetContextHandle(THREADID threadId, uint32_t opaqueHandle);
+    ContextHandle_t GetContextHandle(const THREADID threadId, const uint32_t opaqueHandle);
 
     /*
             Description:
@@ -136,12 +136,12 @@ namespace PinCCTLib {
                     address: effectve address for which the data object is needed.
                     threadId: Pin's thread id of the asking thread.
     */
-    DataHandle_t GetDataObjectHandle(VOID* address, THREADID threadId);
+    DataHandle_t GetDataObjectHandle(VOID* address, const THREADID threadId);
     /*
             Description:
                     Prints the full calling context whose handle is ctxtHandle.
     */
-    VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
+    VOID PrintFullCallingContext(const ContextHandle_t ctxtHandle);
 
     /*
             Description:
@@ -151,7 +151,7 @@ namespace PinCCTLib {
                     ctxtHandle: is the context handle for which the full call path is requested.
                     contextVec: is a vector that will be populated with the full call path.
     */
-    VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec);
+    VOID GetFullCallingContext(const ContextHandle_t ctxtHandle, vector<Context>& contextVec);
 
     /*
             Description:

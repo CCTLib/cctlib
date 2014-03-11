@@ -79,7 +79,7 @@
 #include <libelf.h>
 #include <gelf.h>
 #else
- "Unsupported platform"
+"Unsupported platform"
 #endif
 
 
@@ -137,7 +137,7 @@ namespace PinCCTLib {
 // Platform specific macros
 #ifdef TARGET_MAC
 #define MAP_ANONYMOUS MAP_ANON
-typedef uintptr_t _Unwind_Ptr ;
+    typedef uintptr_t _Unwind_Ptr ;
 #endif
 
 
@@ -400,7 +400,7 @@ typedef uintptr_t _Unwind_Ptr ;
         return tdata;
     }
 
-    static void DumpCallStack(THREADID id, uint32_t slot) {
+    void DumpCallStack(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         fprintf(stderr, "\n slot =%u, max = %u\n", slot, tData->tlsCurrentTraceNode->nSlots);
         PIN_LockClient();
@@ -1048,7 +1048,7 @@ typedef uintptr_t _Unwind_Ptr ;
         return &(tData->tlsCurrentTraceNode->childIPs[slot]);
     }
 
-    ContextHandle_t GetContextHandle(THREADID id, uint32_t slot) {
+    ContextHandle_t GetContextHandle(const THREADID id, const uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
         return &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
@@ -1775,7 +1775,7 @@ typedef uintptr_t _Unwind_Ptr ;
 
     static VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec);
 
-    VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec) {
+    VOID GetFullCallingContext(const ContextHandle_t ctxtHandle, vector<Context>& contextVec) {
         GetFullCallingContext(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
     }
 
@@ -1954,7 +1954,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             GetFullCallingContextInSitu(curIPNode, contextVec);
     }
 
-    VOID PrintFullCallingContext(ContextHandle_t ctxtHandle) {
+    VOID PrintFullCallingContext(const ContextHandle_t ctxtHandle) {
         vector<Context> contextVec;
 
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM)
@@ -2816,7 +2816,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
     int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric) {
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM) {
-            fprintf(stderr, "\n CCTLib was initialized for postmortem analysis using PinCCTLibInitForReading! Exiting...\n");
+            fprintf(stderr, "\n CCTLib was initialized for postmortem analysis using PinCCTLibInitForPostmortemAnalysis! Exiting...\n");
             PIN_ExitApplication(-1);
         }
 
@@ -2862,7 +2862,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
 
-    int PinCCTLibInitForReading(FILE* logFile, string serializedFilesDirectory) {
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory) {
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_COLLECTION) {
             fprintf(stderr, "\n CCTLib was initialized for online collection using PinCCTLibInit! Exiting...\n");
             PIN_ExitApplication(-1);
