@@ -76,7 +76,7 @@ Documentation of CCTLib's key APIs
 	Description:
 		Client tools call this API when they need handle to the data object (DataHandle_t).
 	Arguments:
-		address: effectve address for which the data object is needed.
+		address: effective address for which the data object is needed.
 		threadId: Pin's thread id of the asking thread.
 	Note: Make sure that you have finite stack size. Don't set "ulimit -s unlimited"
 
@@ -148,13 +148,57 @@ cct_data_centric_client_tree_based.cpp is a simple tool that associates each mem
 deadspy_client.cpp is an implementation of DeadSpy that uses CCTLib and serializes the CCT.
 cctlib_reader.cpp reads the serialized CCT and build back the CCT for postmortem analysis.
 
+
+--------------------------------------------------
+Example code snippets
+--------------------------------------------------
+
+1. Gathering calling context on every instruction by a Pin tool.
+   In your Pin tool's main(), after initializing Pin via PIN_Init, call PinCCTLib::PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0).
+   The arguments to PinCCTLibInit are explained below:
+   1.1 INTERESTING_INS_ALL is a predefined callback in CCTLib that tells that the client tool "may" want to gather calling context on any instruction.
+      Instead of using INTERESTING_INS_ALL, the client tool may provide its own callback function whose signature must be as follows:      
+      typedef BOOL (* IsInterestingInsFptr)(INS ins);      
+      INTERESTING_INS_ALL is implemented as follow: BOOL InterestingInsAll(INS ins) { return true;}
+      A more sophisticated Pin client tool may inspect INS and decide the return value true/false differently.
+      
+   1.2 gTraceFile is a file pointer (FILE *) that the client tool must pass to CCTLib so that CCTLib can write its log messages to that file. 
+       
+   1.3 InstrumentInsCallback is a callback that Pin client tool provides to CCTLib. CCTLib calls this function on each INS for which the first argument "IsInterestingInsFptr" return true.
+       The prototype of InstrumentInsCallback is as follow:
+
+       typedef VOID (*CCTLibInstrumentInsCallback)(INS ins, VOID* v, uint32_t slot);
+
+       INS is the instruction on which instrumentation is being performed. 
+       v is the same pointer that the client had passed to CCTLib (i.e., 4th argument to  PinCCTLibInit).
+       slot is an opaque handle that CCTLib gives to the Pin client which the client MUST faithfully pass as an argument to CCTLib's GetContextHandle() routine called from this INS.
+
+       In the implementation of InstrumentInsCallback callback, the client tool can perform the instrumentation that it would normally perform via functions such as INS_InsertCall() or INS_InsertPredicatedCall().
+       For example, a client Pin tool that increments a counter on each instruction and gathers calling context can have its InstrumentInsCallback() implemented as follows:
+       
+       VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
+           // Increment counter
+           gCounter++;
+           
+           // Gather calling context
+           GetContextHandle(id, slot);
+       }
+
+       VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
+           INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
+       }
+       
+       
+       This completes a simple example of gathering calling context on each instruction. Full code is present in tests/cct_client.cpp
+
+
 --------------------------------------------------
 Some useful control flags / macros
 --------------------------------------------------
  
-1. MAX_IPNODES is the maximum number of call path handles supported. It is by default set to (1<<32). The virtual address space is eagerly allocated get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a buitable value by passing -DMAX_IPNODES=<num> when compiling cctlib.
+1. MAX_IPNODES is the maximum number of call path handles supported. It is by default set to (1<<32). The virtual address space is eagerly allocated get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_IPNODES=<num> when compiling cctlib.
 
-2. MAX_STRING_POOL_NODES is the maximum number of variable names supported in data-centric analysis. It is by default set to (1<<30). The virtual address space is eagerly allocated to get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a buitable value by passing -DMAX_STRING_POOL_NODES=<num> when compiling cctlib.
+2. MAX_STRING_POOL_NODES is the maximum number of variable names supported in data-centric analysis. It is by default set to (1<<30). The virtual address space is eagerly allocated to get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_STRING_POOL_NODES=<num> when compiling cctlib.
 
 
 --------------------------------------------------
