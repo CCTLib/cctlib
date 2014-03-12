@@ -400,6 +400,7 @@ namespace PinCCTLib {
         return tdata;
     }
 
+    // This function is for dumping call path from debugger.
     void DumpCallStack(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         fprintf(stderr, "\n slot =%u, max = %u\n", slot, tData->tlsCurrentTraceNode->nSlots);
@@ -414,6 +415,11 @@ namespace PinCCTLib {
         }
 
         PIN_UnlockClient();
+    }
+
+    // This function is for dumping call path from debugger.
+    void DumpCallStackEasy() {
+        DumpCallStack(PIN_ThreadId(), 0);
     }
 
 
@@ -471,8 +477,10 @@ namespace PinCCTLib {
 
     static inline VOID RestoreSigLongJmpCtxt(THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
+        assert(tData->tlsLongJmpHoldBuf);
         tData->tlsCurrentIPNode = tData->tlsLongJmpMap[tData->tlsLongJmpHoldBuf];
         UpdateCurTraceOnly(tData, tData->tlsCurrentIPNode->parentTraceNode);
+	tData->tlsLongJmpHoldBuf = 0; // reset so that next time we can check if it was set correctly.
         //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n RestoreSigLongJmpCtxt2 tlsLongJmpHoldBuf = %lu",tData->tlsLongJmpHoldBuf);
     }
 
@@ -544,7 +552,7 @@ namespace PinCCTLib {
     }
 
 
-    static VOID CaptureCallerThatCanHandlerException(VOID* exceptionCallerContext, THREADID threadId) {
+    static VOID CaptureCallerThatCanHandleException(VOID* exceptionCallerContext, THREADID threadId) {
         //printf("\n Target ip is %p, exceptionCallerIP = %p", targeIp);
         //        extern ADDRINT _Unwind_GetIP(VOID *);
         //        ADDRINT exceptionCallerIP = (ADDRINT) _Unwind_GetIP(exceptionCallerContext);
@@ -2621,11 +2629,14 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 #if 1
 
         // Look for unwinding related routines present in libc.so.x file only
-        if(strstr(IMG_Name(img).c_str(), "libc.so")) {
+        if(strstr(IMG_Name(img).c_str(), "libgcc_s.so")) {
             if(RTN_Valid(unwindSetIpRtn)) {
+#ifdef DEBUG_CCTLIB
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_SETIP, IMG_Name(img).c_str());
+#endif
                 RTN_Open(unwindSetIpRtn);
                 // Get the intended target IP and prepare the call stack to be ready to unwind to that level
-                RTN_InsertCall(unwindSetIpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureCallerThatCanHandlerException, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+                RTN_InsertCall(unwindSetIpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureCallerThatCanHandleException, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
 #if 0
 
                 // We should conditionally enable this only for SjLj style exceptions which overwrite RA in _Unwind_SetIP
@@ -2645,6 +2656,9 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             }
 
             if(RTN_Valid(unwindResumeRtn)) {
+#ifdef DEBUG_CCTLIB
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_RESUME, IMG_Name(img).c_str());
+#endif
                 RTN_Open(unwindResumeRtn);
 
                 // *** THIS ROUTINE NEVER RETURNS ****
@@ -2653,7 +2667,9 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                     if(!INS_IsRet(i))
                         continue;
 
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+		    // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
+                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST+10, IARG_THREAD_ID, IARG_END);
+                    //INS_InsertCall(i, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterException, IARG_THREAD_ID, IARG_END);
                 }
 
                 RTN_Close(unwindResumeRtn);
@@ -2662,6 +2678,9 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 #if 1
 
             if(RTN_Valid(unwindRaiseExceptionRtn)) {
+#ifdef DEBUG_CCTLIB
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_RAISEEXCEPTION, IMG_Name(img).c_str());
+#endif
                 RTN_Open(unwindRaiseExceptionRtn);
                 // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
                 INS  lastIns = INS_Invalid();
@@ -2673,9 +2692,11 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                         lastIns = i;
                 }
 
-                if(lastIns != INS_Invalid())
-                    INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                else {
+                if(lastIns != INS_Invalid()) {
+		    // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
+                    INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST+10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                    //INS_InsertCall(lastIns, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                }else {
                     //assert(0 && "did not find the last return in unwindRaiseExceptionRtn");
                     //printf("\n did not find the last return in unwindRaiseExceptionRtn");
                     fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindRaiseExceptionRtn");
@@ -2685,6 +2706,9 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             }
 
             if(RTN_Valid(unwindForceUnwindRtn)) {
+#ifdef DEBUG_CCTLIB
+                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_FORCEUNWIND, IMG_Name(img).c_str());
+#endif
                 RTN_Open(unwindForceUnwindRtn);
                 // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
                 INS  lastIns = INS_Invalid();
@@ -2696,9 +2720,11 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                         lastIns = i;
                 }
 
-                if(lastIns != INS_Invalid())
-                    INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                else {
+                if(lastIns != INS_Invalid()) {
+		  // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
+                  INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST+10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                  //INS_InsertCall(lastIns, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                } else {
                     // TODO : This function _Unwind_ForcedUnwind also appears in /lib64/libpthread.so.0. in which case, we should ignore it.
                     //assert(0 && "did not find the last return in unwindForceUnwindRtn");
                     //printf("\n did not find the last return in unwindForceUnwindRtn");
@@ -2717,8 +2743,11 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                 for(INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
                     if(!INS_IsRet(i))
                         continue;
-                    else
-                        INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                    else {
+			// CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
+                        INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST+10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                        //INS_InsertCall(i, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+		    }
                 }
 
                 RTN_Close(unwindRaiseExceptionRtn);
@@ -2731,8 +2760,11 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                 for(INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
                     if(!INS_IsRet(i))
                         continue;
-                    else
-                        INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                    else {
+			// CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
+                        INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST+10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                        //INS_InsertCall(i, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                    }
                 }
 
                 RTN_Close(unwindForceUnwindRtn);
