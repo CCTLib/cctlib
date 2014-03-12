@@ -2528,11 +2528,13 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     VOID CCTLibImage(IMG img, VOID* v) {
         //  Find the pthread_create() function.
 #define PTHREAD_CREATE_RTN "pthread_create"
-#define SETJMP_RTN "_setjmp"
-#define LONGJMP_RTN "longjmp"
-#define SIGSETJMP_RTN "sigsetjmp"
-#define SIGLONGJMP_RTN "siglongjmp"
 #define ARCH_LONGJMP_RTN "__longjmp"
+#define SETJMP_RTN "_setjmp"
+//#define LONGJMP_RTN "longjmp"
+#define LONGJMP_RTN ARCH_LONGJMP_RTN
+#define SIGSETJMP_RTN "sigsetjmp"
+//#define SIGLONGJMP_RTN "siglongjmp"
+#define SIGLONGJMP_RTN ARCH_LONGJMP_RTN
 #define UNWIND_SETIP "_Unwind_SetIP"
 #define UNWIND_RAISEEXCEPTION "_Unwind_RaiseException"
 #define UNWIND_RESUME "_Unwind_Resume"
@@ -2570,168 +2572,174 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
 #endif
 
-        if(RTN_Valid(setjmpRtn)) {
-            //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
-            RTN_Open(setjmpRtn);
-            RTN_InsertCall(setjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
-            RTN_Close(setjmpRtn);
-        }
+        // Look for setjmp and longjmp routines present in libc.so.x file only
+        if(strstr(IMG_Name(img).c_str(), "libc.so")) {
+            if(RTN_Valid(setjmpRtn)) {
+                //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SETJMP_RTN);
+                RTN_Open(setjmpRtn);
+                RTN_InsertCall(setjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+                RTN_Close(setjmpRtn);
+            }
 
-        if(RTN_Valid(longjmpRtn)) {
-            //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",LONGJMP_RTN);
-            RTN_Open(longjmpRtn);
-            RTN_InsertCall(longjmpRtn, IPOINT_BEFORE, (AFUNPTR)HoldLongJmpBuf, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
-            RTN_Close(longjmpRtn);
-        }
+            if(RTN_Valid(longjmpRtn)) {
+                //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",LONGJMP_RTN);
+                RTN_Open(longjmpRtn);
+                RTN_InsertCall(longjmpRtn, IPOINT_BEFORE, (AFUNPTR)HoldLongJmpBuf, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+                RTN_Close(longjmpRtn);
+            }
 
-        if(RTN_Valid(sigsetjmpRtn)) {
-            //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGSETJMP_RTN);
-            RTN_Open(sigsetjmpRtn);
-            //CALL_ORDER_LAST so that cctlib's trace level instrumentation has updated the tlsCurrentIPNode
-            RTN_InsertCall(sigsetjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
-            RTN_Close(sigsetjmpRtn);
-        }
+            if(RTN_Valid(sigsetjmpRtn)) {
+                //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGSETJMP_RTN);
+                RTN_Open(sigsetjmpRtn);
+                //CALL_ORDER_LAST so that cctlib's trace level instrumentation has updated the tlsCurrentIPNode
+                RTN_InsertCall(sigsetjmpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureSigSetJmpCtxt, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+                RTN_Close(sigsetjmpRtn);
+            }
 
-        if(RTN_Valid(siglongjmpRtn)) {
-            //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGLONGJMP_RTN);
-            RTN_Open(siglongjmpRtn);
-            RTN_InsertCall(siglongjmpRtn, IPOINT_BEFORE, (AFUNPTR)HoldLongJmpBuf, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
-            RTN_Close(siglongjmpRtn);
-        }
+            if(RTN_Valid(siglongjmpRtn)) {
+                //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",SIGLONGJMP_RTN);
+                RTN_Open(siglongjmpRtn);
+                RTN_InsertCall(siglongjmpRtn, IPOINT_BEFORE, (AFUNPTR)HoldLongJmpBuf, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+                RTN_Close(siglongjmpRtn);
+            }
 
-        if(RTN_Valid(archlongjmpRtn)) {
-            //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",ARCH_LONGJMP_RTN);
-            RTN_Open(archlongjmpRtn);
-            // Insert after the last JMP Inst.
-            INS lastIns = RTN_InsTail(archlongjmpRtn);
-            assert(INS_Valid(lastIns));
-            assert(INS_IsBranch(lastIns));
-            assert(!INS_IsDirectBranch(lastIns));
-            INS_InsertCall(lastIns, IPOINT_TAKEN_BRANCH, (AFUNPTR) RestoreSigLongJmpCtxt,  IARG_THREAD_ID, IARG_END);
-            //RTN_InsertCall(siglongjmpRtn, IPOINT_BEFORE, (AFUNPTR)RestoreSigLongJmpCtxt, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
-            RTN_Close(archlongjmpRtn);
+            if(RTN_Valid(archlongjmpRtn)) {
+                //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n Found RTN %s",ARCH_LONGJMP_RTN);
+                RTN_Open(archlongjmpRtn);
+                // Insert after the last JMP Inst.
+                INS lastIns = RTN_InsTail(archlongjmpRtn);
+                assert(INS_Valid(lastIns));
+                assert(INS_IsBranch(lastIns));
+                assert(!INS_IsDirectBranch(lastIns));
+                INS_InsertCall(lastIns, IPOINT_TAKEN_BRANCH, (AFUNPTR) RestoreSigLongJmpCtxt,  IARG_THREAD_ID, IARG_END);
+                //RTN_InsertCall(siglongjmpRtn, IPOINT_BEFORE, (AFUNPTR)RestoreSigLongJmpCtxt, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+                RTN_Close(archlongjmpRtn);
+            }
         }
 
 //#if DISABLE_EXCEPTION_HANDLING
 #if 1
 
-        if(RTN_Valid(unwindSetIpRtn)) {
-            RTN_Open(unwindSetIpRtn);
-            // Get the intended target IP and prepare the call stack to be ready to unwind to that level
-            RTN_InsertCall(unwindSetIpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureCallerThatCanHandlerException, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
+        // Look for unwinding related routines present in libc.so.x file only
+        if(strstr(IMG_Name(img).c_str(), "libc.so")) {
+            if(RTN_Valid(unwindSetIpRtn)) {
+                RTN_Open(unwindSetIpRtn);
+                // Get the intended target IP and prepare the call stack to be ready to unwind to that level
+                RTN_InsertCall(unwindSetIpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureCallerThatCanHandlerException, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
 #if 0
 
-            // We should conditionally enable this only for SjLj style exceptions which overwrite RA in _Unwind_SetIP
-            // After every return instruction in this function, call SetCurTraceNodeAfterException
-            for(INS i = RTN_InsHead(unwindSetIpRtn); INS_Valid(i); i = INS_Next(i)) {
-                if(!INS_IsRet(i))
-                    continue;
+                // We should conditionally enable this only for SjLj style exceptions which overwrite RA in _Unwind_SetIP
+                // After every return instruction in this function, call SetCurTraceNodeAfterException
+                for(INS i = RTN_InsHead(unwindSetIpRtn); INS_Valid(i); i = INS_Next(i)) {
+                    if(!INS_IsRet(i))
+                        continue;
 
-                INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
-            }
+                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+                }
 
 #endif
-            // I don;t think there is a need to do this as the last instruction unlike RestoreSigLongJmpCtxt.
-            // Since _Unwind_SetIP implementations employ a technique of overwriting the return address to jump to the
-            // exception handler, calls made by _Unwind_SetIP if any will not cause any problem even if we rewire the call path before executing the return.
-            RTN_Close(unwindSetIpRtn);
-        }
-
-        if(RTN_Valid(unwindResumeRtn)) {
-            RTN_Open(unwindResumeRtn);
-
-            // *** THIS ROUTINE NEVER RETURNS ****
-            // After every return instruction in this function, call SetCurTraceNodeAfterException
-            for(INS i = RTN_InsHead(unwindResumeRtn); INS_Valid(i); i = INS_Next(i)) {
-                if(!INS_IsRet(i))
-                    continue;
-
-                INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+                // I don;t think there is a need to do this as the last instruction unlike RestoreSigLongJmpCtxt.
+                // Since _Unwind_SetIP implementations employ a technique of overwriting the return address to jump to the
+                // exception handler, calls made by _Unwind_SetIP if any will not cause any problem even if we rewire the call path before executing the return.
+                RTN_Close(unwindSetIpRtn);
             }
 
-            RTN_Close(unwindResumeRtn);
-        }
+            if(RTN_Valid(unwindResumeRtn)) {
+                RTN_Open(unwindResumeRtn);
+
+                // *** THIS ROUTINE NEVER RETURNS ****
+                // After every return instruction in this function, call SetCurTraceNodeAfterException
+                for(INS i = RTN_InsHead(unwindResumeRtn); INS_Valid(i); i = INS_Next(i)) {
+                    if(!INS_IsRet(i))
+                        continue;
+
+                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+                }
+
+                RTN_Close(unwindResumeRtn);
+            }
 
 #if 1
 
-        if(RTN_Valid(unwindRaiseExceptionRtn)) {
-            RTN_Open(unwindRaiseExceptionRtn);
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            INS  lastIns = INS_Invalid();
+            if(RTN_Valid(unwindRaiseExceptionRtn)) {
+                RTN_Open(unwindRaiseExceptionRtn);
+                // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
+                INS  lastIns = INS_Invalid();
 
-            for(INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
-                if(!INS_IsRet(i))
-                    continue;
-                else
-                    lastIns = i;
+                for(INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
+                    if(!INS_IsRet(i))
+                        continue;
+                    else
+                        lastIns = i;
+                }
+
+                if(lastIns != INS_Invalid())
+                    INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                else {
+                    //assert(0 && "did not find the last return in unwindRaiseExceptionRtn");
+                    //printf("\n did not find the last return in unwindRaiseExceptionRtn");
+                    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindRaiseExceptionRtn");
+                }
+
+                RTN_Close(unwindRaiseExceptionRtn);
             }
 
-            if(lastIns != INS_Invalid())
-                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-            else {
-                //assert(0 && "did not find the last return in unwindRaiseExceptionRtn");
-                //printf("\n did not find the last return in unwindRaiseExceptionRtn");
-                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindRaiseExceptionRtn");
+            if(RTN_Valid(unwindForceUnwindRtn)) {
+                RTN_Open(unwindForceUnwindRtn);
+                // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
+                INS  lastIns = INS_Invalid();
+
+                for(INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
+                    if(!INS_IsRet(i))
+                        continue;
+                    else
+                        lastIns = i;
+                }
+
+                if(lastIns != INS_Invalid())
+                    INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                else {
+                    // TODO : This function _Unwind_ForcedUnwind also appears in /lib64/libpthread.so.0. in which case, we should ignore it.
+                    //assert(0 && "did not find the last return in unwindForceUnwindRtn");
+                    //printf("\n did not find the last return in unwindForceUnwindRtn");
+                    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindForceUnwindRtn");
+                }
+
+                RTN_Close(unwindForceUnwindRtn);
             }
-
-            RTN_Close(unwindRaiseExceptionRtn);
-        }
-
-        if(RTN_Valid(unwindForceUnwindRtn)) {
-            RTN_Open(unwindForceUnwindRtn);
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            INS  lastIns = INS_Invalid();
-
-            for(INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
-                if(!INS_IsRet(i))
-                    continue;
-                else
-                    lastIns = i;
-            }
-
-            if(lastIns != INS_Invalid())
-                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-            else {
-                // TODO : This function _Unwind_ForcedUnwind also appears in /lib64/libpthread.so.0. in which case, we should ignore it.
-                //assert(0 && "did not find the last return in unwindForceUnwindRtn");
-                //printf("\n did not find the last return in unwindForceUnwindRtn");
-                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindForceUnwindRtn");
-            }
-
-            RTN_Close(unwindForceUnwindRtn);
-        }
 
 #else
 
-        if(RTN_Valid(unwindRaiseExceptionRtn)) {
-            RTN_Open(unwindRaiseExceptionRtn);
+            if(RTN_Valid(unwindRaiseExceptionRtn)) {
+                RTN_Open(unwindRaiseExceptionRtn);
 
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            for(INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
-                if(!INS_IsRet(i))
-                    continue;
-                else
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
+                for(INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
+                    if(!INS_IsRet(i))
+                        continue;
+                    else
+                        INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                }
+
+                RTN_Close(unwindRaiseExceptionRtn);
             }
 
-            RTN_Close(unwindRaiseExceptionRtn);
-        }
+            if(RTN_Valid(unwindForceUnwindRtn)) {
+                RTN_Open(unwindForceUnwindRtn);
 
-        if(RTN_Valid(unwindForceUnwindRtn)) {
-            RTN_Open(unwindForceUnwindRtn);
+                // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
+                for(INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
+                    if(!INS_IsRet(i))
+                        continue;
+                    else
+                        INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                }
 
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            for(INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
-                if(!INS_IsRet(i))
-                    continue;
-                else
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
+                RTN_Close(unwindForceUnwindRtn);
             }
-
-            RTN_Close(unwindForceUnwindRtn);
-        }
 
 #endif
+        } // end strstr
 #endif
         //end DISABLE_EXCEPTION_HANDLING
 
