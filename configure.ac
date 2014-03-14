@@ -70,7 +70,7 @@ AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${wi
 fi
 
 CFLAGS=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas   -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E -fPIC"
-LINKFLAGS=" -g"
+LINKFLAGS=" -g "
 
 #############################
 # Platform specific setup
@@ -104,7 +104,7 @@ fi
 
 
 CCTLIB_INCLUDES="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/src -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
-CCTLIB_LIBRARIES="-L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -L${PIN_PATH}/intel64/runtime/cpplibs -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
+CCTLIB_LIBRARIES=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext -Wl,-rpath=${PIN_PATH}/intel64/runtime/cpplibs  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -L${PIN_PATH}/intel64/runtime/cpplibs -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
 
 
 AC_SUBST([PIN_PATH])
