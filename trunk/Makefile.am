@@ -7,7 +7,7 @@ $(SUBDIRS):
 
 tests: src
 
-clean:
+clean-local:
 	rm -f deadspy.out.* client.out.* src/*.o src/*.a tests/*.o tests/*.so
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
 

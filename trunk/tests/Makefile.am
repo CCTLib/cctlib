@@ -37,6 +37,6 @@ deadWrites.o: deadWrites.cpp
 
 threaded.o: threaded.c
 	 $(CC) -g -fopenmp -o threaded.o threaded.c
-clean:
+clean-local:
 	rm -f *.o *.so
 
