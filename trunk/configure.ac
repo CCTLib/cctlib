@@ -32,10 +32,10 @@ AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 #-------------------------------------------------
 # Look for libelf
 #-------------------------------------------------
-AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"])
+AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"; exit -1])
 
-AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"])
-AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"])
+AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
+AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
 
 
 PIN_PATH=

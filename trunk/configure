@@ -4069,7 +4069,7 @@ $as_echo "$ac_cv_lib_elf_elf_version" >&6; }
 if test "x$ac_cv_lib_elf_elf_version" = x""yes; then :
   echo "OK!"
 else
-  echo "Not found!"
+  echo "Not found!"; exit -1
 fi
 
 
@@ -4474,7 +4474,7 @@ ac_fn_c_check_header_mongrel "$LINENO" "libelf.h" "ac_cv_header_libelf_h" "$ac_i
 if test "x$ac_cv_header_libelf_h" = x""yes; then :
   echo "OK!"
 else
-  echo "Not found!"
+  echo "Not found!"; exit -1
 fi
 
 
@@ -4482,7 +4482,7 @@ ac_fn_c_check_header_mongrel "$LINENO" "gelf.h" "ac_cv_header_gelf_h" "$ac_inclu
 if test "x$ac_cv_header_gelf_h" = x""yes; then :
   echo "OK!"
 else
-  echo "Not found!"
+  echo "Not found!"; exit -1
 fi
 
 
