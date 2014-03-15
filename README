@@ -29,9 +29,9 @@ Set PATH_TO_GOOGLE_SPARSE_HASH, PATH_TO_PIN, and PATH_TO_BOOST to appropriate va
 build.sh file.
 
  e.g. 
- PATH_TO_GOOGLE_SPARSE_HASH=/projects/hpc/software/sparsehash-2.0.2
+ PATH_TO_GOOGLE_SPARSE_HASH=/projects/hpc/software/sparsehash-2.0.2-install/
  PATH_TO_PIN=/projects/hpc/software/pin_rev/pin-2.12-56759-gcc.4.4.7-linux/
- PATH_TO_BOOST=/projects/pkgs/boost_1_47_0/
+ PATH_TO_BOOST=/projects/pkgs/boost_1_47_0-install/
  
 To build, simply type "sh build.sh"
 This will compile CCTLib. 
