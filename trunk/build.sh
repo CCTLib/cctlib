@@ -8,6 +8,6 @@ PATH_TO_BOOST=/projects/pkgs/boost_1_47_0/
 make
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests
-#echo "*********YOU SUCCESSFULLY TESTED CCTLib***********"
 #make check
+#echo "*********YOU SUCCESSFULLY TESTED CCTLib***********"
 
