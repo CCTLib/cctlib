@@ -1,6 +1,11 @@
+AC_PREREQ(2.57)
 AC_INIT(cctlib, 0.1, chabbi.milind@gmail.com)
+# The argument here is just something that should be in the current directory
+# (for sanity checking)
+AC_CONFIG_SRCDIR(README)
+AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+AC_CONFIG_HEADERS([src/config.h])
 AC_PROG_CXX
-AM_INIT_AUTOMAKE
 
 #-------------------------------------------------
 # enable-develop
@@ -21,7 +26,7 @@ AC_ARG_ENABLE([develop],
   [OPT_ENABLE_DEVELOP=no])
 
 AC_MSG_RESULT([${OPT_ENABLE_DEVELOP}])
-AM_CONDITIONAL(OPT_ENABLE_DEVELOP, test "${OPT_ENABLE_DEVELOP}" = "yes")
+AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
 
 PIN_PATH=
@@ -103,7 +108,7 @@ else
 fi
 
 
-CCTLIB_INCLUDES="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/src -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
+CCTLIB_INCLUDES="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/include -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
 CCTLIB_LIBRARIES=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext -Wl,-rpath=${PIN_PATH}/intel64/runtime/cpplibs  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -L${PIN_PATH}/intel64/runtime/cpplibs -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
 
 
@@ -119,4 +124,6 @@ AC_MSG_NOTICE([  Pin:         ${PIN_PATH}])
 AC_MSG_NOTICE([  Google sparse hash:         ${SPARSEHASH_PATH}])
 AC_MSG_NOTICE([  Boost:         ${BOOST_PATH}])
 
-AC_OUTPUT(Makefile src/Makefile tests/Makefile)
+# Write generated configuration file
+AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])
+AC_OUTPUT

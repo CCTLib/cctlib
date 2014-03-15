@@ -9,6 +9,6 @@ libcctlib_tree_based.a: cctlib.cpp
 	$(CXX) -DUSE_TREE_BASED_FOR_DATA_CENTRIC  $(CFLAGS) $(CCTLIB_INCLUDES) -o cctlib_tree_based.o cctlib.cpp
 	$(AR) -cvq libcctlib_tree_based.a cctlib_tree_based.o
 
-clean:
+clean-local:
 	rm -f *.o *.a
 
