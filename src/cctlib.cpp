@@ -151,9 +151,9 @@ namespace PinCCTLib {
 
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 
-#define LOCKED (0b1)
-#define UNLOCKED (0b0)
-#define UNLOCKED_AND_PREDECESSOR_WAS_WRITER (0b10)
+#define LOCKED (1)
+#define UNLOCKED (0)
+#define UNLOCKED_AND_PREDECESSOR_WAS_WRITER (2)
 
     struct varType;
     struct PendingOps_t;
