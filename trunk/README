@@ -19,6 +19,8 @@ http://code.google.com/p/sparsehash/ .
 
 3. Download and install Boost C++ library.
 
+4. Ensure libelf is installed; header files (libelf.h and gelf.h) should be available in your system includes and library in LD_LIBRARY_PATH.
+
 --------------------------------------------------
 	Compiling
 --------------------------------------------------
