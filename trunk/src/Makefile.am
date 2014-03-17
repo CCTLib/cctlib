@@ -1,13 +1,11 @@
 #include ../Makefile.inc
-all:  libcctlib.a libcctlib_tree_based.a
-
-libcctlib.a: cctlib.cpp
-	$(CXX) -DUSE_SHADOW_FOR_DATA_CENTRIC  $(CXXFLAGS) $(CPPFLAGS) -o cctlib.o cctlib.cpp
-	$(AR) -cvq libcctlib.a cctlib.o
-
-libcctlib_tree_based.a: cctlib.cpp
-	$(CXX) -DUSE_TREE_BASED_FOR_DATA_CENTRIC  $(CXXFLAGS) $(CPPFLAGS) -o cctlib_tree_based.o cctlib.cpp
-	$(AR) -cvq libcctlib_tree_based.a cctlib_tree_based.o
+#all:  libcctlib.a libcctlib_tree_based.a
+lib_LIBRARIES=  libcctlib.a libcctlib_tree_based.a
+libcctlib_a_SOURCES=cctlib.cpp cctlib.H splay-macros.h
+libcctlib_tree_based_a_SOURCES=cctlib.cpp cctlib.H splay-macros.h
+include_HEADERS=cctlib.H
+libcctlib_CPPFLAGS=-DUSE_SHADOW_FOR_DATA_CENTRIC
+libcctlib_tree_based_CPPFLAGS=-DUSE_TREE_BASED_FOR_DATA_CENTRIC
 
 clean-local:
 	rm -f *.o *.a

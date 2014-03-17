@@ -7,6 +7,7 @@ AM_INIT_AUTOMAKE([foreign -Wall -Werror])
 AC_CONFIG_HEADERS([src/config.h])
 AC_PROG_CXX
 AC_PROG_CC
+AC_PROG_RANLIB
 
 #-------------------------------------------------
 # enable-develop
