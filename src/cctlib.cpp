@@ -1309,9 +1309,11 @@ namespace PinCCTLib {
             }
 
             TraceNode*  rootTrace = DeserializeCCTNode(GET_IPNODE_FROM_CONTEXT_HANDLE(parentIpHandle), fp);
+#ifndef NDEBUG
             // we should be at the end of file now
             uint8_t dummy;
             assert(fread(&dummy, sizeof(uint8_t), 1, fp) == 0);
+#endif
             fclose(fp);
             // Add a ThreadData record to GLOBAL_STATE.deserializedCCTs
             ThreadData tdata;
