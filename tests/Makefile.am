@@ -1,43 +1,60 @@
 #include ../Makefile.inc
-all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so 
+PIN_ROOT=$(PIN_PATH)
+CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
+include $(CONFIG_ROOT)/makefile.config
+
+TEST_TOOL_ROOTS =  cct_client  deadspy_client cct_data_centric_client cct_client_mem_only cct_data_centric_client_tree_based  cctlib_reader
+APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
-CCTLIB_TEST_CPPFLAGS = $(CPPFLAGS) -I../src/
-CCTLIB_SHADOW_BASED_LIBRARY=../src/libcctlib.a
-CCTLIB_TREE_BASED_LIBRARY=../src/libcctlib_tree_based.a
+CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I$(BOOST_PATH)/include  -I../src/
+BOOST_LD_FLAGS =  -L$(BOOST_PATH)/lib -Wl,-rpath $(BOOST_PATH)/lib 
+BOOST_LIBS =  -lboost_filesystem 
+CCTLIB_SHADOW_BASED_LIBRARY=../src/$(OBJDIR)libcctlib$(LIB_SUFFIX)
+CCTLIB_TREE_BASED_LIBRARY=../src/$(OBJDIR)libcctlib_tree_based$(LIB_SUFFIX)
 
-cct_client.so: cct_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_client.cpp 
-	$(CXX)   -o cct_client.so cct_client.o -L../src/ -lcctlib  $(LDFLAGS) 
+$(OBJDIR)cct_client$(OBJ_SUFFIX): cct_client.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
+$(OBJDIR)cct_client$(PINTOOL_SUFFIX): $(OBJDIR)cct_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-cctlib_reader.so: cctlib_reader.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cctlib_reader.cpp 
-	$(CXX)   -o cctlib_reader.so cctlib_reader.o -L../src/ -lcctlib  $(LDFLAGS) 
+$(OBJDIR)deadspy_client$(OBJ_SUFFIX): deadspy_client.cpp ../src/cctlib.H
+	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-deadspy_client.so: deadspy_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   deadspy_client.cpp 
-	$(CXX)   -o deadspy_client.so deadspy_client.o -L../src/ -lcctlib $(LDFLAGS)  
+$(OBJDIR)deadspy_client$(PINTOOL_SUFFIX): $(OBJDIR)deadspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
+$(OBJDIR)cct_data_centric_client$(OBJ_SUFFIX): cct_data_centric_client.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-cct_client_mem_only.so: cct_client_mem_only.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_client_mem_only.cpp
-	$(CXX)   -o cct_client_mem_only.so cct_client_mem_only.o -L../src/ -lcctlib $(LDFLAGS) 
-
-cct_data_centric_client.so: cct_data_centric_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_data_centric_client.cpp
-	$(CXX)   -o cct_data_centric_client.so cct_data_centric_client.o -L../src/ -lcctlib $(LDFLAGS) 
+$(OBJDIR)cct_data_centric_client$(PINTOOL_SUFFIX): $(OBJDIR)cct_data_centric_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
 
-cct_data_centric_client_tree_based.so: cct_data_centric_client_tree_based.cpp $(CCTLIB_TREE_BASED_LIBRARY) 
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_data_centric_client_tree_based.cpp
-	$(CXX)   -o cct_data_centric_client_tree_based.so cct_data_centric_client_tree_based.o -L../src/ -lcctlib_tree_based $(LDFLAGS)  
+$(OBJDIR)cct_client_mem_only$(OBJ_SUFFIX): cct_client_mem_only.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-deadWrites.o: deadWrites.cpp
-	 $(CXX) -g -o deadWrites.o deadWrites.cpp
+$(OBJDIR)cct_client_mem_only$(PINTOOL_SUFFIX): $(OBJDIR)cct_client_mem_only$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-threaded.o: threaded.c
-	 $(CC) -g -fopenmp -o threaded.o threaded.c
+
+$(OBJDIR)cctlib_reader$(OBJ_SUFFIX): cctlib_reader.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+
+$(OBJDIR)cctlib_reader$(PINTOOL_SUFFIX): $(OBJDIR)cctlib_reader$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
+
+
+$(OBJDIR)cct_data_centric_client_tree_based$(OBJ_SUFFIX): cct_data_centric_client_tree_based.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+
+$(OBJDIR)cct_data_centric_client_tree_based$(PINTOOL_SUFFIX): $(OBJDIR)cct_data_centric_client_tree_based$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS) -lcctlib_tree_based  $(TOOL_LIBS) $(BOOST_LD_FLAGS) $(BOOST_LIBS)
+
+
+include $(TOOLS_ROOT)/Config/makefile.default.rules
+
 clean-local:
 	rm -f *.o *.so
 

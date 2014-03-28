@@ -30,6 +30,15 @@ AC_ARG_ENABLE([develop],
 AC_MSG_RESULT([${OPT_ENABLE_DEVELOP}])
 AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
+DEBUG=0
+CCTLIB_EXTRA_CPPFLAGS=
+
+if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
+  DEBUG=1
+else
+  CCTLIB_EXTRA_CPPFLAGS+="-DNDEBUG"
+fi
+
 #-------------------------------------------------
 # Look for libelf
 #-------------------------------------------------
@@ -84,45 +93,6 @@ if test "$SPARSEHASH_PATH" = "" ; then
 AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
 fi
 
-CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC"
-CPPFLAGS+="  -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E "
-LDFLAGS+=" -g "
-
-#############################
-# Platform specific setup
-#############################
-AC_CANONICAL_HOST
-# Check for which host we are on and setup a few things
-# specifically based on the host
-case $host_os in
-  darwin* )
-        # Do something specific for mac
-        CXXFLAGS+=" -DTARGET_MAC"
-        ;;
-  linux*)
-        # Do something specific for linux
-        CPPFLAGS+=" -DTARGET_LINUX "
-        LDFLAGS+=" -Wl,--hash-style=sysv -shared -Wl,-Bsymbolic -Wl,--version-script=${PIN_PATH}/source/include/pin/pintool.ver"
-        ;;
-    *)
-        #Default Case
-        AC_MSG_ERROR([Your platform is not currently supported])
-        ;;
-esac
-
-if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
-  CXXFLAGS+=" -O0"
-  LDFLAGS+=" -O0"
-else
-  CXXFLAGS+=" -O3 -fomit-frame-pointer -fno-stack-protector -fno-strict-aliasing -DNDEBUG"
-  CPPFLAGS+=" -DNDEBUG "
-  LDFLAGS+=" -O3"
-fi
-
-
-CPPFLAGS+="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/include -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
-LDFLAGS+=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext -Wl,-rpath=${PIN_PATH}/intel64/runtime/cpplibs  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -L${PIN_PATH}/intel64/runtime/cpplibs -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
-
 
 AC_SUBST([PIN_PATH])
 AC_SUBST([SPARSEHASH_PATH])
@@ -130,6 +100,8 @@ AC_SUBST([BOOST_PATH])
 AC_SUBST([CXXFLAGS])
 AC_SUBST([CPPFLAGS])
 AC_SUBST([LDFLAGS])
+AC_SUBST([DEBUG])
+AC_SUBST([CCTLIB_EXTRA_CPPFLAGS])
 #AC_SUBST([CCTLIB_INCLUDES])
 #AC_SUBST([CCTLIB_LIBRARIES])
 

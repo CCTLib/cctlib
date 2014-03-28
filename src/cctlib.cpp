@@ -111,11 +111,27 @@ namespace PinCCTLib {
 
 #define CCTLIB_SERIALIZATION_DEFAULT_DIR_NAME "cctlib-database-"
 #ifndef MAX_IPNODES
+#if defined(TARGET_IA32E)
+// 2^32  IPNODES
 #define MAX_IPNODES (1L << 32)
+#elif defined(TARGET_IA32)
+// 1M IPNODES
+#define MAX_IPNODES (1L << 20)
+#else
+"SHOULD NEVER REACH HERE"
+#endif
 #endif
 
 #ifndef MAX_STRING_POOL_NODES
+#if defined(TARGET_IA32E)
+// 2^32  IPNODES
 #define MAX_STRING_POOL_NODES (1L << 30)
+#elif defined(TARGET_IA32)
+// 1M charaters
+#define MAX_STRING_POOL_NODES (1L << 20)
+#else
+"SHOULD NEVER REACH HERE"
+#endif
 #endif
 
 // Assuming 128 byte line size.
@@ -1310,8 +1326,10 @@ namespace PinCCTLib {
 
             TraceNode*  rootTrace = DeserializeCCTNode(GET_IPNODE_FROM_CONTEXT_HANDLE(parentIpHandle), fp);
             // we should be at the end of file now
+#ifndef NDEBUG
             uint8_t dummy;
             assert(fread(&dummy, sizeof(uint8_t), 1, fp) == 0);
+#endif
             fclose(fp);
             // Add a ThreadData record to GLOBAL_STATE.deserializedCCTs
             ThreadData tdata;
