@@ -598,6 +598,7 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+CCTLIB_EXTRA_CXXFLAGS
 CCTLIB_EXTRA_CPPFLAGS
 DEBUG
 BOOST_PATH
@@ -4111,6 +4112,7 @@ fi
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
+CCTLIB_EXTRA_CXXFLAGS=-Wno-unused-result
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
@@ -4630,6 +4632,7 @@ fi
 if test "$SPARSEHASH_PATH" = "" ; then
 as_fn_error $? "--with-sparse-hash requires absolute path as argument; given '${withval}'" "$LINENO" 5
 fi
+
 
 
 
