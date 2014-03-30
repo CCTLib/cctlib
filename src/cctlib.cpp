@@ -1383,7 +1383,7 @@ namespace PinCCTLib {
         }
 
         uint64_t myDotId = ++gDotId;
-        fprintf(fp, "\"%lx\" -> \"%lx\";\n", parentDotId, myDotId);
+        fprintf(fp, "\"%llx\" -> \"%llx\";\n", parentDotId, myDotId);
         vector<TraceNode*> childTraces;
 
         // Iterate over all IPNodes
@@ -1564,7 +1564,10 @@ namespace PinCCTLib {
 
         // create directory
         string cmd = "mkdir -p " + GLOBAL_STATE.serializationDirectory;
-        system(cmd.c_str());
+        int result = system(cmd.c_str());
+        if(result != 0) {
+            fprintf(stderr,"\n failed to call system()");
+        }
         SerializeAllCCTs();
         SerializeMouleInfo();
         SerializeTraceIps();
@@ -1590,9 +1593,9 @@ namespace PinCCTLib {
 
 
     static void PrintStats() {
-        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%lu", GLOBAL_STATE.curPreAllocatedContextBufferIndex);
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%llu", GLOBAL_STATE.curPreAllocatedContextBufferIndex);
         // Peak resource usage
-        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPeak RSS=%lu", getPeakRSS());
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPeak RSS=%zu", getPeakRSS());
     }
 
 
@@ -2452,7 +2455,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         vector<PendingOps_t> ops;
         UINT32 imgId = IMG_Id(img);
 #endif
-        Elf32_Ehdr* elf_header;         /* ELF header */
+        //Elf32_Ehdr* elf_header;         /* ELF header */
         Elf* elf;                       /* Our Elf pointer for libelf */
         Elf_Scn* scn = NULL;                   /* Section Descriptor */
         Elf_Data* edata = NULL;                /* Data Descriptor */
@@ -2486,7 +2489,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             printf("WARNING Elf Library is out of date!\n");
         }
 
-        elf_header = (Elf32_Ehdr*) base_ptr;    // point elf_header at our object in memory
+        //elf_header = (Elf32_Ehdr*) base_ptr;    // point elf_header at our object in memory
         elf = elf_begin(fd, ELF_C_READ, NULL);  // Initialize 'elf' pointer to our file descriptor
 
         // Iterate each section until symtab section for object symbols
@@ -2544,8 +2547,12 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
     static VOID ComputeVarBounds(IMG img, VOID* v) {
-        char filename[MAX_PATH_NAME];
-        realpath(IMG_Name(img).c_str(), filename);
+        char filename[PATH_MAX];
+        char *result = realpath(IMG_Name(img).c_str(), filename);
+        if(result == NULL) {
+            fprintf(stderr, "\n failed to resolve path");
+        }
+
         compute_static_var(filename, img);
     }
 
@@ -2576,7 +2583,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         RTN unwindRaiseExceptionRtn = RTN_FindByName(img, UNWIND_RAISEEXCEPTION);
         RTN unwindResumeRtn = RTN_FindByName(img, UNWIND_RESUME);
         RTN unwindForceUnwindRtn = RTN_FindByName(img, UNWIND_FORCEUNWIND);
-        RTN unwindResumeOrRethrowRtn = RTN_FindByName(img, UNWIND_RESUME_OR_RETHROW);
+        //RTN unwindResumeOrRethrowRtn = RTN_FindByName(img, UNWIND_RESUME_OR_RETHROW);
 #if 0
         cout << "\n Image name" << IMG_Name(img);
 #endif
