@@ -43,6 +43,8 @@
 #include <ext/hash_map>
 #include <list>
 #include <stdint.h>
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -1383,7 +1385,7 @@ namespace PinCCTLib {
         }
 
         uint64_t myDotId = ++gDotId;
-        fprintf(fp, "\"%llx\" -> \"%llx\";\n", parentDotId, myDotId);
+        fprintf(fp, "\"%" PRIx64 "\" -> \"%" PRIx64 "\";\n", parentDotId, myDotId);
         vector<TraceNode*> childTraces;
 
         // Iterate over all IPNodes
@@ -1593,7 +1595,7 @@ namespace PinCCTLib {
 
 
     static void PrintStats() {
-        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%llu", GLOBAL_STATE.curPreAllocatedContextBufferIndex);
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%" PRIu64, GLOBAL_STATE.curPreAllocatedContextBufferIndex);
         // Peak resource usage
         fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPeak RSS=%zu", getPeakRSS());
     }
