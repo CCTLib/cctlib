@@ -36,15 +36,15 @@
 #include "cctlib.H"
 
 
+#define __STDC_FORMAT_MACROS
 #include <stdio.h>
 #include <stdlib.h>
 #include "pin.H"
 #include <map>
-#include <ext/hash_map>
+#include <tr1/unordered_map>
 #include <list>
-#include <stdint.h>
-#define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -96,8 +96,8 @@ extern "C" {
 
 using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
-using namespace __gnu_cxx;
 using namespace std;
+using namespace std::tr1;
 namespace boostFS = ::boost::filesystem;
 
 namespace PinCCTLib {
@@ -350,13 +350,13 @@ namespace PinCCTLib {
         jmp_buf env;
         struct sigaction sigAct;
         //Load module info
-        hash_map<UINT32, ModuleInfo> ModuleInfoMap;
+        unordered_map<UINT32, ModuleInfo> ModuleInfoMap;
         // serialization directory path
         string serializationDirectory;
         // Deserialized CCTs
         vector<ThreadData> deserializedCCTs;
         //dense_hash_map<ADDRINT, void *> traceShadowMap;
-        hash_map<uint32_t, void*> traceShadowMap;
+        unordered_map<uint32_t, void*> traceShadowMap;
         PIN_LOCK lock;
         // key for accessing TLS storage in the threads. initialized once in main()
         TLS_KEY CCTLibTlsKey __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
@@ -371,7 +371,7 @@ namespace PinCCTLib {
         volatile bool DSLock;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         //Data centric support
-        hash_map<UINT32, vector<PendingOps_t> > staticVariablesInModule;
+        unordered_map<UINT32, vector<PendingOps_t> > staticVariablesInModule;
         __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
         volatile ConcurrentReaderWriterTree_t* latestConcurrentTree;
         __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
@@ -1327,8 +1327,8 @@ namespace PinCCTLib {
             }
 
             TraceNode*  rootTrace = DeserializeCCTNode(GET_IPNODE_FROM_CONTEXT_HANDLE(parentIpHandle), fp);
-            // we should be at the end of file now
 #ifndef NDEBUG
+            // we should be at the end of file now
             uint8_t dummy;
             assert(fread(&dummy, sizeof(uint8_t), 1, fp) == 0);
 #endif
@@ -1437,7 +1437,7 @@ namespace PinCCTLib {
             PIN_ExitProcess(-1);
         }
 
-        hash_map<UINT32, ModuleInfo>::iterator it;
+        unordered_map<UINT32, ModuleInfo>::iterator it;
         fprintf(fp, "ModuleId\tModuleFile\tLoadOffset");
 
         for(it = GLOBAL_STATE.ModuleInfoMap.begin(); it != GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
@@ -1484,7 +1484,7 @@ namespace PinCCTLib {
             PIN_ExitProcess(-1);
         }
 
-        hash_map<uint32_t, void*>::iterator it;
+        unordered_map<uint32_t, void*>::iterator it;
         //fprintf(fp, "TraceKey:NumSlots:ModuleId:[ip1][ip2]..[ipNumSlots]");
 
         for(it = GLOBAL_STATE.traceShadowMap.begin(); it != GLOBAL_STATE.traceShadowMap.end(); ++it) {
@@ -1519,7 +1519,7 @@ namespace PinCCTLib {
             PIN_ExitProcess(-1);
         }
 
-        hash_map<uint32_t, void*>::iterator it;
+        unordered_map<uint32_t, void*>::iterator it;
         //fprintf(fp, "TraceKey:NumSlots:ModuleId:[ip1][ip2]..[ipNumSlots]");
         uint32_t traceKey;
 
