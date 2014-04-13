@@ -43,17 +43,32 @@ fi
 #-------------------------------------------------
 # Look for libelf
 #-------------------------------------------------
-AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"; exit -1])
+#AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"; exit -1])
 
-AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
-AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
+#AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
+#AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
 
 
 PIN_PATH=
 SPARSEHASH_PATH=
 BOOST_PATH=
+LIBELF_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
+
+AC_ARG_WITH([libelf],
+  AS_HELP_STRING([--with-libelf=PATH],
+                 [use given libelf installation (absolute path) with CCTLib]),
+   [if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
+     fi
+     LIBELF_PATH=${withval}
+   ])
+
+if test "$LIBELF_PATH" = "" ; then 
+AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
+fi
+
 
 AC_ARG_WITH([Pin],
   AS_HELP_STRING([--with-Pin=PATH],
@@ -98,6 +113,7 @@ fi
 AC_SUBST([PIN_PATH])
 AC_SUBST([SPARSEHASH_PATH])
 AC_SUBST([BOOST_PATH])
+AC_SUBST([LIBELF_PATH])
 AC_SUBST([CXXFLAGS])
 AC_SUBST([CPPFLAGS])
 AC_SUBST([LDFLAGS])
