@@ -36,15 +36,15 @@
 #include "cctlib.H"
 
 
+#define __STDC_FORMAT_MACROS
 #include <stdio.h>
 #include <stdlib.h>
 #include "pin.H"
 #include <map>
 #include <tr1/unordered_map>
 #include <list>
+#include <inttypes.h>
 #include <stdint.h>
-#include <stdint.h>
-#define __STDC_FORMAT_MACROS
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
