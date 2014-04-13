@@ -46,7 +46,6 @@
 //
 // default ... #define USE_SHADOW_FOR_DATA_CENTRIC
 #include "cctlib.H"
-using namespace __gnu_cxx;
 using namespace std;
 using namespace PinCCTLib;
 
