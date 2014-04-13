@@ -37,7 +37,7 @@
 #include <stdlib.h>
 #include "pin.H"
 #include <map>
-#include <ext/hash_map>
+#include <tr1/unordered_map>
 #include <list>
 #include <stdint.h>
 #include <sys/types.h>
@@ -66,8 +66,8 @@
 #include <google/dense_hash_map>
 using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
-using namespace __gnu_cxx;
 using namespace std;
+using namespace std::tr1;
 
 
 #include "cctlib.H"
@@ -227,8 +227,8 @@ uint8_t** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 
 //map < void *, Status > MemState;
 #if defined(CONTINUOUS_DEADINFO)
-hash_map<uint64_t, uint64_t> DeadMap;
-hash_map<uint64_t, uint64_t>::iterator gDeadMapIt;
+unordered_map<uint64_t, uint64_t> DeadMap;
+unordered_map<uint64_t, uint64_t>::iterator gDeadMapIt;
 //dense_hash_map<uint64_t, uint64_t> DeadMap;
 //dense_hash_map<uint64_t, uint64_t>::iterator gDeadMapIt;
 //sparse_hash_map<uint64_t, uint64_t> DeadMap;
@@ -236,8 +236,8 @@ hash_map<uint64_t, uint64_t>::iterator gDeadMapIt;
 #else // no defined(CONTINUOUS_DEADINFO)
 dense_hash_map<uint64_t, DeadInfo> DeadMap;
 dense_hash_map<uint64_t, DeadInfo>::iterator gDeadMapIt;
-//hash_map<uint64_t, DeadInfo> DeadMap;
-//hash_map<uint64_t, DeadInfo>::iterator gDeadMapIt;
+//unordered_map<uint64_t, DeadInfo> DeadMap;
+//unordered_map<uint64_t, DeadInfo>::iterator gDeadMapIt;
 #endif //end defined(CONTINUOUS_DEADINFO)
 
 #ifdef GATHER_STATS
@@ -1564,7 +1564,7 @@ VOID ImageUnload(IMG img, VOID* v) {
     uint64_t measurementBaseCount =  GetMeasurementBaseCount();
     fprintf(gTraceFile, "\nTotal Instr = %lu", measurementBaseCount);
     fflush(gTraceFile);
-    hash_map<uint64_t, uint64_t>::iterator mapIt = DeadMap.begin();
+    unordered_map<uint64_t, uint64_t>::iterator mapIt = DeadMap.begin();
     map<MergedDeadInfo, uint64_t> mergedDeadInfoMap;
 
     for(; mapIt != DeadMap.end(); mapIt++) {

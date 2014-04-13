@@ -45,7 +45,6 @@
 //
 /// links with a different file #define USE_TREE_BASED_FOR_DATA_CENTRIC
 #include "cctlib.H"
-using namespace __gnu_cxx;
 using namespace std;
 using namespace PinCCTLib;
 

@@ -43,7 +43,6 @@
 #include <sstream>
 #include "pin.H"
 #include "cctlib.H"
-using namespace __gnu_cxx;
 using namespace std;
 using namespace PinCCTLib;
 

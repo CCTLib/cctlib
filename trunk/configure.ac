@@ -84,7 +84,7 @@ if test "$SPARSEHASH_PATH" = "" ; then
 AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
 fi
 
-CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC"
+CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC -std=c++0x "
 CPPFLAGS+="  -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E "
 LDFLAGS+=" -g "
 
