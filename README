@@ -5,6 +5,7 @@ CCTLib is a library to ubiquitously collect calling contexts as well as attribut
 	Supported platform
 --------------------------------------------------
 1. Linux x86_64
+2. Linux i386
 
 --------------------------------------------------
 	Requirements	
@@ -19,24 +20,25 @@ http://code.google.com/p/sparsehash/ .
 
 3. Download and install Boost C++ library.
 
-4. Ensure libelf is installed; header files (libelf.h and gelf.h) should be available in your system includes and library in LD_LIBRARY_PATH.
+4. Download and install libelf library (for example from here:http://www.mr511.de/software/libelf-0.8.9.tar.gz)
 
 --------------------------------------------------
 	Compiling
 --------------------------------------------------
 
-Set PATH_TO_GOOGLE_SPARSE_HASH, PATH_TO_PIN, and PATH_TO_BOOST to appropriate values in the 
+Set PATH_TO_GOOGLE_SPARSE_HASH, PATH_TO_PIN, PATH_TO_BOOST, and PATH_TO_LIBELF to appropriate values in the 
 build.sh file.
 
  e.g. 
  PATH_TO_GOOGLE_SPARSE_HASH=/projects/hpc/software/sparsehash-2.0.2-install/
  PATH_TO_PIN=/projects/hpc/software/pin_rev/pin-2.12-56759-gcc.4.4.7-linux/
  PATH_TO_BOOST=/projects/pkgs/boost_1_47_0-install/
+ PATH_TO_LIBELF=/projects/pkgs/libelf-0.8.9-install/
  
 To build, simply type "sh build.sh"
 This will compile CCTLib. 
 
-This produces libcctlib.a and libcctlib_tree_based.a in the src directory (refer to http://www.cs.rice.edu/~mc29/Milind/Publications_files/paper.pdf for details).
+This produces libcctlib.a and libcctlib_tree_based.a in the src/obj-xxx directory (refer to http://www.cs.rice.edu/~mc29/Milind/Publications_files/paper.pdf for details).
 libcctlib.a is CCTLib with shadow memory-based data-centric attribution.
 libcctlib_tree_based.a is CCTLib with balanced binary tree based data-centric attribution.
 
@@ -199,9 +201,9 @@ Example code snippets
 Some useful control flags / macros
 --------------------------------------------------
  
-1. MAX_IPNODES is the maximum number of call path handles supported. It is by default set to (1<<32). The virtual address space is eagerly allocated get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_IPNODES=<num> when compiling cctlib.
+1. MAX_IPNODES is the maximum number of call path handles supported. It is by default set to (1<<32) on 64-bit platforms and (1<<20) on 32-bit platforms. The virtual address space is eagerly allocated get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_IPNODES=<num> when compiling cctlib.
 
-2. MAX_STRING_POOL_NODES is the maximum number of variable names supported in data-centric analysis. It is by default set to (1<<30). The virtual address space is eagerly allocated to get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_STRING_POOL_NODES=<num> when compiling cctlib.
+2. MAX_STRING_POOL_NODES is the maximum number of variable names supported in data-centric analysis. It is by default set to (1<<30) on 64-bit platforms and (1<<20) on 32-bit platforms. The virtual address space is eagerly allocated to get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_STRING_POOL_NODES=<num> when compiling cctlib.
 
 
 --------------------------------------------------
