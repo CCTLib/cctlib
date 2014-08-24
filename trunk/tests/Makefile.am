@@ -1,5 +1,5 @@
 #include ../Makefile.inc
-all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so 
+all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so footprint_client.so
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
 CCTLIB_TEST_CPPFLAGS = $(CPPFLAGS) -I../src/
@@ -35,6 +35,10 @@ cct_data_centric_client_tree_based.so: cct_data_centric_client_tree_based.cpp $(
 
 deadWrites.o: deadWrites.cpp
 	 $(CXX) -g -o deadWrites.o deadWrites.cpp
+
+footprint_client.so: footprint_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   footprint_client.cpp
+	$(CXX)   -o footprint_client.so footprint_client.o -L../src/ -lcctlib $(LDFLAGS) 
 
 threaded.o: threaded.c
 	 $(CC) -g -fopenmp -o threaded.o threaded.c
