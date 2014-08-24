@@ -168,6 +168,7 @@ namespace PinCCTLib {
     */
     void DottifyAllCCTs();
 
+    void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle));
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 //NOP
 #elif !defined(USE_SHADOW_FOR_DATA_CENTRIC)

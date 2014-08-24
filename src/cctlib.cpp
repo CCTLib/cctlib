@@ -2954,5 +2954,28 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         DeserializeMetadata(serializedFilesDirectory);
         return 0;
     }
+
+    static void BottomUpTraverse(TraceNode *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
+        if (!node) {
+          return;
+        }
+        for(uint32_t i = 0 ; i < node->nSlots; i++) {
+            if((node->childIPs[i]).calleeTraceNodes) {
+                // Iterate over all decendent TraceNode of traceNode->childIPs[i]
+                BottomUpTraverse((node->childIPs[i]).calleeTraceNodes->value, opFunc);
+            }
+        }
+        // do anything here
+       if( node && node->childIPs && node->childIPs[0].parentTraceNode && node->childIPs[0].parentTraceNode->callerIPNode) {
+           ContextHandle_t myHandle =  &(node->childIPs[0]) - GLOBAL_STATE.preAllocatedContextBuffer;
+           ContextHandle_t parentHandle =  node->childIPs[0].parentTraceNode->callerIPNode - GLOBAL_STATE.preAllocatedContextBuffer;
+           opFunc(myHandle, parentHandle);
+       }
+    }
+
+    void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
+        ThreadData* tData = CCTLibGetTLS(threadid);
+        BottomUpTraverse(tData->tlsRootTraceNode, opFunc);
+    }
 }
 
