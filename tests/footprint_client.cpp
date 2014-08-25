@@ -48,7 +48,8 @@ using namespace PinCCTLib;
 
 #include <set>
 #include <unordered_map>
-unordered_map<uint32_t, set<void *>> hmap;
+
+unordered_map<THREADID, unordered_map<uint32_t, set<void *>>> hmap_vector;
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -88,6 +89,7 @@ VOID MemFunc(THREADID id, void* addr) {
     // at memory instruction record the footprint
     ContextHandle_t ctxthndl = GetContextHandle(id, 0);
 
+    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[id];
     // use ctxthndl as the key to associate footprint with the trace
     hmap[ctxthndl].insert(addr);
 }
@@ -100,8 +102,9 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     }
 }
 
-void MergeFootPrint(ContextHandle_t myHandle, ContextHandle_t parentHandle)
+void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle)
 {
+    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
     set<void *>::iterator it;
     if (hmap.find(myHandle) == hmap.end()) return;
     set<void *> &mySet = hmap[myHandle];
@@ -113,6 +116,7 @@ void MergeFootPrint(ContextHandle_t myHandle, ContextHandle_t parentHandle)
 
 VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
 {
+    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
     // traverse CCT bottom to up
     TraverseCCTBottomUp(threadid, MergeFootPrint);
     // print the footprint for functions
