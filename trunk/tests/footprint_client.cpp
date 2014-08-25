@@ -47,7 +47,11 @@ using namespace std;
 using namespace PinCCTLib;
 
 #include <set>
+#include <vector>
 #include <unordered_map>
+#include <algorithm>
+
+#define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
 
 unordered_map<THREADID, unordered_map<uint32_t, set<void *>>> hmap_vector;
 
@@ -105,6 +109,7 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle)
 {
     unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
+
     set<void *>::iterator it;
     if (hmap.find(myHandle) == hmap.end()) return;
     set<void *> &mySet = hmap[myHandle];
@@ -114,16 +119,45 @@ void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHa
     }
 }
 
+inline bool FootPrintCompare(const pair<ContextHandle_t, uint64_t> &first, const struct pair<ContextHandle_t, uint64_t> &second)
+{
+  return first.second > second.second ? true : false;
+}
+
+void PrintTopFootPrintPath(THREADID threadid)
+{
+    uint64_t cntxtNum = 0;
+    vector<pair<ContextHandle_t, uint64_t>> TmpList;
+
+    fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadid);
+    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
+    unordered_map<uint32_t, set<void *>>::iterator it;
+    for (it = hmap.begin(); it != hmap.end(); ++it) {
+        TmpList.emplace_back((*it).first, (uint64_t)(*it).second.size());
+    }
+    sort(TmpList.begin(), TmpList.end(), FootPrintCompare);
+    vector<pair<ContextHandle_t, uint64_t>>::iterator ListIt;
+    for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
+      if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
+        fprintf(gTraceFile, "Footprint Size is %lu, context is", (*ListIt).second);
+        PrintFullCallingContext((*ListIt).first);
+	fprintf(gTraceFile, "\n------------------------------------------------\n");
+      }
+      else {
+	break;
+      }
+      cntxtNum++;
+    }
+}
+
 VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
 {
-    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
     // traverse CCT bottom to up
     TraverseCCTBottomUp(threadid, MergeFootPrint);
     // print the footprint for functions
-    unordered_map<uint32_t, set<void *>>::iterator it;
-    for (it = hmap.begin(); it != hmap.end(); ++it) {
-        printf("context is %u, footpirnt is %ld\n", (*it).first, (*it).second.size());
-    }
+    PIN_LockClient();
+    PrintTopFootPrintPath(threadid);
+    PIN_UnlockClient();
 }
 
 VOID FiniFunc(INT32 code, VOID *v)
