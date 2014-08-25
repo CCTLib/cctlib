@@ -47,9 +47,8 @@ using namespace std;
 using namespace PinCCTLib;
 
 #include <set>
-#include <google/sparse_hash_map>
-using google::sparse_hash_map;
-sparse_hash_map<uint32_t, set<void *>> hmap;
+#include <unordered_map>
+unordered_map<uint32_t, set<void *>> hmap;
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -94,24 +93,22 @@ VOID MemFunc(THREADID id, void* addr) {
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
-    if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins)) {
-        UINT32 memOperands = INS_MemoryOperandCount(ins);
-	for (UINT32 memOp = 0; memOp < memOperands; memOp++)
-        {
-            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_END);
-        }
+    UINT32 memOperands = INS_MemoryOperandCount(ins);
+    for (UINT32 memOp = 0; memOp < memOperands; memOp++)
+    {
+        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_END);
     }
 }
 
 void MergeFootPrint(ContextHandle_t myHandle, ContextHandle_t parentHandle)
 {
     set<void *>::iterator it;
-    set<void *> mySet = hmap[myHandle];
-    set<void *> parentSet = hmap[parentHandle];
+    if (hmap.find(myHandle) == hmap.end()) return;
+    set<void *> &mySet = hmap[myHandle];
+    set<void *> &parentSet = hmap[parentHandle];
     for (it = mySet.begin(); it != mySet.end(); ++it) {
       parentSet.insert(*it);
     }
-    hmap[parentHandle] = parentSet;
 }
 
 VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
@@ -119,9 +116,9 @@ VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
     // traverse CCT bottom to up
     TraverseCCTBottomUp(threadid, MergeFootPrint);
     // print the footprint for functions
-    sparse_hash_map<uint32_t, set<void *>>::iterator it;
+    unordered_map<uint32_t, set<void *>>::iterator it;
     for (it = hmap.begin(); it != hmap.end(); ++it) {
-        printf("handle is %u, footpirnt is %ld\n", (*it).first, (*it).second.size());
+        printf("context is %u, footpirnt is %ld\n", (*it).first, (*it).second.size());
     }
 }
 
