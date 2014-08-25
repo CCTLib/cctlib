@@ -2955,37 +2955,37 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         return 0;
     }
 
-    static void BottomUpTraverse(TraceNode *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle));
+    static void BottomUpTraverse(TraceNode *node, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle), const THREADID threadid);
     
-    static void BottomUpTraverseHelper(TraceSplay *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
+    static void BottomUpTraverseHelper(TraceSplay *node, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle), const THREADID threadid) {
         if (!node) return;
 
-	BottomUpTraverseHelper(node->left, opFunc);
-	BottomUpTraverse(node->value, opFunc);
-	BottomUpTraverseHelper(node->right, opFunc);
+	BottomUpTraverseHelper(node->left, opFunc, threadid);
+	BottomUpTraverse(node->value, opFunc, threadid);
+	BottomUpTraverseHelper(node->right, opFunc, threadid);
     }
-    static void BottomUpTraverse(TraceNode *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
+    static void BottomUpTraverse(TraceNode *node, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle), const THREADID threadid) {
         if (!node) {
           return;
         }
         for(uint32_t i = 0 ; i < node->nSlots; i++) {
             if((node->childIPs[i]).calleeTraceNodes) {
                 // Iterate over all decendent TraceNode of traceNode->childIPs[i]
-                BottomUpTraverseHelper((node->childIPs[i]).calleeTraceNodes, opFunc);
+                BottomUpTraverseHelper((node->childIPs[i]).calleeTraceNodes, opFunc, threadid);
             }
             // do anything here
            assert(node->callerIPNode);
            if( node->callerIPNode) {
                ContextHandle_t myHandle = GetPINCCT32BitContextIndex(&(node->childIPs[i]));
                ContextHandle_t parentHandle = GetPINCCT32BitContextIndex(node->callerIPNode);
-               opFunc(myHandle, parentHandle);
+               opFunc(threadid, myHandle, parentHandle);
            }
         }
     }
 
-    void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
+    void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
         ThreadData* tData = CCTLibGetTLS(threadid);
-        BottomUpTraverse(tData->tlsRootTraceNode, opFunc);
+        BottomUpTraverse(tData->tlsRootTraceNode, opFunc, threadid);
     }
 }
 
