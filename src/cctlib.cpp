@@ -1403,7 +1403,7 @@ namespace PinCCTLib {
 
     void DottifyAllCCTs() {
         std::stringstream cctMapFilePath;
-        cctMapFilePath << GLOBAL_STATE.serializationDirectory << "/CCTMap.dot";
+        cctMapFilePath << GLOBAL_STATE.serializationDirectory << "./CCTMap.dot";
         FILE* fp = fopen(cctMapFilePath.str().c_str(), "w");
 
         if(fp == NULL) {
@@ -2955,6 +2955,15 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         return 0;
     }
 
+    static void BottomUpTraverse(TraceNode *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle));
+    
+    static void BottomUpTraverseHelper(TraceSplay *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
+        if (!node) return;
+
+	BottomUpTraverseHelper(node->left, opFunc);
+	BottomUpTraverse(node->value, opFunc);
+	BottomUpTraverseHelper(node->right, opFunc);
+    }
     static void BottomUpTraverse(TraceNode *node, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
         if (!node) {
           return;
@@ -2962,15 +2971,16 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         for(uint32_t i = 0 ; i < node->nSlots; i++) {
             if((node->childIPs[i]).calleeTraceNodes) {
                 // Iterate over all decendent TraceNode of traceNode->childIPs[i]
-                BottomUpTraverse((node->childIPs[i]).calleeTraceNodes->value, opFunc);
+                BottomUpTraverseHelper((node->childIPs[i]).calleeTraceNodes, opFunc);
             }
+            // do anything here
+           assert(node->callerIPNode);
+           if( node->callerIPNode) {
+               ContextHandle_t myHandle = GetPINCCT32BitContextIndex(&(node->childIPs[i]));
+               ContextHandle_t parentHandle = GetPINCCT32BitContextIndex(node->callerIPNode);
+               opFunc(myHandle, parentHandle);
+           }
         }
-        // do anything here
-       if( node && node->childIPs && node->childIPs[0].parentTraceNode && node->childIPs[0].parentTraceNode->callerIPNode) {
-           ContextHandle_t myHandle =  &(node->childIPs[0]) - GLOBAL_STATE.preAllocatedContextBuffer;
-           ContextHandle_t parentHandle =  node->childIPs[0].parentTraceNode->callerIPNode - GLOBAL_STATE.preAllocatedContextBuffer;
-           opFunc(myHandle, parentHandle);
-       }
     }
 
     void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (ContextHandle_t myHandle, ContextHandle_t parentHandle)) {
