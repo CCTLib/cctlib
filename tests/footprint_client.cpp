@@ -92,10 +92,17 @@ void ClientInit(int argc, char* argv[]) {
 VOID MemFunc(THREADID id, void* addr) {
     // at memory instruction record the footprint
     ContextHandle_t ctxthndl = GetContextHandle(id, 0);
+    void **metric = GetIPNodeMetric(id, 0);
 
-    unordered_map<uint32_t, unordered_set<void *>> &hmap = hmap_vector[id];
-    // use ctxthndl as the key to associate footprint with the trace
-    hmap[ctxthndl].insert(addr);
+    unordered_set<void *> *hset;
+    if (*metric == NULL) {
+      // use ctxthndl as the key to associate footprint with the trace
+      *metric = &(hmap_vector[id])[ctxthndl];
+      hset = &(hmap_vector[id])[ctxthndl];
+    }
+    else
+      hset = static_cast<unordered_set<void *>*>(*metric);
+    hset->insert(addr);
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
@@ -108,16 +115,22 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     }
 }
 
-void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle)
+void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric)
 {
-    unordered_map<uint32_t, unordered_set<void *>> &hmap = hmap_vector[threadid];
+    if (*myMetric == NULL) return;
+    unordered_set<void *> *hset = static_cast<unordered_set<void *>*>(*myMetric);
+
+    unordered_set<void *> *hsetParent;
+    if (*parentMetric == NULL) {
+      *parentMetric = &((hmap_vector[threadid])[parentHandle]);
+      hsetParent = &((hmap_vector[threadid])[parentHandle]);
+    }
+    else 
+      hsetParent = static_cast<unordered_set<void *>*>(*parentMetric);
 
     unordered_set<void *>::iterator it;
-    if (hmap.find(myHandle) == hmap.end()) return;
-    unordered_set<void *> &mySet = hmap[myHandle];
-    unordered_set<void *> &parentSet = hmap[parentHandle];
-    for (it = mySet.begin(); it != mySet.end(); ++it) {
-      parentSet.insert(*it);
+    for (it = hset->begin(); it != hset->end(); ++it) {
+      hsetParent->insert(*it);
     }
 }
 
