@@ -46,14 +46,14 @@
 using namespace std;
 using namespace PinCCTLib;
 
-#include <set>
+#include <unordered_set>
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
 
 #define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
 
-unordered_map<THREADID, unordered_map<uint32_t, set<void *>>> hmap_vector;
+unordered_map<THREADID, unordered_map<uint32_t, unordered_set<void *>>> hmap_vector;
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -93,12 +93,14 @@ VOID MemFunc(THREADID id, void* addr) {
     // at memory instruction record the footprint
     ContextHandle_t ctxthndl = GetContextHandle(id, 0);
 
-    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[id];
+    unordered_map<uint32_t, unordered_set<void *>> &hmap = hmap_vector[id];
     // use ctxthndl as the key to associate footprint with the trace
     hmap[ctxthndl].insert(addr);
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
+    if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
+    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
     {
@@ -108,12 +110,12 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 
 void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle)
 {
-    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
+    unordered_map<uint32_t, unordered_set<void *>> &hmap = hmap_vector[threadid];
 
-    set<void *>::iterator it;
+    unordered_set<void *>::iterator it;
     if (hmap.find(myHandle) == hmap.end()) return;
-    set<void *> &mySet = hmap[myHandle];
-    set<void *> &parentSet = hmap[parentHandle];
+    unordered_set<void *> &mySet = hmap[myHandle];
+    unordered_set<void *> &parentSet = hmap[parentHandle];
     for (it = mySet.begin(); it != mySet.end(); ++it) {
       parentSet.insert(*it);
     }
@@ -130,8 +132,8 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<pair<ContextHandle_t, uint64_t>> TmpList;
 
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadid);
-    unordered_map<uint32_t, set<void *>> &hmap = hmap_vector[threadid];
-    unordered_map<uint32_t, set<void *>>::iterator it;
+    unordered_map<uint32_t, unordered_set<void *>> &hmap = hmap_vector[threadid];
+    unordered_map<uint32_t, unordered_set<void *>>::iterator it;
     for (it = hmap.begin(); it != hmap.end(); ++it) {
         TmpList.emplace_back((*it).first, (uint64_t)(*it).second.size());
     }
