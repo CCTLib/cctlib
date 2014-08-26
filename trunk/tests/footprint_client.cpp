@@ -118,15 +118,12 @@ void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextH
     if (*myMetric == NULL) return;
     unordered_set<void *> *hset = static_cast<unordered_set<void *>*>(*myMetric);
 
-    unordered_set<void *> *hsetParent;
     if (*parentMetric == NULL) {
       *parentMetric = &((hmap_vector[threadid])[parentHandle]);
-      hsetParent = &((hmap_vector[threadid])[parentHandle]);
+      (hmap_vector[threadid])[parentHandle].insert(hset->begin(), hset->end());
     }
     else 
-      hsetParent = static_cast<unordered_set<void *>*>(*parentMetric);
-
-    hsetParent->insert(hset->begin(), hset->end());
+      (static_cast<unordered_set<void *>*>(*parentMetric))->insert(hset->begin(), hset->end());
 }
 
 inline bool FootPrintCompare(const pair<ContextHandle_t, uint64_t> &first, const struct pair<ContextHandle_t, uint64_t> &second)
