@@ -91,18 +91,16 @@ void ClientInit(int argc, char* argv[]) {
 
 VOID MemFunc(THREADID id, void* addr) {
     // at memory instruction record the footprint
-    ContextHandle_t ctxthndl = GetContextHandle(id, 0);
     void **metric = GetIPNodeMetric(id, 0);
 
-    unordered_set<void *> *hset;
     if (*metric == NULL) {
       // use ctxthndl as the key to associate footprint with the trace
+      ContextHandle_t ctxthndl = GetContextHandle(id, 0);
       *metric = &(hmap_vector[id])[ctxthndl];
-      hset = &(hmap_vector[id])[ctxthndl];
+      (hmap_vector[id])[ctxthndl].insert(addr);
     }
     else
-      hset = static_cast<unordered_set<void *>*>(*metric);
-    hset->insert(addr);
+      (static_cast<unordered_set<void *>*>(*metric))->insert(addr);
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
@@ -128,10 +126,7 @@ void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextH
     else 
       hsetParent = static_cast<unordered_set<void *>*>(*parentMetric);
 
-    unordered_set<void *>::iterator it;
-    for (it = hset->begin(); it != hset->end(); ++it) {
-      hsetParent->insert(*it);
-    }
+    hsetParent->insert(hset->begin(), hset->end());
 }
 
 inline bool FootPrintCompare(const pair<ContextHandle_t, uint64_t> &first, const struct pair<ContextHandle_t, uint64_t> &second)
