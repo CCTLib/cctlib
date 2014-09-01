@@ -53,7 +53,18 @@ using namespace PinCCTLib;
 
 #define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
 
-unordered_map<THREADID, unordered_map<uint32_t, unordered_set<void *>>> hmap_vector;
+struct node_metric_t {
+  unordered_set<void *> addressSet;
+  uint64_t accessNum;
+};
+
+struct sort_format_t {
+  ContextHandle_t handle;
+  uint64_t footprint;
+  uint64_t accessNum;
+};
+
+unordered_map<THREADID, unordered_map<uint32_t, struct node_metric_t>> hmap_vector;
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -97,14 +108,18 @@ VOID MemFunc(THREADID id, void* addr) {
       // use ctxthndl as the key to associate footprint with the trace
       ContextHandle_t ctxthndl = GetContextHandle(id, 0);
       *metric = &(hmap_vector[id])[ctxthndl];
-      (hmap_vector[id])[ctxthndl].insert(addr);
+      (hmap_vector[id])[ctxthndl].addressSet.insert(addr);
+      (hmap_vector[id])[ctxthndl].accessNum++;
     }
-    else
-      (static_cast<unordered_set<void *>*>(*metric))->insert(addr);
+    else {
+      (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(addr);
+      (static_cast<struct node_metric_t*>(*metric))->accessNum++;
+    }
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
+    if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
     if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
@@ -116,38 +131,46 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric)
 {
     if (*myMetric == NULL) return;
-    unordered_set<void *> *hset = static_cast<unordered_set<void *>*>(*myMetric);
+    struct node_metric_t *hset = static_cast<struct node_metric_t*>(*myMetric);
 
     if (*parentMetric == NULL) {
       *parentMetric = &((hmap_vector[threadid])[parentHandle]);
-      (hmap_vector[threadid])[parentHandle].insert(hset->begin(), hset->end());
+      (hmap_vector[threadid])[parentHandle].addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
+      (hmap_vector[threadid])[parentHandle].accessNum += hset->accessNum;
     }
-    else 
-      (static_cast<unordered_set<void *>*>(*parentMetric))->insert(hset->begin(), hset->end());
+    else {
+      (static_cast<struct node_metric_t*>(*parentMetric))->addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
+      (static_cast<struct node_metric_t*>(*parentMetric))->accessNum += hset->accessNum;
+    }
 }
 
-inline bool FootPrintCompare(const pair<ContextHandle_t, uint64_t> &first, const struct pair<ContextHandle_t, uint64_t> &second)
+
+inline bool FootPrintCompare(const struct sort_format_t &first, const struct sort_format_t &second)
 {
-  return first.second > second.second ? true : false;
+  return first.footprint > second.footprint ? true : false;
 }
 
 void PrintTopFootPrintPath(THREADID threadid)
 {
     uint64_t cntxtNum = 0;
-    vector<pair<ContextHandle_t, uint64_t>> TmpList;
+    vector<struct sort_format_t> TmpList;
 
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadid);
-    unordered_map<uint32_t, unordered_set<void *>> &hmap = hmap_vector[threadid];
-    unordered_map<uint32_t, unordered_set<void *>>::iterator it;
+    unordered_map<uint32_t, struct node_metric_t> &hmap = hmap_vector[threadid];
+    unordered_map<uint32_t, struct node_metric_t>::iterator it;
     for (it = hmap.begin(); it != hmap.end(); ++it) {
-        TmpList.emplace_back((*it).first, (uint64_t)(*it).second.size());
+        struct sort_format_t tmp;
+        tmp.handle = (*it).first;
+	tmp.footprint = (uint64_t)(*it).second.addressSet.size();
+	tmp.accessNum =  (uint64_t)(*it).second.accessNum;
+        TmpList.emplace_back(tmp);
     }
     sort(TmpList.begin(), TmpList.end(), FootPrintCompare);
-    vector<pair<ContextHandle_t, uint64_t>>::iterator ListIt;
+    vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint Size is %lu, context is", (*ListIt).second);
-        PrintFullCallingContext((*ListIt).first);
+        fprintf(gTraceFile, "Footprint is %lu, #access is, context is %lu", (*ListIt).footprint, (*ListIt).accessNum);
+        PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }
       else {
