@@ -169,7 +169,7 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %lu, #access is, context is %lu", (*ListIt).footprint, (*ListIt).accessNum);
+        fprintf(gTraceFile, "Footprint is %lu, #access is %lu, context is:", (*ListIt).footprint, (*ListIt).accessNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }
