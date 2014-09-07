@@ -52,9 +52,14 @@ using namespace PinCCTLib;
 #include <algorithm>
 
 #define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
+#define MEASURESHARING
 
 struct node_metric_t {
+#ifdef MEASURESHARING
+  unordered_map<void *, uint64_t> addressMap;
+#else
   unordered_set<void *> addressSet;
+#endif
   uint64_t accessNum;
 };
 
@@ -108,11 +113,19 @@ VOID MemFunc(THREADID id, void* addr) {
       // use ctxthndl as the key to associate footprint with the trace
       ContextHandle_t ctxthndl = GetContextHandle(id, 0);
       *metric = &(hmap_vector[id])[ctxthndl];
+#ifdef MEASURESHARING
+      (hmap_vector[id])[ctxthndl].addressMap[addr]++;
+#else
       (hmap_vector[id])[ctxthndl].addressSet.insert(addr);
+#endif
       (hmap_vector[id])[ctxthndl].accessNum++;
     }
     else {
+#ifdef MEASURESHARING
+      (static_cast<struct node_metric_t*>(*metric))->addressMap[addr]++;
+#else
       (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(addr);
+#endif
       (static_cast<struct node_metric_t*>(*metric))->accessNum++;
     }
 }
@@ -135,11 +148,23 @@ void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextH
 
     if (*parentMetric == NULL) {
       *parentMetric = &((hmap_vector[threadid])[parentHandle]);
+#ifdef MEASURESHARING
+      unordered_map<void *, uint64_t>::iterator it;
+      for (it = hset->addressMap.begin(); it != hset->addressMap.end(); it++)
+        (hmap_vector[threadid])[parentHandle].addressMap[it->first] += it->second;
+#else
       (hmap_vector[threadid])[parentHandle].addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
+#endif
       (hmap_vector[threadid])[parentHandle].accessNum += hset->accessNum;
     }
     else {
+#ifdef MEASURESHARING
+      unordered_map<void *, uint64_t>::iterator it;
+      for (it = hset->addressMap.begin(); it != hset->addressMap.end(); it++)
+        (static_cast<struct node_metric_t*>(*parentMetric))->addressMap[it->first] += it->second;
+#else
       (static_cast<struct node_metric_t*>(*parentMetric))->addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
+#endif
       (static_cast<struct node_metric_t*>(*parentMetric))->accessNum += hset->accessNum;
     }
 }
@@ -161,7 +186,11 @@ void PrintTopFootPrintPath(THREADID threadid)
     for (it = hmap.begin(); it != hmap.end(); ++it) {
         struct sort_format_t tmp;
         tmp.handle = (*it).first;
+#ifdef MEASURESHARING
+	tmp.footprint = (uint64_t)(*it).second.addressMap.size();
+#else
 	tmp.footprint = (uint64_t)(*it).second.addressSet.size();
+#endif
 	tmp.accessNum =  (uint64_t)(*it).second.accessNum;
         TmpList.emplace_back(tmp);
     }
