@@ -6,14 +6,12 @@ int B[N/2];
 void g()
 {
   int i=0;
-  for (i = 0; i<N; i++) A[i] ++;
+  for (i = 1; i<N; i++){
+    A[i] = 2*B[i-1];
+    B[i] = 0.5;
+  }
 }
 
-void h()
-{
-  int i;
-  for (i = 0; i<N/2; i++) B[i]++;
-}
 void h1()
 {
   int i;
@@ -22,13 +20,14 @@ void h1()
 
 void f()
 {
-  g();
+  int i;
+  for (i = 1; i<N/2; i++) B[i-1] = B[i];
 }
 
 int main()
 {
   f();
-  h();
+  g();
   h1();
   return 0;
 }
