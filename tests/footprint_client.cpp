@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sstream>
 #include "pin.H"
 #include "cctlib.H"
@@ -51,8 +52,33 @@ using namespace PinCCTLib;
 #include <unordered_map>
 #include <algorithm>
 
+/* infrastructure for shadow memory */
+/* MACROs */
+// 64KB shadow pages
+#define PAGE_OFFSET_BITS (16LL)
+#define PAGE_OFFSET(addr) ( addr & 0xFFFF)
+#define PAGE_OFFSET_MASK ( 0xFFFF)
+
+#define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
+
+// 2 level page table
+#define PTR_SIZE (sizeof(struct Status *))
+#define LEVEL_1_PAGE_TABLE_BITS  (20)
+#define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
+#define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )
+
+#define LEVEL_2_PAGE_TABLE_BITS  (12)
+#define LEVEL_2_PAGE_TABLE_ENTRIES  (1 << LEVEL_2_PAGE_TABLE_BITS )
+#define LEVEL_2_PAGE_TABLE_SIZE  (LEVEL_2_PAGE_TABLE_ENTRIES * PTR_SIZE )
+
+#define LEVEL_1_PAGE_TABLE_SLOT(addr) (((addr) >> (LEVEL_2_PAGE_TABLE_BITS + PAGE_OFFSET_BITS)) & 0xfffff)
+#define LEVEL_2_PAGE_TABLE_SLOT(addr) (((addr) >> (PAGE_OFFSET_BITS)) & 0xFFF)
+
+uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
+
+/* Other footprint_client settings */
 #define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
-#define MEASURESHARING
+//#define MEASURESHARING
 
 struct node_metric_t {
 #ifdef MEASURESHARING
@@ -61,12 +87,14 @@ struct node_metric_t {
   unordered_set<void *> addressSet;
 #endif
   uint64_t accessNum;
+  uint64_t dependentNum;
 };
 
 struct sort_format_t {
   ContextHandle_t handle;
   uint64_t footprint;
   uint64_t accessNum;
+  uint64_t dependentNum;
 };
 
 unordered_map<THREADID, unordered_map<uint32_t, struct node_metric_t>> hmap_vector;
@@ -105,7 +133,42 @@ void ClientInit(int argc, char* argv[]) {
     fprintf(gTraceFile, "\n");
 }
 
-VOID MemFunc(THREADID id, void* addr) {
+/* helper functions for shadow memory */
+uint8_t*
+GetOrCreateShadowBaseAddress(uint64_t address)
+{
+  uint8_t *shadowPage;
+  uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
+  if(*l1Ptr == 0) {
+    *l1Ptr = (uint8_t **) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
+    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+  }
+  else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
+    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+  }
+  return shadowPage;
+}
+
+inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr)
+{
+    uint32_t lineNo1, lineNo2;
+    string filePath1, filePath2;
+
+    PIN_LockClient();
+    PIN_GetSourceLocation(prevAddr, NULL, (INT32*) &lineNo1, &filePath1);
+    PIN_GetSourceLocation(curAddr, NULL, (INT32*) &lineNo2, &filePath2);
+    PIN_UnlockClient();
+    
+    if((filePath1.compare(filePath2) == 0) && (lineNo1 <= lineNo2)) return true;
+    else return false;
+}
+
+VOID MemFunc(THREADID id, void* addr, bool rwFlag) {
+    uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint64_t));
+    // check write-read(true and loop-carried) dependence
+    bool *prevFlag = (bool *)(status + PAGE_OFFSET((uint64_t)addr));
+
     // at memory instruction record the footprint
     void **metric = GetIPNodeMetric(id, 0);
 
@@ -119,6 +182,9 @@ VOID MemFunc(THREADID id, void* addr) {
       (hmap_vector[id])[ctxthndl].addressSet.insert(addr);
 #endif
       (hmap_vector[id])[ctxthndl].accessNum++;
+      
+      if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
+        (hmap_vector[id])[ctxthndl].dependentNum++;
     }
     else {
 #ifdef MEASURESHARING
@@ -127,7 +193,12 @@ VOID MemFunc(THREADID id, void* addr) {
       (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(addr);
 #endif
       (static_cast<struct node_metric_t*>(*metric))->accessNum++;
+      if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
+        (static_cast<struct node_metric_t*>(*metric))->dependentNum++;
     }
+    // update the current read write flag  
+    *prevFlag = rwFlag;
+    *prevAddr = uint64_t(addr);
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
@@ -137,7 +208,10 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
     {
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_END);
+        if (INS_IsMemoryRead(ins))
+          INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_BOOL, false, IARG_END);
+        else
+          INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_BOOL, true, IARG_END);
     }
 }
 
@@ -156,6 +230,7 @@ void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextH
       (hmap_vector[threadid])[parentHandle].addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
 #endif
       (hmap_vector[threadid])[parentHandle].accessNum += hset->accessNum;
+      (hmap_vector[threadid])[parentHandle].dependentNum += hset->dependentNum;
     }
     else {
 #ifdef MEASURESHARING
@@ -166,6 +241,7 @@ void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextH
       (static_cast<struct node_metric_t*>(*parentMetric))->addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
 #endif
       (static_cast<struct node_metric_t*>(*parentMetric))->accessNum += hset->accessNum;
+      (static_cast<struct node_metric_t*>(*parentMetric))->dependentNum += hset->dependentNum;
     }
 }
 
@@ -192,13 +268,14 @@ void PrintTopFootPrintPath(THREADID threadid)
 	tmp.footprint = (uint64_t)(*it).second.addressSet.size();
 #endif
 	tmp.accessNum =  (uint64_t)(*it).second.accessNum;
+	tmp.dependentNum =  (uint64_t)(*it).second.dependentNum;
         TmpList.emplace_back(tmp);
     }
     sort(TmpList.begin(), TmpList.end(), FootPrintCompare);
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %lu, #access is %lu, context is:", (*ListIt).footprint, (*ListIt).accessNum);
+        fprintf(gTraceFile, "Footprint is %lu, #access is %lu, true dependence is %lu, context is:", (*ListIt).footprint, (*ListIt).accessNum, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }
