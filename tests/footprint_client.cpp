@@ -97,7 +97,8 @@ struct sort_format_t {
   uint64_t dependentNum;
 };
 
-unordered_map<THREADID, unordered_map<uint32_t, struct node_metric_t>> hmap_vector;
+#define THREAD_MAX (1024)
+unordered_map<uint32_t, struct node_metric_t> hmap_vector[THREAD_MAX];
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
