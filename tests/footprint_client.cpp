@@ -275,6 +275,15 @@ struct MemAnalysis<1>{
     }
 };
 
+#define HANDLE_CASE(n) case n: {\
+                       if(INS_MemoryOperandIsRead(ins, memOp)) {\
+                            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<n>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);\
+                        } else {\
+                            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<n>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);\
+                        }
+
+
+
 
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
@@ -293,65 +302,16 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
         
 #else
         switch(refSize) {
-            case 1: {
-                if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<1>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);
-                } else {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<1>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);
-                }
-            }
-            break;
-
-            case 2: {
-                if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<2>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);
-                } else {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<2>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);
-                }
-            }
-            break;
                 
-            case 4: {
-                if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<4>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);
-                } else {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<4>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);
-                }
-            }
-            break;
-               
-            case 8: {
-                if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<8>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);
-                } else {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<8>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);
-                }
-            }
-            break;
-
-                
-            case 10: {
-                if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<10>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);
-                } else {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<10>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);
-                }
-            }
-
-                break;
-                
-            case 16: {
-                if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<16>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);
-                } else {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<16>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);
-                }
-            }
-            break;
-
+            HANDLE_CASE(1): break;
+            HANDLE_CASE(2): break;
+            HANDLE_CASE(4): break;
+            HANDLE_CASE(8): break;
+            HANDLE_CASE(10): break;
+            HANDLE_CASE(16): break;
                 
             default: {
-                // seeing some stupid 10, 16, 512 (fxsave)byte operations. Suspecting REP-instructions.
+                // seeing some stupid 512 (fxsave)byte operations. Suspecting REP-instructions.
                 if(INS_MemoryOperandIsRead(ins, memOp)) {
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_THREAD_ID, IARG_END);
                 }
