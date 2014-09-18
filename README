@@ -12,7 +12,7 @@ CCTLib is a library to ubiquitously collect calling contexts as well as attribut
 
 1. Download and install the latest Pin framework matching your platform from
 http://www.pintool.org/downloads.html . 
-* I have tested the current release only on Pin 2.13 rev 62732 *
+* I have tested the current release only on Pin 2.14 rev 67254 *
 
 2. Download and install google hash tables (Sparsehash) source from
 http://code.google.com/p/sparsehash/ .
@@ -30,7 +30,7 @@ build.sh file.
 
  e.g. 
  PATH_TO_GOOGLE_SPARSE_HASH=/projects/hpc/software/sparsehash-2.0.2-install/
- PATH_TO_PIN=/projects/hpc/software/pin_rev/pin-2.12-56759-gcc.4.4.7-linux/
+ PATH_TO_PIN=/projects/hpc/software/pin_rev/pin-2.14-67254-gcc.4.4.7-linux/
  PATH_TO_BOOST=/projects/pkgs/boost_1_47_0-install/
  
 To build, simply type "sh build.sh"
