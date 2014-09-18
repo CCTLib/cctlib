@@ -79,6 +79,10 @@ uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 /* Other footprint_client settings */
 #define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
 
+#define ENCODE_ADDRESS_AND_ACCESS_LEN(addr, len) ( (addr) | ((len) << 48))
+#define DECODE_ADDRESS(addrAndLen) ( (addrAndLen) & ((1L<<48) - 1))
+#define DECODE_ACCESS_LEN(addrAndLen) ( (addrAndLen) >> 48)
+
 struct node_metric_t {
   unordered_set<uint64_t> addressSet;
   unordered_set<uint64_t> addressSetDecoded;
@@ -167,25 +171,22 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
     // check write-read(true and loop-carried) dependence
     bool *prevFlag = (bool *)(status + PAGE_OFFSET(Addr));
 
-    // at memory instruction record the footprint
-    void **metric = GetIPNodeMetric(id, 0);
+    uint64_t encodedAddrAndLen = ENCODE_ADDRESS_AND_ACCESS_LEN(Addr, refSize);
 
-    if (*metric == NULL) {
+    // at memory instruction record the footprint
+    void **metricPtr = GetIPNodeMetric(id, 0);
+    node_metric_t *metric;
+
+    if (*metricPtr == NULL) {
       // use ctxthndl as the key to associate footprint with the trace
       ContextHandle_t ctxthndl = GetContextHandle(id, 0);
-      *metric = &(hmap_vector[id])[ctxthndl];
-      (hmap_vector[id])[ctxthndl].addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (hmap_vector[id])[ctxthndl].accessNum+=refSize;
-      
-      if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
-        (hmap_vector[id])[ctxthndl].dependentNum+=refSize;
+      *metricPtr = &(hmap_vector[id])[ctxthndl];
     }
-    else {
-      (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (static_cast<struct node_metric_t*>(*metric))->accessNum+=refSize;
-      if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
-        (static_cast<struct node_metric_t*>(*metric))->dependentNum+=refSize;
-    }
+    metric = (static_cast<struct node_metric_t*>(*metricPtr));
+    metric->addressSet.insert(encodedAddrAndLen);
+    metric->accessNum+=refSize;
+    if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
+      metric->dependentNum+=refSize;
     // update the current read write flag  
     *prevFlag = rwFlag;
     *prevAddr = Addr;
@@ -212,8 +213,8 @@ void DecodingFootPrint(const THREADID threadid,  ContextHandle_t myHandle, Conte
     struct node_metric_t *hset = static_cast<struct node_metric_t*>(*myMetric);
     unordered_set<uint64_t>::iterator it;
     for (it = hset->addressSet.begin(); it!= hset->addressSet.end(); ++it) {
-        uint64_t refSize = (*it)>>48;
-        uint64_t addr = (*it) & ((1ULL<<48)-1);
+        uint64_t refSize = DECODE_ACCESS_LEN(*it);
+        uint64_t addr = DECODE_ADDRESS(*it);
         assert(refSize != 0);
         for(uint i=0; i<refSize; i++) {
           hset->addressSetDecoded.insert(addr+i);
@@ -257,9 +258,9 @@ void PrintTopFootPrintPath(THREADID threadid)
     for (it = hmap.begin(); it != hmap.end(); ++it) {
         struct sort_format_t tmp;
         tmp.handle = (*it).first;
-	tmp.footprint = (uint64_t)(*it).second.addressSetDecoded.size();
-	tmp.accessNum =  (uint64_t)(*it).second.accessNum;
-	tmp.dependentNum =  (uint64_t)(*it).second.dependentNum;
+    tmp.footprint = (uint64_t)(*it).second.addressSetDecoded.size();
+    tmp.accessNum =  (uint64_t)(*it).second.accessNum;
+    tmp.dependentNum =  (uint64_t)(*it).second.dependentNum;
         TmpList.emplace_back(tmp);
     }
     sort(TmpList.begin(), TmpList.end(), FootPrintCompare);
@@ -268,10 +269,10 @@ void PrintTopFootPrintPath(THREADID threadid)
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
         fprintf(gTraceFile, "Footprint is %lu, #reuse is %ld, true dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
-	fprintf(gTraceFile, "\n------------------------------------------------\n");
+    fprintf(gTraceFile, "\n------------------------------------------------\n");
       }
       else {
-	break;
+    break;
       }
       cntxtNum++;
     }
