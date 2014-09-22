@@ -386,7 +386,7 @@ static void PrintTopFootPrintPath(THREADID threadid) {
     vector<struct AnalyzedMetric_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
         if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-            fprintf(gTraceFile, "Footprint is %lu, #reuse is %ld, true dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
+            fprintf(gTraceFile, "Footprint is %lu, #reuse factor is %lf, true dependence is %lu, context is:", ((*ListIt).footprint), (double)(*ListIt).accessNum/(*ListIt).footprint, (*ListIt).dependentNum);
             PrintFullCallingContext((*ListIt).handle);
             fprintf(gTraceFile, "\n------------------------------------------------\n");
         }
