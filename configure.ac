@@ -84,7 +84,7 @@ if test "$SPARSEHASH_PATH" = "" ; then
 AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
 fi
 
-CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC -std=c++0x "
+CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC -std=c++11 "
 CPPFLAGS+="  -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E "
 LDFLAGS+=" -g "
 
@@ -121,7 +121,7 @@ fi
 
 
 CPPFLAGS+="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/include -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
-LDFLAGS+=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext -Wl,-rpath=${PIN_PATH}/intel64/runtime/cpplibs  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -L${PIN_PATH}/intel64/runtime/cpplibs -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
+LDFLAGS+=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
 
 
 AC_SUBST([PIN_PATH])

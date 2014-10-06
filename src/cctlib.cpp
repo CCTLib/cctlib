@@ -1654,7 +1654,7 @@ namespace PinCCTLib {
         xed_decoded_inst_zero_set_mode(&xedd, &GLOBAL_STATE.cct_xed_state);
 
         if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
-            if(0 == xed_decoded_inst_dump_xed_format(&xedd, GLOBAL_STATE.disassemblyBuff, 200,  ip))
+            if(0 == xed_format_context(XED_SYNTAX_ATT, &xedd, GLOBAL_STATE.disassemblyBuff, 200,  ip, 0, 0))
                 strcpy(GLOBAL_STATE.disassemblyBuff , "xed_decoded_inst_dump_att_format failed");
         } else {
             strcpy(GLOBAL_STATE.disassemblyBuff , "xed_decode failed");
