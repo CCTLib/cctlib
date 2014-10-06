@@ -10,6 +10,8 @@ CCTLib is a library to ubiquitously collect calling contexts as well as attribut
 	Requirements	
 --------------------------------------------------
 
+0. Ensure you have g++ 4.8.2 or higher as the default compiler and make sure you compile everything with -std=c++11 flag
+
 1. Download and install the latest Pin framework matching your platform from
 http://www.pintool.org/downloads.html . 
 * I have tested the current release only on Pin 2.14 rev 67254 *
@@ -21,7 +23,6 @@ http://code.google.com/p/sparsehash/ .
 
 4. Ensure libelf is installed; header files (libelf.h and gelf.h) should be available in your system includes and library in LD_LIBRARY_PATH.
 
-5. Use g++ compiler 4.8.2 ot higher, since CCTLib uses c++11 features.
 
 --------------------------------------------------
 	Compiling
