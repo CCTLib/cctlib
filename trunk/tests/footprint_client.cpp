@@ -42,15 +42,15 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sstream>
-#include "pin.H"
-#include "cctlib.H"
-using namespace std;
-using namespace PinCCTLib;
-
+#include <functional>
 #include <unordered_set>
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include "pin.H"
+#include "cctlib.H"
+using namespace std;
+using namespace PinCCTLib;
 
 /* infrastructure for shadow memory */
 /* MACROs */
@@ -75,6 +75,21 @@ using namespace PinCCTLib;
 #define LEVEL_2_PAGE_TABLE_SLOT(addr) (((addr) >> (PAGE_OFFSET_BITS)) & 0xFFF)
 
 
+// have R, W representative macros
+#define READ_ACTION (0)
+#define WRITE_ACTION (0xff)
+
+#define ONE_BYTE_READ_ACTION (0)
+#define TWO_BYTE_READ_ACTION (0)
+#define FOUR_BYTE_READ_ACTION (0)
+#define EIGHT_BYTE_READ_ACTION (0)
+
+#define ONE_BYTE_WRITE_ACTION (0xff)
+#define TWO_BYTE_WRITE_ACTION (0xffff)
+#define FOUR_BYTE_WRITE_ACTION (0xffffffff)
+#define EIGHT_BYTE_WRITE_ACTION (0xffffffffffffffff)
+
+
 
 /* Other footprint_client settings */
 #define MAX_FOOTPRINT_CONTEXTS_TO_LOG (1000)
@@ -84,21 +99,55 @@ using namespace PinCCTLib;
 #define DECODE_ADDRESS(addrAndLen) ( (addrAndLen) & ((1L<<48) - 1))
 #define DECODE_ACCESS_LEN(addrAndLen) ( (addrAndLen) >> 48)
 
+
+
 struct RawMetric_t {
     unordered_set<uint64_t> addressSet;
     unordered_set<uint64_t> addressSetDecoded;
     uint64_t accessNum;
-    uint64_t dependentNum;
+    uint64_t forwardDependence;
+    uint64_t backwardsDependence;
 };
 
 struct AnalyzedMetric_t {
     ContextHandle_t handle;
     uint64_t footprint;
     uint64_t accessNum;
-    uint64_t dependentNum;
+    uint64_t forwardDependence;
+    uint64_t backwardsDependence;
 };
 
-static unordered_map<uint32_t, struct RawMetric_t> * hmap_vector;
+static std::unordered_map<uint32_t, struct RawMetric_t> * hmap_vector;
+
+
+template<int start, int end, int incr>
+struct UnrolledLoop{
+    static inline void Body(function<void (const int)> func){
+        func(start); // Real loop body
+        UnrolledLoop<start+incr, end, incr>:: Body(func);   // unroll next iteration
+    }
+};
+
+template<int end,  int incr>
+struct UnrolledLoop<end , end , incr>{
+    static inline void Body(function<void (const int)> func){
+        // empty body
+    }
+};
+
+template<int start, int end, int incr>
+struct UnrolledConjunction{
+    static inline bool Body(function<bool (const int)> func){
+        return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
+    }
+};
+
+template<int end,  int incr>
+struct UnrolledConjunction<end , end , incr>{
+    static inline bool Body(function<void (const int)> func){
+        return true;
+    }
+};
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -132,9 +181,10 @@ static void ClientInit(int argc, char* argv[]) {
         fprintf(gTraceFile, "%s ", argv[i]);
     }
     // Initialize hmap_vector
-    hmap_vector = new unordered_map<uint32_t, struct RawMetric_t>[THREAD_MAX];
+    hmap_vector = new std::unordered_map<uint32_t, struct RawMetric_t, std::hash<uint32_t> >[THREAD_MAX];
     fprintf(gTraceFile, "\n");
 }
+
 
 /* helper functions for shadow memory */
 static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
@@ -164,11 +214,6 @@ static inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr) {
 
 static VOID MemFunc(THREADID id, void* address, bool rwFlag, UINT32 refSize) {
     uint64_t addr = (uint64_t)address;
-    uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(addr) * sizeof(uint64_t));
-    // check write-read(true and loop-carried) dependence
-    bool *prevFlag = (bool *)(status + PAGE_OFFSET(addr));
-    
     uint64_t encodedAddrAndLen = ENCODE_ADDRESS_AND_ACCESS_LEN(addr, refSize);
     
     // at memory instruction record the footprint
@@ -183,109 +228,131 @@ static VOID MemFunc(THREADID id, void* address, bool rwFlag, UINT32 refSize) {
     metric = (static_cast<struct RawMetric_t*>(*metricPtr));
     metric->addressSet.insert(encodedAddrAndLen);
     metric->accessNum+=refSize;
+#if 0
+    uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(addr) * sizeof(uint64_t));
+    // check write-read(true and loop-carried) dependence
+    bool *prevFlag = (bool *)(status + PAGE_OFFSET(addr));
     if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
         metric->dependentNum+=refSize;
     // update the current read write flag
     *prevFlag = rwFlag;
     *prevAddr = addr;
+#endif
 }
 
-template<uint16_t AccessLen>
-struct FootPrintAnalysis{
-    static inline void UpdateFootPrint(uint64_t address, THREADID threadId){
-        uint64_t encodedAddrAndLen = ENCODE_ADDRESS_AND_ACCESS_LEN(address, AccessLen);
-        // at memory instruction record the footprint
-        void **metricPtr = GetIPNodeMetric(threadId, 0);
-        RawMetric_t *metric;
-        
-        if (*metricPtr == NULL) {
-            // use ctxthndl as the key to associate footprint with the trace
-            ContextHandle_t ctxthndl = GetContextHandle(threadId, 0);
-            *metricPtr = &(hmap_vector[threadId])[ctxthndl];
-        }
-        metric = (static_cast<struct RawMetric_t*>(*metricPtr));
-        metric->addressSet.insert(encodedAddrAndLen);
-        metric->accessNum+=AccessLen;
+static inline RawMetric_t * UpdateFootPrint(uint64_t address, THREADID threadId, uint16_t accessLen){
+    uint64_t encodedAddrAndLen = ENCODE_ADDRESS_AND_ACCESS_LEN(address, accessLen);
+    // at memory instruction record the footprint
+    void **metricPtr = GetIPNodeMetric(threadId, 0);
+    RawMetric_t *metric;
+    
+    if (*metricPtr == NULL) {
+        // use ctxthndl as the key to associate footprint with the trace
+        ContextHandle_t ctxthndl = GetContextHandle(threadId, 0);
+        *metricPtr = &(hmap_vector[threadId])[ctxthndl];
     }
-};
+    metric = (static_cast<struct RawMetric_t*>(*metricPtr));
+    metric->addressSet.insert(encodedAddrAndLen);
+    metric->accessNum+=accessLen;
+    return metric;
+}
 
 
+
+
+static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_READ_ACTION, /*2 byte */ TWO_BYTE_READ_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_READ_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_READ_ACTION};
+static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
+static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
+
+static inline bool IsFwdDependence(const ContextHandle_t pevCtxt, const ContextHandle_t curCtxt){
+    //TODO
+    return true;
+}
+
+inline static VOID RecordOneByteMemWrite(void* addr, const ContextHandle_t curCtxtHandle){
+    uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+    ContextHandle_t* __restrict__ prevWriteCtxt = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
+    prevWriteCtxt[0] = curCtxtHandle;
+}
+
+inline static VOID RecordOneByteMemRead(void* addr, const ContextHandle_t curCtxtHandle,  RawMetric_t * metric){
+    uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+    ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+    if(IsFwdDependence(prevWriteCtxt[0], curCtxtHandle)) {
+        metric->forwardDependence += 1;
+    } else {
+        metric->backwardsDependence += 1;
+    }
+}
 template<uint16_t AccessLen>
 struct MemAnalysis{
-    static inline VOID RecordNByteMemAccess(void* addr,  bool accessType, THREADID threadId){
-        FootPrintAnalysis<AccessLen>::UpdateFootPrint((uint64_t)addr, threadId);
-        
-        /*
-        uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-        const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+    static inline VOID RecordNByteMemRead(void* addr, uint32_t opaqueHandle,THREADID threadId){
+        RawMetric_t * metric = UpdateFootPrint((uint64_t)addr, threadId, AccessLen);
+        uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+        ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+        const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
         // status == 0 if not created.
-        if(PAGE_OFFSET((uint64_t)addr) < (PAGE_OFFSET_MASK - 2)) {
-            uint32_t* lastIP = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
-            uint32_t state = *((uint32_t*)(status +  PAGE_OFFSET((uint64_t)addr)));
-            
-            if(state != FOUR_BYTE_READ_ACTION) {
-                DECLARE_HASHVAR(myhash);
-                uint32_t ipZero = lastIP[0];
-                
-                // fast path where all bytes are dead by same context
-                if(state == FOUR_BYTE_WRITE_ACTION &&
-                   ipZero == lastIP[0] && ipZero == lastIP[1] && ipZero  == lastIP[2] && ipZero  == lastIP[3]) {
-                    REPORT_DEAD(curCtxtHandle, ipZero, myhash, 4);
-                    // State is already written, so no need to dead write in a tool that detects dead writes
+        if(PAGE_OFFSET((uint64_t)addr) <= (PAGE_OFFSET_MASK - AccessLen)) {
+            // All from same ctxt
+            if (UnrolledConjunction<0, AccessLen, 1>::Body( [&] (int index) -> bool { return (prevWriteCtxt[index] == prevWriteCtxt[0]); })) {
+                if(IsFwdDependence(prevWriteCtxt[0], curCtxtHandle)) {
+                    metric->forwardDependence += AccessLen;
                 } else {
-                    // slow path
-                    // byte 1 dead ?
-                    REPORT_IF_DEAD(0x000000ff, curCtxtHandle, ipZero, myhash);
-                    // byte 2 dead ?
-                    REPORT_IF_DEAD(0x0000ff00, curCtxtHandle, lastIP[1], myhash);
-                    // byte 3 dead ?
-                    REPORT_IF_DEAD(0x00ff0000, curCtxtHandle, lastIP[2], myhash);
-                    // byte 4 dead ?
-                    REPORT_IF_DEAD(0xff000000, curCtxtHandle, lastIP[3], myhash);
-                    // update state for all
-                    *((uint32_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = FOUR_BYTE_WRITE_ACTION;
+                    metric->backwardsDependence += AccessLen;
                 }
             } else {
-                // record as written
-                *((uint32_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = FOUR_BYTE_WRITE_ACTION;
-            }
-#pragma unroll (AccessLen)
-            for(uint16_t i = 0; i < AccessLen; i++) {
-                lastIP[i] = curCtxtHandle;
+                UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
+                    if(IsFwdDependence(prevWriteCtxt[index], curCtxtHandle))
+                        metric->forwardDependence += AccessLen;
+                    else
+                        metric->backwardsDependence += AccessLen;
+                    
+                } );
             }
         } else {
-#pragma unroll (AccessLen)
-            for(uint16_t i = 0; i < AccessLen; i++) {
-                MemAnalysis<1>::RecordNByteMemAccess(((char*) addr) + i, accessType, threadId);
+            if(IsFwdDependence(prevWriteCtxt[0], curCtxtHandle)) {
+                metric->forwardDependence += AccessLen;
+            } else {
+                metric->backwardsDependence += AccessLen;
             }
+            UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID { RecordOneByteMemRead(((char*) addr) + index, curCtxtHandle, metric); } );
         }
-*/
+    }
+    static inline VOID RecordNByteMemWrite(void* addr, uint32_t opaqueHandle, THREADID threadId){
+        UpdateFootPrint((uint64_t)addr, threadId, AccessLen);
+        uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+        const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+        ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+        // status == 0 if not created.
+        if(PAGE_OFFSET((uint64_t)addr) <= (PAGE_OFFSET_MASK - AccessLen)) {
+            UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> void { prevWriteCtxt[index] = curCtxtHandle; } );
+        } else {
+            prevWriteCtxt[0] = curCtxtHandle;
+            UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID { RecordOneByteMemWrite(((char*) addr) + index, curCtxtHandle); } );
+        }
     }
 };
 
-template<>
-struct MemAnalysis<1>{
-    inline static VOID RecordNByteMemAccess(void* addr,  bool accessType, THREADID threadId){
-        FootPrintAnalysis<1>::UpdateFootPrint((uint64_t)addr, threadId);
-/*
-        uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-        const uint32_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-        // Specialize ... TODO
-*/
-    }
-};
 
-#define HANDLE_CASE(n) case n: {\
-                       if(INS_MemoryOperandIsRead(ins, memOp)) {\
-                            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<n>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, false, IARG_THREAD_ID, IARG_END);\
-                        } else {\
-                            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<n>::RecordNByteMemAccess, IARG_MEMORYOP_EA, memOp,IARG_BOOL, true, IARG_THREAD_ID, IARG_END);\
-                        }
+static inline VOID RecordLargeMemRead(void* addr, UINT32 accessLen, uint32_t opaqueHandle, THREADID threadId){
+    RawMetric_t * metric = UpdateFootPrint((uint64_t)addr, threadId, accessLen);
+    const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+    for(UINT32 i = 0; i < accessLen; i++)
+        RecordOneByteMemRead(((char*) addr) + i, curCtxtHandle, metric);
+}
+
+static inline VOID RecordLargeMemWrite(void* addr, UINT32 accessLen, uint32_t opaqueHandle, THREADID threadId){
+    UpdateFootPrint((uint64_t)addr, threadId, accessLen);
+    const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+    for(UINT32 i = 0; i < accessLen; i++)
+        RecordOneByteMemWrite(((char*) addr) + i, curCtxtHandle);
+}
+
+#define HANDLE_CASE(NUM) case (NUM):{if(INS_MemoryOperandIsRead(ins, memOp)) {INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<(NUM)>::RecordNByteMemRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);} else {INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<(NUM)>::RecordNByteMemWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);}}break
 
 
-
-
-static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
+static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
     if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
     if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
@@ -293,41 +360,29 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     
     for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
-
-#ifndef DEV
-        if (INS_IsMemoryRead(ins))
-            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_BOOL, false, IARG_UINT32, refSize, IARG_END);
-        else
-            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemFunc, IARG_THREAD_ID, IARG_MEMORYOP_EA, memOp, IARG_BOOL, true, IARG_UINT32, refSize, IARG_END);
-        
-#else
         switch(refSize) {
                 
-            HANDLE_CASE(1): break;
-            HANDLE_CASE(2): break;
-            HANDLE_CASE(4): break;
-            HANDLE_CASE(8): break;
-            HANDLE_CASE(10): break;
-            HANDLE_CASE(16): break;
+                HANDLE_CASE(1);
+                HANDLE_CASE(2);
+                HANDLE_CASE(4);
+                HANDLE_CASE(8);
+                HANDLE_CASE(10); // TODO
+                HANDLE_CASE(16); // TODO
                 
             default: {
                 // seeing some stupid 512 (fxsave)byte operations. Suspecting REP-instructions.
                 if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_THREAD_ID, IARG_END);
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
                 }
                 
                 if(INS_MemoryOperandIsWritten(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE,
-                                             (AFUNPTR) RecordLargeMemWrite,
-                                             IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE,
-                                             //IARG_UINT32, opaqueHandle,
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE,
+                                             IARG_UINT32, opaqueHandle,
                                              IARG_THREAD_ID, IARG_END);
                 }
             }
                 break;
-                //assert( 0 && "BAD refSize");
         }
-#endif
     }
 }
 
@@ -354,11 +409,14 @@ static void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, C
         *parentMetric = &((hmap_vector[threadid])[parentHandle]);
         (hmap_vector[threadid])[parentHandle].addressSetDecoded.insert(hset->addressSetDecoded.begin(), hset->addressSetDecoded.end());
         (hmap_vector[threadid])[parentHandle].accessNum += hset->accessNum;
-        (hmap_vector[threadid])[parentHandle].dependentNum += hset->dependentNum;
+        (hmap_vector[threadid])[parentHandle].forwardDependence += hset->forwardDependence;
+        (hmap_vector[threadid])[parentHandle].backwardsDependence += hset->backwardsDependence;
+        
     } else {
         (static_cast<struct RawMetric_t*>(*parentMetric))->addressSetDecoded.insert(hset->addressSetDecoded.begin(), hset->addressSetDecoded.end());
         (static_cast<struct RawMetric_t*>(*parentMetric))->accessNum += hset->accessNum;
-        (static_cast<struct RawMetric_t*>(*parentMetric))->dependentNum += hset->dependentNum;
+        (hmap_vector[threadid])[parentHandle].forwardDependence += hset->forwardDependence;
+        (hmap_vector[threadid])[parentHandle].backwardsDependence += hset->backwardsDependence;
     }
 }
 
@@ -379,14 +437,15 @@ static void PrintTopFootPrintPath(THREADID threadid) {
         tmp.handle = (*it).first;
         tmp.footprint = (uint64_t)(*it).second.addressSetDecoded.size();
         tmp.accessNum =  (uint64_t)(*it).second.accessNum;
-        tmp.dependentNum =  (uint64_t)(*it).second.dependentNum;
+        tmp.forwardDependence =  (uint64_t)(*it).second.forwardDependence;
+        tmp.backwardsDependence =  (uint64_t)(*it).second.backwardsDependence;
         TmpList.emplace_back(tmp);
     }
     sort(TmpList.begin(), TmpList.end(), FootPrintCompare);
     vector<struct AnalyzedMetric_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
         if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-            fprintf(gTraceFile, "Footprint is %lu, #reuse factor is %lf, true dependence is %lu, context is:", ((*ListIt).footprint), (double)(*ListIt).accessNum/(*ListIt).footprint, (*ListIt).dependentNum);
+            fprintf(gTraceFile, "Footprint is %lu, #reuse is %ld, fwd dependence is %lu, carried dependence is %lu context is:", ((*ListIt).footprint), (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).forwardDependence, (*ListIt).backwardsDependence);
             PrintFullCallingContext((*ListIt).handle);
             fprintf(gTraceFile, "\n------------------------------------------------\n");
         }
@@ -413,6 +472,7 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     // do whatever you want to the full CCT with footpirnt
 }
 
+
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))
@@ -420,6 +480,7 @@ int main(int argc, char* argv[]) {
     
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();
+    
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
@@ -428,7 +489,6 @@ int main(int argc, char* argv[]) {
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
-    
     // Launch program now
     PIN_StartProgram();
     return 0;
