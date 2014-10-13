@@ -192,9 +192,9 @@ static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
     if(*l1Ptr == 0) {
         *l1Ptr = (uint8_t **) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(ADDRINT)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     } else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(ADDRINT)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     return shadowPage;
 }
@@ -212,6 +212,7 @@ static inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr) {
     else return false;
 }
 
+#if 0
 static VOID MemFunc(THREADID id, void* address, bool rwFlag, UINT32 refSize) {
     uint64_t addr = (uint64_t)address;
     uint64_t encodedAddrAndLen = ENCODE_ADDRESS_AND_ACCESS_LEN(addr, refSize);
@@ -230,7 +231,7 @@ static VOID MemFunc(THREADID id, void* address, bool rwFlag, UINT32 refSize) {
     metric->accessNum+=refSize;
 #if 0
     uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
-    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(addr) * sizeof(uint64_t));
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
     // check write-read(true and loop-carried) dependence
     bool *prevFlag = (bool *)(status + PAGE_OFFSET(addr));
     if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
@@ -240,6 +241,7 @@ static VOID MemFunc(THREADID id, void* address, bool rwFlag, UINT32 refSize) {
     *prevAddr = addr;
 #endif
 }
+#endif
 
 static inline RawMetric_t * UpdateFootPrint(uint64_t address, THREADID threadId, uint16_t accessLen){
     uint64_t encodedAddrAndLen = ENCODE_ADDRESS_AND_ACCESS_LEN(address, accessLen);
@@ -265,21 +267,24 @@ static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYT
 static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
 static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
 
-static inline bool IsFwdDependence(const ContextHandle_t pevCtxt, const ContextHandle_t curCtxt){
+static inline bool IsFwdDependence(ADDRINT prevIp, ADDRINT curIp){
     //TODO
-    return true;
+    return (prevIp < curIp);
 }
 
-inline static VOID RecordOneByteMemWrite(void* addr, const ContextHandle_t curCtxtHandle){
+inline static VOID RecordOneByteMemWrite(void* addr,  ADDRINT insPtr){
     uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
-    ContextHandle_t* __restrict__ prevWriteCtxt = (uint32_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(uint32_t));
-    prevWriteCtxt[0] = curCtxtHandle;
+    //ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+    ADDRINT * __restrict__ prevIP = (ADDRINT*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ADDRINT));
+    prevIP[0] = insPtr;
 }
 
-inline static VOID RecordOneByteMemRead(void* addr, const ContextHandle_t curCtxtHandle,  RawMetric_t * metric){
+inline static VOID RecordOneByteMemRead(void* addr, ADDRINT insPtr,  RawMetric_t * metric){
     uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
-    ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
-    if(IsFwdDependence(prevWriteCtxt[0], curCtxtHandle)) {
+    //ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+    ADDRINT * __restrict__ prevIP = (ADDRINT*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ADDRINT));
+    
+    if(IsFwdDependence(prevIP[0], insPtr)) {
         metric->forwardDependence += 1;
     } else {
         metric->backwardsDependence += 1;
@@ -287,23 +292,24 @@ inline static VOID RecordOneByteMemRead(void* addr, const ContextHandle_t curCtx
 }
 template<uint16_t AccessLen>
 struct MemAnalysis{
-    static inline VOID RecordNByteMemRead(void* addr, uint32_t opaqueHandle,THREADID threadId){
+    static inline VOID RecordNByteMemRead(void* addr, uint32_t opaqueHandle, ADDRINT insPtr, THREADID threadId){
         RawMetric_t * metric = UpdateFootPrint((uint64_t)addr, threadId, AccessLen);
         uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
-        ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
-        const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+        //ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+        ADDRINT * __restrict__ prevIP = (ADDRINT*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ADDRINT));
+        //const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /* opaqueHandle */0);
         // status == 0 if not created.
         if(PAGE_OFFSET((uint64_t)addr) <= (PAGE_OFFSET_MASK - AccessLen)) {
             // All from same ctxt
-            if (UnrolledConjunction<0, AccessLen, 1>::Body( [&] (int index) -> bool { return (prevWriteCtxt[index] == prevWriteCtxt[0]); })) {
-                if(IsFwdDependence(prevWriteCtxt[0], curCtxtHandle)) {
+            if (UnrolledConjunction<0, AccessLen, 1>::Body( [&] (int index) -> bool { return (prevIP[index] == prevIP[0]); })) {
+                if(IsFwdDependence(prevIP[0], insPtr)) {
                     metric->forwardDependence += AccessLen;
                 } else {
                     metric->backwardsDependence += AccessLen;
                 }
             } else {
                 UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    if(IsFwdDependence(prevWriteCtxt[index], curCtxtHandle))
+                    if(IsFwdDependence(prevIP[index], insPtr))
                         metric->forwardDependence += AccessLen;
                     else
                         metric->backwardsDependence += AccessLen;
@@ -311,45 +317,46 @@ struct MemAnalysis{
                 } );
             }
         } else {
-            if(IsFwdDependence(prevWriteCtxt[0], curCtxtHandle)) {
+            if(IsFwdDependence(prevIP[0], insPtr)) {
                 metric->forwardDependence += AccessLen;
             } else {
                 metric->backwardsDependence += AccessLen;
             }
-            UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID { RecordOneByteMemRead(((char*) addr) + index, curCtxtHandle, metric); } );
+            UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID { RecordOneByteMemRead(((char*) addr) + index, insPtr, metric); } );
         }
     }
-    static inline VOID RecordNByteMemWrite(void* addr, uint32_t opaqueHandle, THREADID threadId){
+    static inline VOID RecordNByteMemWrite(void* addr, uint32_t opaqueHandle, ADDRINT insPtr, THREADID threadId){
         UpdateFootPrint((uint64_t)addr, threadId, AccessLen);
         uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
-        const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
-        ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status + PAGE_SIZE +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+        //const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+        //ContextHandle_t* __restrict__ prevWriteCtxt = (ContextHandle_t*)(status +  PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+        ADDRINT * __restrict__ prevIP = (ADDRINT*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ADDRINT));
         // status == 0 if not created.
         if(PAGE_OFFSET((uint64_t)addr) <= (PAGE_OFFSET_MASK - AccessLen)) {
-            UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> void { prevWriteCtxt[index] = curCtxtHandle; } );
+            UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> void { prevIP[index] = insPtr; } );
         } else {
-            prevWriteCtxt[0] = curCtxtHandle;
-            UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID { RecordOneByteMemWrite(((char*) addr) + index, curCtxtHandle); } );
+            prevIP[0] = insPtr;
+            UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID { RecordOneByteMemWrite(((char*) addr) + index, insPtr); } );
         }
     }
 };
 
 
-static inline VOID RecordLargeMemRead(void* addr, UINT32 accessLen, uint32_t opaqueHandle, THREADID threadId){
+static inline VOID RecordLargeMemRead(void* addr, UINT32 accessLen, uint32_t opaqueHandle, ADDRINT insPtr, THREADID threadId){
     RawMetric_t * metric = UpdateFootPrint((uint64_t)addr, threadId, accessLen);
-    const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+    //const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
     for(UINT32 i = 0; i < accessLen; i++)
-        RecordOneByteMemRead(((char*) addr) + i, curCtxtHandle, metric);
+        RecordOneByteMemRead(((char*) addr) + i, insPtr, metric);
 }
 
-static inline VOID RecordLargeMemWrite(void* addr, UINT32 accessLen, uint32_t opaqueHandle, THREADID threadId){
+static inline VOID RecordLargeMemWrite(void* addr, UINT32 accessLen, uint32_t opaqueHandle, ADDRINT insPtr, THREADID threadId){
     UpdateFootPrint((uint64_t)addr, threadId, accessLen);
-    const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
+    //const ContextHandle_t curCtxtHandle = GetContextHandle(threadId, /*opaqueHandle*/ 0);
     for(UINT32 i = 0; i < accessLen; i++)
-        RecordOneByteMemWrite(((char*) addr) + i, curCtxtHandle);
+        RecordOneByteMemWrite(((char*) addr) + i, insPtr);
 }
 
-#define HANDLE_CASE(NUM) case (NUM):{if(INS_MemoryOperandIsRead(ins, memOp)) {INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<(NUM)>::RecordNByteMemRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);} else {INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<(NUM)>::RecordNByteMemWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);}}break
+#define HANDLE_CASE(NUM) case (NUM):{if(INS_MemoryOperandIsRead(ins, memOp)) {INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<(NUM)>::RecordNByteMemRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_INST_PTR, IARG_THREAD_ID, IARG_END);} else {INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysis<(NUM)>::RecordNByteMemWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_INST_PTR, IARG_THREAD_ID, IARG_END);}}break
 
 
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
@@ -372,12 +379,12 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
             default: {
                 // seeing some stupid 512 (fxsave)byte operations. Suspecting REP-instructions.
                 if(INS_MemoryOperandIsRead(ins, memOp)) {
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, opaqueHandle, IARG_INST_PTR, IARG_THREAD_ID, IARG_END);
                 }
                 
                 if(INS_MemoryOperandIsWritten(ins, memOp)) {
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordLargeMemWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE,
-                                             IARG_UINT32, opaqueHandle,
+                                             IARG_UINT32, opaqueHandle, IARG_INST_PTR,
                                              IARG_THREAD_ID, IARG_END);
                 }
             }
