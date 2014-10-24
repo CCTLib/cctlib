@@ -40,6 +40,10 @@ footprint_client.so: footprint_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   footprint_client.cpp
 	$(CXX)   -o footprint_client.so footprint_client.o -L../src/ -lcctlib $(LDFLAGS) 
 
+valueNum.so: valueNum.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   valueNum.cpp
+	$(CXX)   -o valueNum.so valueNum.o -L../src/ -lcctlib $(LDFLAGS) 
+
 threaded.o: threaded.c
 	 $(CC) -g -fopenmp -o threaded.o threaded.c
 clean-local:
