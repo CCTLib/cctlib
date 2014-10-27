@@ -1,4 +1,4 @@
-
+/* This file is created by Shasha Wen at College of William and Mary. This is a cctlib client for detecting computation redundancies using dynamic value numbering */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -360,7 +360,8 @@ uint64_t checkOpcodeValueNum(int op, vector<uint64_t> * svalues, THREADID thread
         return gValue++;
     
     /***********  sort vector ***************/
-    sort((* svalues).begin(),(* svalues).begin()+sCount);
+    if(op != XED_ICLASS_DIV)
+        sort((* svalues).begin(),(* svalues).begin()+sCount);
 
     string str = to_string(op);
     
@@ -945,7 +946,9 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
              if(INS_OperandWritten(ins,i)){
                  
                  if(INS_OperandIsReg(ins,i)){
-                     opinfo->tRegs.push_back(INS_OperandReg(ins,i));
+                     REG write = INS_OperandReg(ins,i);
+                     if (write != REG_GFLAGS)
+                         opinfo->tRegs.push_back(INS_OperandReg(ins,i));
                  }
              }
         }
