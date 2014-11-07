@@ -6,6 +6,7 @@
 #include "pin_isa.H"
 #include <map>
 #include <ext/hash_map>
+#include <unordered_map>
 #include <list>
 #include <stdint.h>
 #include <sys/types.h>
@@ -72,7 +73,7 @@ using namespace PinCCTLib;
 #define MAX_FILE_PATH   (200)
 #define MAX_DEAD_CONTEXTS_TO_LOG (5000)
 #define MAX_LOG_NUM (110)
-#define MAX_OPERAND (10)
+#define MAX_OPERAND (6)
 
 namespace __gnu_cxx{
 
@@ -109,22 +110,11 @@ public:
     hash_map<uint64_t, uint64_t> immediateMap;
     hash_map<uint64_t, uint64_t>::iterator immediateMapIt;
     
-    /*hash_map<string, uint64_t> opcodeMap;
-    hash_map<string, uint64_t>::iterator opcodeMapIt;
-    map<string, uint32_t> opcodeContext;
-    map<string, uint32_t>::iterator opcodeContextIt;
-    hash_map<uint32_t, string> IPstring;
-    hash_map<uint32_t, string>::iterator IPstringIt;*/
-    dense_hash_map<string, OPMap> opcodeMap;
-    dense_hash_map<string, OPMap>::iterator opcodeMapIt;
-    dense_hash_map<uint32_t, string> IPstring;
-    dense_hash_map<uint32_t, string>::iterator IPstringIt;
+    unordered_map<uint64_t, OPMap> opcodeMap;
+    unordered_map<uint64_t, OPMap>::iterator opcodeMapIt;
 
-    dense_hash_map<uint64_t, uint64_t> redundantMap;
-    dense_hash_map<uint64_t, uint64_t>::iterator redundantMapIt;
-
-    /*dense_hash_map<uint64_t, uint64_t> redundantMap;
-    dense_hash_map<uint64_t, uint64_t>::iterator redundantMapIt;*/
+    unordered_map<uint64_t, uint64_t> redundantMap;
+    unordered_map<uint64_t, uint64_t>::iterator redundantMapIt;
 
     ThreadData_t(){
 	memset(regNumber, sizeof(uint64_t) * REG_LAST, 0);
@@ -133,9 +123,12 @@ public:
 
 typedef struct opcodeInfo{
     OPCODE opCode; 
-    vector<REG> sRegs;
-    vector<uint64_t> immediates;
-    vector<REG> tRegs;
+    int sCount;
+    int immeCount;
+    int tCount;
+    REG sRegs[MAX_OPERAND];
+    uint64_t immediates[MAX_OPERAND];
+    REG tRegs[MAX_OPERAND];
 }OPInfo;
 
 struct RedundantInfoForPresentation{
@@ -151,6 +144,8 @@ static PIN_MUTEX  gMutex;
 
 list<RedundantInfoForPresentation> gRedundantList;
 
+//static uint64_t total;
+//static uint64_t totalI;
 
 // If it is one of ignoreable instructions, then skip instrumentation.
 bool IsIgnorableIns(INS ins){
@@ -175,23 +170,24 @@ inline ThreadData_t* GetTLS(THREADID threadid)
 
 /* helper functions for shadow memory */
 static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
+
     uint8_t *shadowPage;
     uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
     if(*l1Ptr == 0) {
         *l1Ptr = (uint8_t **) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     return shadowPage;
 }
 
-//get the value number from the shadow memory
+/* get the value number from the shadow memory  */
 inline uint64_t getMemValueNum(uint64_t addr, THREADID threadid){
 
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(addr) * sizeof(uint64_t));
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
     if(*prevAddr==0)
     {
         gValue++;
@@ -202,7 +198,7 @@ inline uint64_t getMemValueNum(uint64_t addr, THREADID threadid){
 }
 
 
-//get the value number from the register
+/* get the value number from the register  */
 inline uint64_t getRegValueNum(REG reg, THREADID threadid){
 
     ThreadData_t * td = GetTLS(threadid);
@@ -211,28 +207,25 @@ inline uint64_t getRegValueNum(REG reg, THREADID threadid){
         gValue++;
         td->regNumber[reg] = gValue;
     }
-//fprintf(gTraceFile,"get register %d value number:%lu\n",reg,td->regNumber[reg]);
     return td->regNumber[reg];
 }
 
-//set a new value number to the memory
+/* set a new value number to the memory */
 inline VOID setMemValueNum(uint64_t addr, THREADID threadid, uint64_t value){
 
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(addr) * sizeof(uint64_t));
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
     *prevAddr = value;
 }
 
-//set a new value number to the register
-inline VOID setRegValueNum(REG reg, THREADID threadid, uint64_t value){
+/* set a new value number to the register  */
+inline VOID setRegValueNum(REG reg, ThreadData_t * td, uint64_t value){
 
-    ThreadData_t * td = GetTLS(threadid);
-//fprintf(gTraceFile,"set register %d value number:%lu\n",reg,value);
     td->regNumber[reg] = value;
 }
 
 
-//get the value number for the immediate data
+/* get the value number for the immediate data */
 inline uint64_t getImmediateValueNum(uint64_t immediate, THREADID threadid){
 
     ThreadData_t * td = GetTLS(threadid);
@@ -241,14 +234,12 @@ inline uint64_t getImmediateValueNum(uint64_t immediate, THREADID threadid){
     {
         gValue++;
         td->immediateMap.insert(std::pair<uint64_t, uint64_t>(immediate,gValue));
-//fprintf(gTraceFile,"get immediate %lu value number:%lu\n",immediate,gValue);
         return gValue;
     }
-//fprintf(gTraceFile,"get immediate %lu value number:%lu\n",immediate,td->immediateMapIt->second);
     return td->immediateMapIt->second;
 }
 
-
+/* record the redundant operation deadCtxt is redundant because of killer */
 inline void recordRedundantOperation(uint32_t deadCtxt, uint32_t killerCtxt, ThreadData_t * td) {
 
     uint64_t deadIndex = (uint64_t)deadCtxt;
@@ -263,213 +254,192 @@ inline void recordRedundantOperation(uint32_t deadCtxt, uint32_t killerCtxt, Thr
 }
 
 
-void deleteString(string str, THREADID threadid){
-    
-    ThreadData_t * td = GetTLS(threadid);\
-    //string str(arr);
-    td->opcodeMapIt = td->opcodeMap.find(str);
+void deleteString(uint64_t key, ThreadData_t * td){
+
+    td->opcodeMapIt = td->opcodeMap.find(key);
     if(td->opcodeMapIt != td->opcodeMap.end()){
 
         td->opcodeMap.erase(td->opcodeMapIt);
+        //total--;
     }
-    //delete str;
+
 }
 
-//delete the old string if the string for the same IP is changed
-void removeOldstring(void *ip, char *str, THREADID threadid){
+
+/* record only one hash value for each IP, if the new one is different, delete the old one */
+void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
 
     uint64_t addr = (uint64_t)ip;
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
-    char **prevAddr = (char **)(status + PAGE_SIZE +  PAGE_OFFSET(addr) * sizeof(char *));
- 
-    if(*prevAddr == (char *)0){
-
-        *prevAddr = str;
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
+    //fprintf(gTraceFile,"ip: %p --- old key: %u\n",ip, *prevAddr);
+    if(*prevAddr == 0){
+        //fprintf(gTraceFile,"ip: %p --- set key: %u\n",ip, nValue);
+        *prevAddr = nValue;
     }else{
 
-        if(*prevAddr != str){
-            string old(*prevAddr);
-            deleteString(old, threadid);
-            *prevAddr = str;
+        if(*prevAddr != nValue){
+	    
+            uint64_t old = *prevAddr;
+            deleteString(old, td);
+            *prevAddr = nValue;
+	    //fprintf(gTraceFile,"ip: %p --- new key: %u\n",ip, *prevAddr);
         }
     }
 }
 
+/* check if it is a redundant write to memory*/
 void checkMovValueNum(int opcode, uint64_t svalue, uint64_t target, THREADID threadid, void *ip, const uint32_t opHandle){
 
     ThreadData_t * td = GetTLS(threadid);
     uint32_t curCtxt = GetContextHandle(threadid, opHandle);
 
-    string str = to_string(opcode);
-    str += "_";
-    str += to_string(svalue);
-    str += "_";
-    str += to_string(target);
+    uint64_t op = (uint64_t)opcode;
+    uint64_t key = (op << 56) | ((svalue & 0x000000000fffffff) << 28) | (target & 0x000000000fffffff);
 
-    /*bool flag = 1;
-    td->IPstringIt = td->IPstring.find(curCtxt);
-    if(td->IPstringIt == td->IPstring.end()){
-        td->IPstring.insert(std::pair<uint32_t, string>(curCtxt,str));
-        flag = 0;
-    }*/
+    //uint64_t key = op+svalue+target;
     
-    td->opcodeMapIt = td->opcodeMap.find(str);
+    td->opcodeMapIt = td->opcodeMap.find(key);
+
     if(td->opcodeMapIt == td->opcodeMap.end()){
+	//total++;
         OPMap opmap = {svalue, curCtxt}; 
-        td->opcodeMap.insert(std::pair<string, OPMap>(str,opmap));
-        //removeOldstring(ip, (char *)str.c_str(), threadid);
+        //td->opcodeMap.insert(std::pair<uint64_t, OPMap>(key,opmap));
+	td->opcodeMap[key]=opmap;
+	//fprintf(gTraceFile,"ip: %p --- key: %u\n",ip, key);
+        removeOldstring(ip, key, td);
+
         return;
     }
     recordRedundantOperation(td->opcodeMapIt->second.ip, curCtxt, td);
+    removeOldstring(ip, key, td);
 
-    /*char *strArray;
-    strArray = new char[50];
-    strcpy (strArray,str.c_str());*/
-
-    removeOldstring(ip, (char *)str.c_str(), threadid);
-
-    /*if(flag){
-        if(td->IPstringIt->second != str){
-            deleteString(td->IPstringIt->second, threadid);
-            td->IPstringIt->second = str;
-        }
-    }*/
 }
 
-static inline string sortSvalues(uint64_t svalues[], int count, bool sort){
-    string result;
+static inline void sortSvalues(uint64_t *svalues, int count){
+
     uint64_t temp;
 
-    if(sort){
-
-        for(int i = 1; i < count; ++i){
-            for(int j = 0; j < i; ++j){
-                if(svalues[j] > svalues[i]){
-                    temp = svalues[j];
-                    svalues[j] = svalues[i];
-                    svalues[i] = temp;
-                }
+    for(int i = 1; i < count; ++i){
+        for(int j = 0; j < i; ++j){
+            if(svalues[j] > svalues[i]){
+                temp = svalues[j];
+                svalues[j] = svalues[i];
+                svalues[i] = temp;
             }
         }
-        for(int i = 0; i < count; ++i){
-            result += svalues[i];
-            result += "_";
-        }
-
-    }else{
-
-        for(int i = 0; i < count; ++i){
-            result += svalues[i];
-            result += "_";
-        }
     }
-    return result;
 }
 
-//get the value number of the opcode and check the redundancy
-uint64_t checkOpcodeValueNum(int op, uint64_t  svalues[], int sCount, THREADID threadid, void *ip, const uint32_t opHandle){
 
+/**/
+bool IsCommutativeOp(int opcode){
+
+    if (opcode == XED_ICLASS_SUB || opcode == XED_ICLASS_DIV || opcode == XED_ICLASS_SHL || opcode == XED_ICLASS_SHR)
+        return false;
+}
+
+
+/* get the value number of the opcode and check the redundancy */
+uint64_t checkOpcodeValueNum(int opcode, uint64_t  svalues[], int sCount, THREADID threadid, void *ip, const uint32_t opHandle){
     ThreadData_t * td = GetTLS(threadid);
     uint32_t curCtxt = GetContextHandle(threadid, opHandle);
-    string str = to_string(op);
-    
+
+    uint64_t op = (uint64_t)opcode;
+    uint64_t key;
+
     switch (sCount){
 
         case (0):
             return gValue++;
             break;
         case (1):
-            str += "_";
-            str += to_string(svalues[0]);
+            key = (op << 56) | ((svalues[0] << 8) >> 8);
             break;
         case (2):
-        case (3):
-        case (4):
-            str += "_";
-            if(op != XED_ICLASS_DIV){
-                str += sortSvalues(svalues,3,true);
-            }else{
-                str += sortSvalues(svalues,3,false);
+            if(IsCommutativeOp(opcode)){
+                sortSvalues(svalues, sCount);
             }
+            key = (op << 56) | ((svalues[0] & 0x000000000fffffff) << 28) | (svalues[1] & 0x000000000fffffff);
+            break;
+        case (3):
+            if(IsCommutativeOp(opcode)){
+
+                sortSvalues(svalues, sCount);
+            }
+            key = (op << 56) | ((svalues[0] << 45) >> 8) | ((svalues[1] << 45) >> 27) | ((svalues[2] << 45) >> 46);
+            break;
+ 
+        case (4):
+            printf("4 source values!\n");
+            //key = (op << 56) | ((svalues[0] << 36) >> 8) | ((svalues[1] << 36) >> 36);
             break;
         default:
             printf("Source values more than 4!\n");
             break;
     }
-    
-    /*bool flag = 1;
-    td->IPstringIt = td->IPstring.find(curCtxt);
-    if(td->IPstringIt == td->IPstring.end()){
-        td->IPstring.insert(std::pair<uint32_t, string>(curCtxt,str));
-        flag = 0;
-    }*/
+
 
     // use google's dense/sparse hash map
-    td->opcodeMapIt = td->opcodeMap.find(str);
+    td->opcodeMapIt = td->opcodeMap.find(key);
+
     if(td->opcodeMapIt == td->opcodeMap.end())
     {
         gValue++;
+	//total++;
         OPMap opmap = {gValue, curCtxt}; 
-        td->opcodeMap.insert(std::pair<string, OPMap>(str,opmap));
-        //removeOldstring(ip, (char *)str.c_str(), threadid);
+        //td->opcodeMap.insert(std::pair<uint64_t, OPMap>(key,opmap));
+	td->opcodeMap[key]=opmap;
+	//fprintf(gTraceFile,"ip: %p --- key: %u\n",ip, key);
+        removeOldstring(ip, key, td);
+
         return gValue;
     }
     uint64_t value = td->opcodeMapIt->second.vNum;
 
     recordRedundantOperation(td->opcodeMapIt->second.ip, curCtxt,td);
-    
-    /*char *strArray;
-    strArray = new char[50];
-    strcpy (strArray,str.c_str());*/
-
-    removeOldstring(ip, (char *)str.c_str(), threadid);
-
-    /*if(flag){
-        if(td->IPstringIt->second != str){
-            deleteString(td->IPstringIt->second, threadid);
-            td->IPstringIt->second = str;
-        }
-    }*/
+    removeOldstring(ip, key, td);
 
     return value;
 }
 
 
-VOID valueNumbering(void * op, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
+VOID valueNumbering(void * op, bool movOrnot, THREADID threadid, void *ip, const uint32_t opHandle){
     OPInfo * opinfo = (OPInfo *) op;
+    ThreadData_t * td = GetTLS(threadid);
     uint64_t value;
-    int sRegsCount = opinfo->sRegs.size();
-    int immediateCount = opinfo->immediates.size();
+    int sRegsCount = opinfo->sCount;
+    int immediateCount = opinfo->immeCount;
 
     if (movOrnot) {
 
         if(sRegsCount == 1)
-            value = getRegValueNum(opinfo->sRegs[0], threadID);
+            value = getRegValueNum(opinfo->sRegs[0], threadid);
         else if(immediateCount == 1)
             value = opinfo->immediates[0]; // enconding immediate numbers to avoid the hash map
 
-        setRegValueNum(opinfo->tRegs[0],threadID,value);
+        setRegValueNum(opinfo->tRegs[0],td,value);
     }else {
 	// avoid using vectors, using constant sized array instead
         uint64_t sValues[6];
         int index = 0;
 
         for(int i = 0;i < sRegsCount;++i)
-            sValues[index++] = getRegValueNum(opinfo->sRegs[i], threadID);
+            sValues[index++] = getRegValueNum(opinfo->sRegs[i], threadid);
 
         for(int i = 0;i < immediateCount;++i)
             sValues[index++] = opinfo->immediates[i];
         
-        value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+        value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadid, ip, opHandle);
         //value = gValue;
 
-        int tRegsCount = opinfo->tRegs.size();
+        int tRegsCount = opinfo->tCount;
         if (tRegsCount == 1) {
-            setRegValueNum(opinfo->tRegs[0], threadID,value);
+            setRegValueNum(opinfo->tRegs[0], td,value);
         } else {
             for (int i = 0; i < tRegsCount; i++) {
                 gValue++;
-                setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                setRegValueNum(opinfo->tRegs[i], td, gValue);
             }
         }
     }
@@ -478,18 +448,19 @@ VOID valueNumbering(void * op, bool movOrnot, THREADID threadID, void *ip, const
 VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
    
     OPInfo *opinfo = (OPInfo *) op;
+    ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem==1);
     uint64_t value = 0;
 
-    int sRegsCount = opinfo->sRegs.size();
-    int immediateCount = opinfo->immediates.size();
+    int sRegsCount = opinfo->sCount;
+    int immediateCount = opinfo->immeCount;
     
     if (movOrnot) {
         if (rMem == 1) {
             assert(opinfo->tRegs.size() == 1);
 
             value = getMemValueNum((uint64_t)addr, threadID);
-            setRegValueNum(opinfo->tRegs[0], threadID, value);
+            setRegValueNum(opinfo->tRegs[0], td, value);
 
             ////checkMovValueNum(opinfo->opCode, value, opinfo->tRegs[0], threadID, opHandle);
         } else {
@@ -513,22 +484,22 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
         for(int i = 0;i < immediateCount;++i)
             sValues[index++] = opinfo->immediates[i];
 
-        int tRegsCount = opinfo->tRegs.size();
+        int tRegsCount = opinfo->tCount;
 
         if (rMem == 1) {
 
             value = getMemValueNum((uint64_t)addr, threadID);
             sValues[index++] = value;
-            
+
             value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
             //value = gValue;
             
             if (tRegsCount == 1) {
-                setRegValueNum(opinfo->tRegs[0], threadID, value);
+                setRegValueNum(opinfo->tRegs[0], td, value);
             } else {
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
             }
             
@@ -536,15 +507,6 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
 
             value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
             //value = gValue;
-
-            uint64_t add = (uint64_t)addr;
-            uint8_t* status = GetOrCreateShadowBaseAddress(add);
-            uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(add) * sizeof(uint64_t));
-            if(*prevAddr==0)
-            {
-                gValue++;
-                *prevAddr = gValue;
-            }
       
             if (tRegsCount == 0) {
 
@@ -555,7 +517,7 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
                 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
             }
         }
@@ -565,11 +527,12 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
 VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
     
     OPInfo *opinfo = (OPInfo *) op;
+    ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem == 2);
     uint64_t value;
 
-    int sRegsCount = opinfo->sRegs.size();
-    int immediateCount = opinfo->immediates.size();
+    int sRegsCount = opinfo->sCount;
+    int immediateCount = opinfo->immeCount;
     
     if (movOrnot) {
         if (rMem == 1 && wMem == 1) {
@@ -588,11 +551,11 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
         for(int i = 0;i < immediateCount;++i)
             sValues[index++] = opinfo->immediates[i];
 
-        int tRegsCount = opinfo->tRegs.size();
+        int tRegsCount = opinfo->tCount;
 
 //value = gValue;
         if (rMem == 0){
-            
+
             value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
             
             assert(wMem == 2);
@@ -605,7 +568,7 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
             assert(wMem == 1);
             value = getMemValueNum((uint64_t)addr1, threadID);
             sValues[index++] = value;
-            
+
             value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
            
             if (tRegsCount == 0) {
@@ -617,7 +580,7 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
                 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
             }
             
@@ -629,16 +592,15 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
             value = getMemValueNum((uint64_t)addr2, threadID);
             sValues[index++] = value;
 
-
             value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
 
             if (tRegsCount == 1) {
-                setRegValueNum(opinfo->tRegs[0], threadID, value);
+                setRegValueNum(opinfo->tRegs[0], td, value);
             } else {
                 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
             }
         }
@@ -649,11 +611,12 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
 VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
     
     OPInfo *opinfo = (OPInfo *) op;
+    ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem == 3);
     uint64_t value;
 
-    int sRegsCount = opinfo->sRegs.size();
-    int immediateCount = opinfo->immediates.size();
+    int sRegsCount = opinfo->sCount;
+    int immediateCount = opinfo->immeCount;
     
     if (movOrnot) {
         printf("MOV with 3 memory addresses evloved!\n");
@@ -668,13 +631,14 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
         for(int i = 0;i < immediateCount;++i)
             sValues[index++] = opinfo->immediates[i];
 
-        int tRegsCount = opinfo->tRegs.size();
+        int tRegsCount = opinfo->tCount;
 
-        value = gValue;/////////////////////////////
+        //value = gValue;/////////////////////////////
 
         switch (rMem) {
             case (0):
                 assert(wMem == 3);
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
                 
                 gValue++;
@@ -686,7 +650,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
                 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
                 break;
                 
@@ -694,7 +658,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
                 assert(wMem == 2);
                 value = getMemValueNum((uint64_t)addr1, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
                 
                 gValue++;
@@ -704,7 +668,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
                 break;
                 
@@ -715,7 +679,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
                 
                 value = getMemValueNum((uint64_t)addr2, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
                 
                 if (tRegsCount == 0) {
@@ -727,7 +691,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
                     
                     for (int i = 0; i < tRegsCount; i++) {
                         gValue++;
-                        setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                        setRegValueNum(opinfo->tRegs[i], td, gValue);
                     }
                 }
                 break;
@@ -742,16 +706,16 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
                 
                 value = getMemValueNum((uint64_t)addr3, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
 
                 if (tRegsCount == 1) {
-                    setRegValueNum(opinfo->tRegs[0], threadID, value);
+                    setRegValueNum(opinfo->tRegs[0], td, value);
                 } else {
                     
                     for (int i = 0; i < tRegsCount; i++) {
                         gValue++;
-                        setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                        setRegValueNum(opinfo->tRegs[i], td, gValue);
                     }
                 }
                 break;
@@ -766,11 +730,12 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
 VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, void * addr4, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
     
     OPInfo *opinfo = (OPInfo *) op;
+    ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem == 4);
     uint64_t value;
 
-    int sRegsCount = opinfo->sRegs.size();
-    int immediateCount = opinfo->immediates.size();
+    int sRegsCount = opinfo->sCount;
+    int immediateCount = opinfo->immeCount;
     
     if (movOrnot) {
         printf("MOV with 4 memory addresses evloved!\n");
@@ -785,12 +750,13 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
         for(int i = 0;i < immediateCount;++i)
             sValues[index++] = opinfo->immediates[i];
 
-        int tRegsCount = opinfo->tRegs.size();
+        int tRegsCount = opinfo->tCount;
 
-        value = gValue;/////////////////////////////
+        //value = gValue;/////////////////////////////
 
         switch (rMem) {
             case (0):
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
                 
                 gValue++;
@@ -805,14 +771,14 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
                 break;
                 
             case (1):
                 value = getMemValueNum((uint64_t)addr1, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
                 
                 gValue++;
@@ -824,7 +790,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
                 break;
                 
@@ -834,7 +800,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                 
                 value = getMemValueNum((uint64_t)addr2, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
                 
                 gValue++;
@@ -844,7 +810,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
 
                 for (int i = 0; i < tRegsCount; i++) {
                     gValue++;
-                    setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                    setRegValueNum(opinfo->tRegs[i], td, gValue);
                 }
                 break;
                 
@@ -857,7 +823,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                 
                 value = getMemValueNum((uint64_t)addr3, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
 
                 if (tRegsCount == 0) {
@@ -869,7 +835,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                     
                     for (int i = 0; i < tRegsCount; i++) {
                         gValue++;
-                        setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                        setRegValueNum(opinfo->tRegs[i], td, gValue);
                     }
                 }
                 break;
@@ -886,16 +852,16 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                 
                 value = getMemValueNum((uint64_t)addr4, threadID);
                 sValues[index++] = value;
-                
+
                 value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
 
                 if (tRegsCount == 1) {
-                    setRegValueNum(opinfo->tRegs[0], threadID, value);
+                    setRegValueNum(opinfo->tRegs[0], td, value);
                 } else {
                     
                     for (int i = 0; i < tRegsCount; i++) {
                         gValue++;
-                        setRegValueNum(opinfo->tRegs[i], threadID, gValue);
+                        setRegValueNum(opinfo->tRegs[i], td, gValue);
                     }
                 }
                 break;
@@ -957,6 +923,9 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
 
     OPInfo  * opinfo = new OPInfo;
     opinfo->opCode = INS_Opcode(ins);
+    int sRegCount = 0;
+    int immediateCount = 0;
+    int tRegCount = 0;
     
     bool flag = false;
 
@@ -972,11 +941,11 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
                  
                   if(INS_OperandIsReg(ins,i)){
                      REG readReg = INS_OperandReg(ins,i); 
-                     opinfo->sRegs.push_back(readReg);
+                     opinfo->sRegs[sRegCount++] = readReg;
                       
                   }else if(INS_OperandIsImmediate(ins,i)){
                      uint64_t immediate = INS_OperandImmediate(ins,i);
-                     opinfo->immediates.push_back(getImmediateValueNum(immediate, threadID));
+                     opinfo->immediates[immediateCount++] = getImmediateValueNum(immediate, threadID);
                      //opinfo->immediates.push_back(immediate);
                   }
              }
@@ -984,7 +953,7 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
                  
                   if(INS_OperandIsReg(ins,i)){
                      REG writeReg = INS_OperandReg(ins,i); 
-                     opinfo->tRegs.push_back(writeReg);
+                     opinfo->tRegs[tRegCount++] = writeReg;
                   }
              }
         }
@@ -1002,10 +971,10 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
                  
                   if(INS_OperandIsReg(ins,i)){
                      REG readReg = INS_OperandReg(ins,i); 
-                     opinfo->sRegs.push_back(readReg);
+                     opinfo->sRegs[sRegCount++] = readReg;
                   }else if(INS_OperandIsImmediate(ins,i)){
                      uint64_t immediate = INS_OperandImmediate(ins,i);
-                     opinfo->immediates.push_back(getImmediateValueNum(immediate, threadID));
+                     opinfo->immediates[immediateCount++] = getImmediateValueNum(immediate, threadID);
                      //opinfo->immediates.push_back(immediate);
                   }
              }
@@ -1014,11 +983,16 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
                  if(INS_OperandIsReg(ins,i)){
                      REG write = INS_OperandReg(ins,i);
                      if (write != REG_GFLAGS)
-                         opinfo->tRegs.push_back(INS_OperandReg(ins,i));
+                         opinfo->tRegs[tRegCount++] = INS_OperandReg(ins,i);
                  }
              }
         }
     } 
+
+    opinfo->sCount = sRegCount;
+    opinfo->immeCount = immediateCount;
+    opinfo->tCount = tRegCount;
+    //totalI++;
     
     switch(memOpCount){
         case(0):
@@ -1048,9 +1022,8 @@ VOID ThreadStart(THREADID threadid, CONTEXT *ctxt, INT32 flags, VOID *v) {
     
     // Get the stack base address:
     ThreadData_t* tdata = new ThreadData_t();
-    tdata->opcodeMap.set_empty_key("");
-    tdata->IPstring.set_empty_key(-1);
-    tdata->redundantMap.set_empty_key(-1);
+    //tdata->opcodeMap.set_empty_key(-1);
+    //tdata->redundantMap.set_empty_key(-1);
  
     // Label will be NULL
     PIN_SetThreadData(tls_key, tdata, threadid);
@@ -1073,11 +1046,11 @@ static void DumpInfo(uint32_t oldIndex, uint32_t  newIndex){
 
 VOID ImageUnload(IMG img, VOID * v) {
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
-        
+    //printf("size of the map:%u ---- size of instructions:%u\n",total,totalI);        
     ThreadData_t * td = GetTLS(PIN_ThreadId ());
     PIN_MutexLock(&gMutex);
 
-    dense_hash_map<uint64_t, uint64_t>::iterator mapIt = td->redundantMap.begin();
+    unordered_map<uint64_t, uint64_t>::iterator mapIt = td->redundantMap.begin();
 
     // Push it all into a List so that it can be sorted.
     // No 2 pairs will ever be same since they are unique across threads
@@ -1152,7 +1125,8 @@ void InitValueNumbering(int argc, char *argv[]){
 
     //initilize the global value used for value numbering
     gValue = 0;
-    
+//total = 0;    
+//totalI = 0;
     // Register ThreadStart to be called when a thread starts.
     PIN_AddThreadStartFunction(ThreadStart, 0);
     
