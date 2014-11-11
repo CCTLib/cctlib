@@ -169,6 +169,7 @@ namespace PinCCTLib {
     void DottifyAllCCTs();
 
     void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric));
+    bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 
     void** GetIPNodeMetric(const THREADID threadId, const uint32_t opaqueHandle);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
