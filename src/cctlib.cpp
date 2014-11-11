@@ -2994,5 +2994,26 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         ThreadData* tData = CCTLibGetTLS(threadid);
         BottomUpTraverse(tData->tlsRootTraceNode, opFunc, threadid);
     }
+
+    bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
+         if (ctxt1 == ctxt2)
+             return true;
+          
+         ADDRINT ip1 = GetIPFromInfo(GetPINCCTContextFrom32BitIndex(ctxt1));
+         ADDRINT ip2 = GetIPFromInfo(GetPINCCTContextFrom32BitIndex(ctxt2));
+
+         if (ip1 == ip2)
+             return true;
+
+         uint32_t lineNo1, lineNo2; 
+         string filePath1, filePath2;        
+
+         PIN_GetSourceLocation(ip1, NULL, (INT32*) &lineNo1, &filePath1);
+         PIN_GetSourceLocation(ip2, NULL, (INT32*) &lineNo2, &filePath2);
+
+         if (filePath1 == filePath2 && lineNo1 == lineNo2)
+             return true;
+         return false;
+    }
 }
 
