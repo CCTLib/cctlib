@@ -139,6 +139,10 @@ Documentation of CCTLib's key APIs
    Description:
 	Dumps all CCTs into DOT files for visualization.
 
+9. bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) 
+   Description:
+       Given two contexts handles, returns true if they both map to the same source line (could be different instructions). 
+       Client tools must call PIN_LockClient() before calling this API and release lock after via PIN_UnlockClient(). Follow instructions similar to GetFullCallingContext() to decide the granularity of locking. 
 
 
 --------------------------------------------------
