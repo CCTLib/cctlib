@@ -131,25 +131,17 @@ typedef struct opcodeInfo{
     REG tRegs[MAX_OPERAND];
 }OPInfo;
 
-struct RedundantInfoForPresentation{
-    uint64_t key;
-    uint64_t count;
-};
-
-
-
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY tls_key;
 static PIN_MUTEX  gMutex;
 
-list<RedundantInfoForPresentation> gRedundantList;
 
 //static uint64_t total;
 //static uint64_t totalI;
 
 // If it is one of ignoreable instructions, then skip instrumentation.
 bool IsIgnorableIns(INS ins){
-    if(INS_IsFarJump(ins) || INS_IsDirectFarJump(ins) || INS_IsMaskedJump(ins))
+    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins) || INS_IsMaskedJump(ins))
         return true;
     else if(INS_IsRet(ins) || INS_IsIRet(ins))
         return true;
@@ -166,6 +158,86 @@ inline ThreadData_t* GetTLS(THREADID threadid)
     ThreadData_t* tdata =
     static_cast<ThreadData_t*>(PIN_GetThreadData(tls_key, threadid));
     return tdata;
+}
+
+inline void UpdateValue(uint32_t reg, uint64_t value, ThreadData_t * td) {
+    switch (reg) {
+        case REG_GAX:
+        case REG_EAX:
+            td->regNumber[REG_GAX] = td->regNumber[REG_EAX] = value;
+            gValue++;
+            td->regNumber[REG_AX] = td->regNumber[REG_AL] = td->regNumber[REG_AH] = gValue;
+            break;
+        case REG_AX:
+            td->regNumber[REG_GAX] = td->regNumber[REG_EAX] = td->regNumber[REG_AX] = value;
+            gValue++;
+            td->regNumber[REG_AL] = td->regNumber[REG_AH] = gValue;
+            break;
+        case REG_AH:
+            td->regNumber[REG_GAX] = td->regNumber[REG_EAX] = td->regNumber[REG_AX] = td->regNumber[REG_AH] = value;
+            break;
+        case REG_AL:
+            td->regNumber[REG_GAX] = td->regNumber[REG_EAX] = td->regNumber[REG_AX] = td->regNumber[REG_AL] = value;
+            break;
+            
+            
+        case REG_GBX:
+        case REG_EBX:
+            td->regNumber[REG_GBX] = td->regNumber[REG_EBX] = value;
+            gValue++;
+            td->regNumber[REG_BX] = td->regNumber[REG_BL] = td->regNumber[REG_BH] = gValue;
+            break;
+        case REG_BX:
+            td->regNumber[REG_GBX] = td->regNumber[REG_EBX] = td->regNumber[REG_BX] = value;
+            gValue++;
+            td->regNumber[REG_BL] = td->regNumber[REG_BH] = gValue;
+            break;
+        case REG_BH:
+            td->regNumber[REG_GBX] = td->regNumber[REG_EBX] = td->regNumber[REG_BX] = td->regNumber[REG_BH] = value;
+            break;
+        case REG_BL:
+            td->regNumber[REG_GBX] = td->regNumber[REG_EBX] = td->regNumber[REG_BX] = td->regNumber[REG_BL] = value;
+            break;
+            
+        case REG_GCX:
+        case REG_ECX:
+            td->regNumber[REG_GCX] = td->regNumber[REG_ECX] = value;
+            gValue++;
+            td->regNumber[REG_CX] = td->regNumber[REG_CL] = td->regNumber[REG_CH] = gValue;
+            break;
+        case REG_CX:
+            td->regNumber[REG_GCX] = td->regNumber[REG_ECX] = td->regNumber[REG_CX] = value;
+            gValue++;
+            td->regNumber[REG_CL] = td->regNumber[REG_CH] = gValue;
+            break;
+        case REG_CH:
+            td->regNumber[REG_GCX] = td->regNumber[REG_ECX] = td->regNumber[REG_CX] = td->regNumber[REG_CH] = value;
+            break;
+        case REG_CL:
+            td->regNumber[REG_GCX] = td->regNumber[REG_ECX] = td->regNumber[REG_CX] = td->regNumber[REG_CL] = value;
+            break;
+            
+        case REG_GDX:
+        case REG_EDX:
+            td->regNumber[REG_GDX] = td->regNumber[REG_EDX] = value;
+            gValue++;
+            td->regNumber[REG_DX] = td->regNumber[REG_DL] = td->regNumber[REG_DH] = gValue;
+            break;
+        case REG_DX:
+            td->regNumber[REG_GDX] = td->regNumber[REG_EDX] = td->regNumber[REG_DX] = value;
+            gValue++;
+            td->regNumber[REG_DL] = td->regNumber[REG_DH] = gValue;
+            break;
+        case REG_DH:
+            td->regNumber[REG_GDX] = td->regNumber[REG_EDX] = td->regNumber[REG_DX] = td->regNumber[REG_DH] = value;
+            break;
+        case REG_DL:
+            td->regNumber[REG_GDX] = td->regNumber[REG_EDX] = td->regNumber[REG_DX] = td->regNumber[REG_DL] = value;
+            break;
+            
+        default:
+            td->regNumber[reg] = value;
+    }
 }
 
 /* helper functions for shadow memory */
@@ -221,7 +293,8 @@ inline VOID setMemValueNum(uint64_t addr, THREADID threadid, uint64_t value){
 /* set a new value number to the register  */
 inline VOID setRegValueNum(REG reg, ThreadData_t * td, uint64_t value){
 
-    td->regNumber[reg] = value;
+    //td->regNumber[reg] = value;
+    UpdateValue(reg,value,td);
 }
 
 
@@ -923,6 +996,10 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
 
     OPInfo  * opinfo = new OPInfo;
     opinfo->opCode = INS_Opcode(ins);
+
+    if(opinfo->opCode == 82)
+        return;
+
     int sRegCount = 0;
     int immediateCount = 0;
     int tRegCount = 0;
@@ -1029,6 +1106,31 @@ VOID ThreadStart(THREADID threadid, CONTEXT *ctxt, INT32 flags, VOID *v) {
     PIN_SetThreadData(tls_key, tdata, threadid);
 }
 
+struct MergedRedundantInfo {
+    uint32_t context1;
+    uint32_t context2;
+
+    bool operator==(const MergedRedundantInfo&   x) const {
+        if(this->context1 == x.context1 && this->context2 == x.context2)
+            return true;
+
+        return false;
+    }
+
+    bool operator<(const MergedRedundantInfo& x) const {
+        if((this->context1 < x.context1) ||
+                (this->context1 == x.context1 && this->context2 < x.context2))
+            return true;
+
+        return false;
+    }
+};
+
+struct RedundantInfoForPresentation{
+    const MergedRedundantInfo* pMergedRedundantInfo;
+    uint64_t count;
+};
+
 
 inline bool MergedRedundantInfoComparer(const RedundantInfoForPresentation & first, const RedundantInfoForPresentation  &second) {
     return first.count > second.count ? true : false;
@@ -1051,17 +1153,47 @@ VOID ImageUnload(IMG img, VOID * v) {
     PIN_MutexLock(&gMutex);
 
     unordered_map<uint64_t, uint64_t>::iterator mapIt = td->redundantMap.begin();
+    map<MergedRedundantInfo, uint64_t> mergedRedundantInfoMap;
+    map<MergedRedundantInfo, uint64_t>::iterator tmpIt;
 
     // Push it all into a List so that it can be sorted.
     // No 2 pairs will ever be same since they are unique across threads
+    PIN_LockClient();
     for (; mapIt != td->redundantMap.end(); mapIt++) {
-        if(mapIt->second >= MAX_DEAD_CONTEXTS_TO_LOG){
+      uint64_t hash = mapIt->first;
+      uint32_t ctxt1 = (hash >> 32);
+      uint32_t ctxt2 = (hash & 0xffffffff);
+      for(tmpIt = mergedRedundantInfoMap.begin(); tmpIt != mergedRedundantInfoMap.end(); tmpIt++){      
+	bool ct1 = IsSameSourceLine(ctxt1,tmpIt->first.context1);
+	bool ct2 = IsSameSourceLine(ctxt2,tmpIt->first.context2);
+        
+        if(ct1 && ct2){
+	  tmpIt->second += mapIt->second;
+	  break;
+	}
+      }
+      if(tmpIt == mergedRedundantInfoMap.end()){
+	MergedRedundantInfo tmpMergedRedundantInfo;
+	tmpMergedRedundantInfo.context1 = ctxt1;
+	tmpMergedRedundantInfo.context2 = ctxt2;
+	mergedRedundantInfoMap[tmpMergedRedundantInfo] = mapIt->second;
+      }
+    }
+    PIN_UnlockClient();
+
+    map<MergedRedundantInfo, uint64_t>::iterator it = mergedRedundantInfoMap.begin();
+   
+    list<RedundantInfoForPresentation> gRedundantList;
+ 
+    for(; it != mergedRedundantInfoMap.end(); it++){
+        if(it->second >= MAX_DEAD_CONTEXTS_TO_LOG){
             RedundantInfoForPresentation redundantInfoForPresentation;
-            redundantInfoForPresentation.key = mapIt->first;
-            redundantInfoForPresentation.count = mapIt->second;
+            redundantInfoForPresentation.pMergedRedundantInfo = &(it->first);
+            redundantInfoForPresentation.count = it->second;
             gRedundantList.push_back(redundantInfoForPresentation);
         }
     }
+
     // clear dead map now
     td->redundantMap.clear();
     td->immediateMap.clear();
@@ -1076,7 +1208,7 @@ VOID ImageUnload(IMG img, VOID * v) {
         if(redundancyWrite<MAX_LOG_NUM){
             redundancyWrite++;
             fprintf(gTraceFile,"\nCTXT_REDUNDANT_CNT:%lu",dipIter->count);
-            DumpInfo(dipIter->key >> 32, dipIter->key & 0xffffffff);
+            DumpInfo(dipIter->pMergedRedundantInfo->context1, dipIter->pMergedRedundantInfo->context2);
         }
     }
     

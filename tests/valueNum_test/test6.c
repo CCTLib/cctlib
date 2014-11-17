@@ -1,6 +1,8 @@
-void f(int a)
+#include <math.h>
+int f(int a)
 {
-  int g = a*a;
+  int g = pow(a,0.75);
+  return g;
 }
 
 int main()
