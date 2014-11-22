@@ -345,19 +345,46 @@ void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
     uint64_t addr = (uint64_t)ip;
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
-    //fprintf(gTraceFile,"ip: %p --- old key: %u\n",ip, *prevAddr);
     if(*prevAddr == 0){
-        //fprintf(gTraceFile,"ip: %p --- set key: %u\n",ip, nValue);
-        *prevAddr = nValue;
-    }else{
-
-        if(*prevAddr != nValue){
+        uint64_t *valueNumIP;
+	valueNumIP = (uint64_t*) malloc(sizeof(uint64_t)*11);
+	for(int i = 0;i<11;++i){
+	    valueNumIP[i] = 0;
 	    
-            uint64_t old = *prevAddr;
+	}
+	valueNumIP[0] = nValue;
+        *prevAddr = (uint64_t)(valueNumIP);
+	
+    }else{
+        uint64_t *valuesIP;
+	valuesIP = (uint64_t *)(*prevAddr);
+	int i;
+	for(i=0;i<10;++i){
+	    if(valuesIP[i]==0){
+	        valuesIP[i] = nValue;
+                //printf("%u set valuesIP[%d] is %u ---- %u\n",(uint64_t)(valuesIP),i,valuesIP[i],nValue);
+		break;
+	    }
+	    else if(valuesIP[i] == nValue)
+	        break;
+	}
+	/*for(int j=0;j<11;++j){
+	    printf("%u ++ value of valuesIP[%d] is %u ---- %u\n",(uint64_t)(valuesIP),j,valuesIP[j],nValue);
+	}*/
+	
+
+        if(i==10){
+	    uint64_t index = valuesIP[10];
+	    if (index>=10)
+	        index = 0;
+	   // printf("value of index:%u\n",index);
+            uint64_t old = valuesIP[index];
             deleteString(old, td);
-            *prevAddr = nValue;
+            valuesIP[index] = nValue;
+	    valuesIP[10] = index+1;
 	    //fprintf(gTraceFile,"ip: %p --- new key: %u\n",ip, *prevAddr);
         }
+        *prevAddr = (uint64_t)(valuesIP);
     }
 }
 
@@ -444,11 +471,18 @@ uint64_t checkOpcodeValueNum(int opcode, uint64_t  svalues[], int sCount, THREAD
             break;
  
         case (4):
-            printf("4 source values!\n");
-            //key = (op << 56) | ((svalues[0] << 36) >> 8) | ((svalues[1] << 36) >> 36);
+            if(IsCommutativeOp(opcode)){
+
+                sortSvalues(svalues, sCount);
+            }
+            key = (op << 56) | ((svalues[0] & 0x0000000000003fff) << 42) | ((svalues[1] & 0x0000000000003fff) << 28) | ((svalues[2] & 0x0000000000003fff) << 14) | (svalues[3] & 0x0000000000003fff) ;
             break;
         default:
             printf("Source values more than 4!\n");
+	    if(IsCommutativeOp(opcode)){
+                sortSvalues(svalues, sCount);
+            }
+            key = (op << 56) | ((svalues[0] & 0x000000000fffffff) << 28) | (svalues[1] & 0x000000000fffffff);
             break;
     }
 
