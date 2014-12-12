@@ -71,9 +71,11 @@ using namespace PinCCTLib;
 
 // All globals
 #define MAX_FILE_PATH   (200)
-#define MAX_DEAD_CONTEXTS_TO_LOG (5000)
+#define MAX_DEAD_CONTEXTS_TO_LOG (2000)
 #define MAX_LOG_NUM (110)
 #define MAX_OPERAND (6)
+#define SAMPLE_PERIOD (1000000)
+#define STOP_PERIOD (1000000000)
 
 namespace __gnu_cxx{
 
@@ -97,6 +99,10 @@ enum AccessType{
 FILE *gTraceFile;
 static uint64_t gValue;
 static uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
+
+bool Sample = 1;
+uint64_t Num_instructions = 0;
+uint64_t lastGValue;
 
 typedef struct opMap{ 
     uint64_t vNum;
@@ -152,12 +158,75 @@ bool IsIgnorableIns(INS ins){
     return false;
 }
 
+bool IsMov(int opcode){
+  
+  switch(opcode){
+    case XED_ICLASS_MOV:
+    case XED_ICLASS_MOVAPD:
+    case XED_ICLASS_MOVAPS:
+    case XED_ICLASS_MOVBE:
+    case XED_ICLASS_MOVD:
+    case XED_ICLASS_MOVDDUP:
+    case XED_ICLASS_MOVDQ2Q:
+    case XED_ICLASS_MOVDQA:
+    case XED_ICLASS_MOVDQU:
+    case XED_ICLASS_MOVHLPS:
+    case XED_ICLASS_MOVHPD:
+    case XED_ICLASS_MOVHPS:
+    case XED_ICLASS_MOVLHPS:
+    case XED_ICLASS_MOVLPD:
+    case XED_ICLASS_MOVLPS:
+    case XED_ICLASS_MOVMSKPD:
+    case XED_ICLASS_MOVMSKPS:
+    case XED_ICLASS_MOVNTDQ:
+    case XED_ICLASS_MOVNTDQA:
+    case XED_ICLASS_MOVNTI:
+    case XED_ICLASS_MOVNTPD:
+    case XED_ICLASS_MOVNTPS:
+    case XED_ICLASS_MOVNTQ:
+    case XED_ICLASS_MOVNTSD:
+    case XED_ICLASS_MOVNTSS:
+    case XED_ICLASS_MOVQ:
+    case XED_ICLASS_MOVQ2DQ:
+    case XED_ICLASS_MOVSB:
+    case XED_ICLASS_MOVSD:
+    case XED_ICLASS_MOVSD_XMM:
+    case XED_ICLASS_MOVSHDUP:
+    case XED_ICLASS_MOVSLDUP:
+    case XED_ICLASS_MOVSQ:
+    case XED_ICLASS_MOVSS:
+    case XED_ICLASS_MOVSW:
+    case XED_ICLASS_MOVSX:
+    case XED_ICLASS_MOVSXD:
+    case XED_ICLASS_MOVUPD:
+    case XED_ICLASS_MOVUPS:
+    case XED_ICLASS_MOVZX:
+    case XED_ICLASS_MOV_CR:
+    case XED_ICLASS_MOV_DR:
+      return true;
+    default:
+      return false;
+  }
+}
+
 // function to access thread-specific data
 inline ThreadData_t* GetTLS(THREADID threadid)
 {
     ThreadData_t* tdata =
     static_cast<ThreadData_t*>(PIN_GetThreadData(tls_key, threadid));
     return tdata;
+}
+
+/* clear method used during sampling*/
+VOID CleanValueNumbers(THREADID threadID){
+  
+  ThreadData_t * td = GetTLS(threadID);
+  td->immediateMap.clear();
+  td->opcodeMap.clear();
+  
+  /**     clean all the value numbers for the registers and memory locations   **/
+  memset(td->regNumber, 0, REG_LAST * sizeof(td->regNumber[0]));
+  lastGValue = gValue;
 }
 
 inline void UpdateValue(uint32_t reg, uint64_t value, ThreadData_t * td) {
@@ -260,10 +329,16 @@ inline uint64_t getMemValueNum(uint64_t addr, THREADID threadid){
 
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
-    if(*prevAddr==0)
-    {
+    if(*prevAddr==0){
+      
         gValue++;
         *prevAddr = gValue;
+    }else{
+      
+      if(*prevAddr < lastGValue){
+	gValue++;
+	*prevAddr = gValue;
+      }
     }
 
     return *prevAddr;
@@ -512,6 +587,24 @@ uint64_t checkOpcodeValueNum(int opcode, uint64_t  svalues[], int sCount, THREAD
 
 
 VOID valueNumbering(void * op, bool movOrnot, THREADID threadid, void *ip, const uint32_t opHandle){
+  
+    if(Sample){
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 0;
+	Num_instructions = 0;
+	CleanValueNumbers(threadid);
+	return;
+      }
+    }else{
+      Num_instructions++;
+      if(Num_instructions > STOP_PERIOD){
+	Sample = 1;
+	Num_instructions = 0;
+      }
+      return;
+    }
+    
     OPInfo * opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadid);
     uint64_t value;
@@ -553,6 +646,23 @@ VOID valueNumbering(void * op, bool movOrnot, THREADID threadid, void *ip, const
 }
 
 VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
+  
+    if(Sample){
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 0;
+	Num_instructions = 0;
+	CleanValueNumbers(threadID);
+	return;
+      }
+    }else{
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 1;
+	Num_instructions = 0;
+      }
+      return;
+    }
    
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
@@ -569,7 +679,7 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
             value = getMemValueNum((uint64_t)addr, threadID);
             setRegValueNum(opinfo->tRegs[0], td, value);
 
-            ////checkMovValueNum(opinfo->opCode, value, opinfo->tRegs[0], threadID, opHandle);
+            checkMovValueNum(opinfo->opCode, value, opinfo->tRegs[0], threadID, ip, opHandle);
         } else {
             assert(sRegsCount == 1);
             if(sRegsCount == 1)
@@ -632,6 +742,23 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
 }
 
 VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
+  
+    if(Sample){
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 0;
+	Num_instructions = 0;
+	CleanValueNumbers(threadID);
+	return;
+      }
+    }else{
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 1;
+	Num_instructions = 0;
+      }
+      return;
+    }
     
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
@@ -716,6 +843,23 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
 
 
 VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
+  
+    if(Sample){
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 0;
+	Num_instructions = 0;
+	CleanValueNumbers(threadID);
+	return;
+      }
+    }else{
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 1;
+	Num_instructions = 0;
+      }
+      return;
+    }
     
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
@@ -835,6 +979,23 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
 
 
 VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, void * addr4, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
+  
+    if(Sample){
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 0;
+	Num_instructions = 0;
+	CleanValueNumbers(threadID);
+	return;
+      }
+    }else{
+      Num_instructions++;
+      if(Num_instructions > SAMPLE_PERIOD){
+	Sample = 1;
+	Num_instructions = 0;
+      }
+      return;
+    }
     
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
@@ -979,7 +1140,6 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
     }
 }
 
-
 // Is called for every instruction and instruments reads and writes
 VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
     // Note: predicated instructions are correctly handled as given in PIN's sample example pinatrace.cpp
@@ -991,9 +1151,7 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
      The IA-64 architecture has explicitly predicated instructions.
      On the IA-32 and Intel(R) 64 architectures conditional moves and REP
      prefixed instructions appear as predicated instructions in Pin. */
-    
 
- 
     if (IsIgnorableIns(ins))
         return;
 
@@ -1003,9 +1161,8 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
     //**********************************************
     //compare the opcode and the value number of its operand, check the redundancy
     //what if there is only one REG operand
-
     THREADID threadID = PIN_ThreadId();
-
+    
     UINT32 memOpCount = INS_MemoryOperandCount(ins);
 
     UINT32 rMemCount = 0;
@@ -1040,7 +1197,7 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
     
     bool flag = false;
 
-    if(INS_IsMov(ins)){
+    if(IsMov(opinfo->opCode)){
         
         UINT32 n = INS_OperandCount(ins);
 
@@ -1291,8 +1448,7 @@ void InitValueNumbering(int argc, char *argv[]){
 
     //initilize the global value used for value numbering
     gValue = 0;
-//total = 0;    
-//totalI = 0;
+    lastGValue = 0;
     // Register ThreadStart to be called when a thread starts.
     PIN_AddThreadStartFunction(ThreadStart, 0);
     
