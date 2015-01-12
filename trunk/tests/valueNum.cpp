@@ -71,7 +71,7 @@ using namespace PinCCTLib;
 
 // All globals
 #define MAX_FILE_PATH   (200)
-#define MAX_DEAD_CONTEXTS_TO_LOG (2000)
+#define MAX_DEAD_CONTEXTS_TO_LOG (4000)
 #define MAX_LOG_NUM (110)
 #define MAX_OPERAND (6)
 #define SAMPLE_PERIOD (1000000)
@@ -103,6 +103,10 @@ static uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 bool Sample = 1;
 uint64_t Num_instructions = 0;
 uint64_t lastGValue;
+
+////////////////////////////////////////////////////////////////////////////remove
+uint64_t Num_redundant = 0;
+uint64_t Num_ins = 0;
 
 typedef struct opMap{ 
     uint64_t vNum;
@@ -415,7 +419,7 @@ void deleteString(uint64_t key, ThreadData_t * td){
 
 
 /* record only one hash value for each IP, if the new one is different, delete the old one */
-void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
+/*void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
 
     uint64_t addr = (uint64_t)ip;
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
@@ -437,31 +441,45 @@ void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
 	for(i=0;i<10;++i){
 	    if(valuesIP[i]==0){
 	        valuesIP[i] = nValue;
-                //printf("%u set valuesIP[%d] is %u ---- %u\n",(uint64_t)(valuesIP),i,valuesIP[i],nValue);
 		break;
 	    }
 	    else if(valuesIP[i] == nValue)
 	        break;
 	}
-	/*for(int j=0;j<11;++j){
-	    printf("%u ++ value of valuesIP[%d] is %u ---- %u\n",(uint64_t)(valuesIP),j,valuesIP[j],nValue);
-	}*/
 	
 
         if(i==10){
 	    uint64_t index = valuesIP[10];
 	    if (index>=10)
 	        index = 0;
-	   // printf("value of index:%u\n",index);
             uint64_t old = valuesIP[index];
             deleteString(old, td);
             valuesIP[index] = nValue;
 	    valuesIP[10] = index+1;
-	    //fprintf(gTraceFile,"ip: %p --- new key: %u\n",ip, *prevAddr);
         }
         *prevAddr = (uint64_t)(valuesIP);
     }
+}*/
+
+void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
+
+    uint64_t addr = (uint64_t)ip;
+    uint8_t* status = GetOrCreateShadowBaseAddress(addr);
+    uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
+    if(*prevAddr == 0){
+        *prevAddr = nValue;
+	
+    }else{
+
+        if(*prevAddr != nValue){
+
+           uint64_t old = *prevAddr;
+           deleteString(old, td);
+           *prevAddr = nValue;
+        }
+    }
 }
+
 
 /* check if it is a redundant write to memory*/
 void checkMovValueNum(int opcode, uint64_t svalue, uint64_t target, THREADID threadid, void *ip, const uint32_t opHandle){
@@ -486,6 +504,7 @@ void checkMovValueNum(int opcode, uint64_t svalue, uint64_t target, THREADID thr
 
         return;
     }
+    Num_redundant++;//////////////////////////////////remove
     recordRedundantOperation(td->opcodeMapIt->second.ip, curCtxt, td);
     removeOldstring(ip, key, td);
 
@@ -579,6 +598,7 @@ uint64_t checkOpcodeValueNum(int opcode, uint64_t  svalues[], int sCount, THREAD
     }
     uint64_t value = td->opcodeMapIt->second.vNum;
 
+    Num_redundant++;////////////////////////////////////////////////remove
     recordRedundantOperation(td->opcodeMapIt->second.ip, curCtxt,td);
     removeOldstring(ip, key, td);
 
@@ -604,7 +624,9 @@ VOID valueNumbering(void * op, bool movOrnot, THREADID threadid, void *ip, const
       }
       return;
     }
-    
+    Num_ins++;////////////////////////////////////remove
+
+
     OPInfo * opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadid);
     uint64_t value;
@@ -663,7 +685,8 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
       }
       return;
     }
-   
+    Num_ins++;///////////////////////////////////////////remove
+
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem==1);
@@ -743,6 +766,7 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
 
 VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
   
+    
     if(Sample){
       Num_instructions++;
       if(Num_instructions > SAMPLE_PERIOD){
@@ -759,7 +783,7 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
       }
       return;
     }
-    
+    Num_ins++;///////////////////////////////////////////////remove
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem == 2);
@@ -844,6 +868,7 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
 
 VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
   
+    
     if(Sample){
       Num_instructions++;
       if(Num_instructions > SAMPLE_PERIOD){
@@ -860,7 +885,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
       }
       return;
     }
-    
+    Num_ins++;////////////////////////////////////////////remove
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem == 3);
@@ -870,7 +895,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
     int immediateCount = opinfo->immeCount;
     
     if (movOrnot) {
-        printf("MOV with 3 memory addresses evloved!\n");
+        //printf("MOV with 3 memory addresses evloved!\n");
     } else {
 
         uint64_t sValues[6];
@@ -980,6 +1005,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
 
 VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, void * addr4, uint32_t rMem, uint32_t wMem, bool movOrnot, THREADID threadID, void *ip, const uint32_t opHandle){
   
+    
     if(Sample){
       Num_instructions++;
       if(Num_instructions > SAMPLE_PERIOD){
@@ -996,7 +1022,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
       }
       return;
     }
-    
+    Num_ins++;//////////////////////////////////////////remove
     OPInfo *opinfo = (OPInfo *) op;
     ThreadData_t * td = GetTLS(threadID);
     assert(rMem+wMem == 4);
@@ -1006,7 +1032,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
     int immediateCount = opinfo->immeCount;
     
     if (movOrnot) {
-        printf("MOV with 4 memory addresses evloved!\n");
+        //printf("MOV with 4 memory addresses evloved!\n");
     } else {
 
         uint64_t sValues[6];
@@ -1403,7 +1429,7 @@ VOID ImageUnload(IMG img, VOID * v) {
         }
     }
     
-    
+    fprintf(gTraceFile, "Redundant instructions: %lu  Total instruction: %lu  Redundancy: %.5f\n", Num_redundant, Num_ins,(double)Num_redundant/Num_ins); 
     gRedundantList.clear();
     
     PIN_MutexUnlock(&gMutex);
