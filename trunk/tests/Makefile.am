@@ -1,5 +1,5 @@
 #include ../Makefile.inc
-all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so footprint_client.so valueNum.so
+all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so footprint_client.so footprint_client2.so valueNum.so
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
 CCTLIB_TEST_CPPFLAGS = $(CPPFLAGS) -I../src/
@@ -39,6 +39,10 @@ deadWrites.o: deadWrites.cpp
 footprint_client.so: footprint_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   footprint_client.cpp
 	$(CXX)   -o footprint_client.so footprint_client.o -L../src/ -lcctlib $(LDFLAGS) 
+
+footprint_client2.so: footprint_client2.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   footprint_client2.cpp
+	$(CXX)   -o footprint_client2.so footprint_client2.o -L../src/ -lcctlib $(LDFLAGS) 
 
 valueNum.so: valueNum.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   valueNum.cpp
