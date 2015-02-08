@@ -41,6 +41,7 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <sstream>
 #include "pin.H"
 #include "cctlib.H"
@@ -89,6 +90,7 @@ struct node_metric_t {
 struct sort_format_t {
   ContextHandle_t handle;
   uint64_t footprint;
+  uint64_t fpNum;
   uint64_t accessNum;
   uint64_t dependentNum;
 };
@@ -103,6 +105,10 @@ INT32 Usage2() {
 
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 FILE* gTraceFile;
+
+struct timeval tv1;
+__thread struct timeval tv2;
+__thread struct timeval tv3;
 
 // Initialized the needed data structures before launching the target program
 void ClientInit(int argc, char* argv[]) {
@@ -175,19 +181,21 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
       ContextHandle_t ctxthndl = GetContextHandle(id, 0);
       *metric = &(hmap_vector[id])[ctxthndl];
       (hmap_vector[id])[ctxthndl].addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (hmap_vector[id])[ctxthndl].accessNum+=refSize;
+      (hmap_vector[id])[ctxthndl].accessNum+=1;//refSize;
       
-      if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
+      // check how many times write to a shared address
+      // shared means that this address is read/write before this write
+      if (rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
         (hmap_vector[id])[ctxthndl].dependentNum+=refSize;
     }
     else {
       (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (static_cast<struct node_metric_t*>(*metric))->accessNum+=refSize;
+      (static_cast<struct node_metric_t*>(*metric))->accessNum+=1;//refSize;
       if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
         (static_cast<struct node_metric_t*>(*metric))->dependentNum+=refSize;
     }
     // update the current read write flag  
-    *prevFlag = rwFlag;
+    *prevFlag = true;
     *prevAddr = Addr;
 }
 
@@ -219,7 +227,7 @@ void DecodingFootPrint(const THREADID threadid,  ContextHandle_t myHandle, Conte
           hset->addressSetDecoded.insert(addr+i);
         }
     }
-    hset->addressSet.clear();
+//    hset->addressSet.clear();
 }
 
 void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric)
@@ -230,11 +238,13 @@ void MergeFootPrint(const THREADID threadid,  ContextHandle_t myHandle, ContextH
     if (*parentMetric == NULL) {
       *parentMetric = &((hmap_vector[threadid])[parentHandle]);
       (hmap_vector[threadid])[parentHandle].addressSetDecoded.insert(hset->addressSetDecoded.begin(), hset->addressSetDecoded.end());
+      (hmap_vector[threadid])[parentHandle].addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
       (hmap_vector[threadid])[parentHandle].accessNum += hset->accessNum;
       (hmap_vector[threadid])[parentHandle].dependentNum += hset->dependentNum;
     }
     else {
       (static_cast<struct node_metric_t*>(*parentMetric))->addressSetDecoded.insert(hset->addressSetDecoded.begin(), hset->addressSetDecoded.end());
+      (static_cast<struct node_metric_t*>(*parentMetric))->addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
       (static_cast<struct node_metric_t*>(*parentMetric))->accessNum += hset->accessNum;
       (static_cast<struct node_metric_t*>(*parentMetric))->dependentNum += hset->dependentNum;
     }
@@ -258,6 +268,7 @@ void PrintTopFootPrintPath(THREADID threadid)
         struct sort_format_t tmp;
         tmp.handle = (*it).first;
 	tmp.footprint = (uint64_t)(*it).second.addressSetDecoded.size();
+	tmp.fpNum = (uint64_t)(*it).second.addressSet.size();
 	tmp.accessNum =  (uint64_t)(*it).second.accessNum;
 	tmp.dependentNum =  (uint64_t)(*it).second.dependentNum;
         TmpList.emplace_back(tmp);
@@ -266,7 +277,7 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %lu, #reuse is %ld, true dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
+        fprintf(gTraceFile, "Footprint is %lu Bytes, #distinct memory access is %ld, reuse is %ld, write dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).fpNum, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }
@@ -279,14 +290,17 @@ void PrintTopFootPrintPath(THREADID threadid)
 
 VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
 {
+    gettimeofday(&tv2, NULL);
     // traverse CCT bottom to up
     // decode first
     TraverseCCTBottomUp(threadid, DecodingFootPrint);
     // merge second
     TraverseCCTBottomUp(threadid, MergeFootPrint);
+    gettimeofday(&tv3, NULL);
     // print the footprint for functions
     PIN_LockClient();
     PrintTopFootPrintPath(threadid);
+    fprintf(gTraceFile, "online collection time %lf, offline analysis time %lf\n",tv2.tv_sec-tv1.tv_sec+(tv2.tv_usec-tv1.tv_usec)/1000000.0, tv3.tv_sec-tv2.tv_sec+(tv3.tv_usec-tv2.tv_usec)/1000000.0);
     PIN_UnlockClient();
 }
 
@@ -296,6 +310,8 @@ VOID FiniFunc(INT32 code, VOID *v)
 }
 
 int main(int argc, char* argv[]) {
+    
+    gettimeofday(&tv1, NULL);
     // Initialize PIN
     if(PIN_Init(argc, argv))
         return Usage2();
