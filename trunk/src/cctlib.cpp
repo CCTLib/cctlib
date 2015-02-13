@@ -2211,6 +2211,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         if(node != curTree->end()) {
             record.objectType = node->objectType;
             record.pathHandle = node->pathHandle;
+            record.beg_addr = (uint64_t)node->start;
+ 	    record.end_addr = (uint64_t)node->end;
         } else {
             record.objectType = UNKNOWN_OBJECT;
         }

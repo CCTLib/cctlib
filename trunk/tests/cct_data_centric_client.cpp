@@ -89,7 +89,7 @@ VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
 
 
 VOID MemAnalysisRoutine(void* addr, THREADID threadId) {
-    GetDataObjectHandle(addr, threadId);
+    DataHandle_t handle = GetDataObjectHandle(addr, threadId);
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {

@@ -43,6 +43,7 @@
 #define MAX_CCT_PRINT_DEPTH (20)
 #define MAX_CCT_PATH_DEPTH (100)
 #define MAX_FILE_PATH   (200)
+#define USE_TREE_BASED_FOR_DATA_CENTRIC
 
 namespace PinCCTLib {
 
@@ -58,6 +59,10 @@ namespace PinCCTLib {
             ContextHandle_t pathHandle;
             uint32_t symName;
         };
+#ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
+	uint64_t beg_addr;
+	uint64_t end_addr;
+#endif
     } DataHandle_t;
 
     // Data type returned when a client tool queries  GetFullCallingContext
