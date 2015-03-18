@@ -76,6 +76,7 @@ using namespace PinCCTLib;
 #define MAX_OPERAND (6)
 #define SAMPLE_PERIOD (1000000)
 #define STOP_PERIOD (1000000000)
+#define VALUE_N (10)
 
 namespace __gnu_cxx{
 
@@ -419,15 +420,15 @@ void deleteString(uint64_t key, ThreadData_t * td){
 
 
 /* record only one hash value for each IP, if the new one is different, delete the old one */
-/*void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
+void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
 
     uint64_t addr = (uint64_t)ip;
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
     uint64_t *prevAddr = (uint64_t *)(status + PAGE_OFFSET(addr) * sizeof(uint64_t));
     if(*prevAddr == 0){
         uint64_t *valueNumIP;
-	valueNumIP = (uint64_t*) malloc(sizeof(uint64_t)*11);
-	for(int i = 0;i<11;++i){
+	valueNumIP = (uint64_t*) malloc(sizeof(uint64_t)*(VALUE_N + 1));
+	for(int i = 0;i<=VALUE_N;++i){
 	    valueNumIP[i] = 0;
 	    
 	}
@@ -438,7 +439,7 @@ void deleteString(uint64_t key, ThreadData_t * td){
         uint64_t *valuesIP;
 	valuesIP = (uint64_t *)(*prevAddr);
 	int i;
-	for(i=0;i<10;++i){
+	for(i=0;i<VALUE_N;++i){
 	    if(valuesIP[i]==0){
 	        valuesIP[i] = nValue;
 		break;
@@ -448,20 +449,20 @@ void deleteString(uint64_t key, ThreadData_t * td){
 	}
 	
 
-        if(i==10){
-	    uint64_t index = valuesIP[10];
-	    if (index>=10)
+        if(i==VALUE_N){
+	    uint64_t index = valuesIP[VALUE_N];
+	    if (index>=VALUE_N)
 	        index = 0;
             uint64_t old = valuesIP[index];
             deleteString(old, td);
             valuesIP[index] = nValue;
-	    valuesIP[10] = index+1;
+	    valuesIP[VALUE_N] = index+1;
         }
         *prevAddr = (uint64_t)(valuesIP);
     }
-}*/
+}
 
-void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
+/*void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
 
     uint64_t addr = (uint64_t)ip;
     uint8_t* status = GetOrCreateShadowBaseAddress(addr);
@@ -478,7 +479,7 @@ void removeOldstring(void *ip, uint64_t nValue, ThreadData_t * td){
            *prevAddr = nValue;
         }
     }
-}
+}*/
 
 
 /* check if it is a redundant write to memory*/
@@ -679,7 +680,7 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
       }
     }else{
       Num_instructions++;
-      if(Num_instructions > SAMPLE_PERIOD){
+      if(Num_instructions > STOP_PERIOD){
 	Sample = 1;
 	Num_instructions = 0;
       }
@@ -777,7 +778,7 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
       }
     }else{
       Num_instructions++;
-      if(Num_instructions > SAMPLE_PERIOD){
+      if(Num_instructions > STOP_PERIOD){
 	Sample = 1;
 	Num_instructions = 0;
       }
@@ -879,7 +880,7 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
       }
     }else{
       Num_instructions++;
-      if(Num_instructions > SAMPLE_PERIOD){
+      if(Num_instructions > STOP_PERIOD){
 	Sample = 1;
 	Num_instructions = 0;
       }
@@ -1016,7 +1017,7 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
       }
     }else{
       Num_instructions++;
-      if(Num_instructions > SAMPLE_PERIOD){
+      if(Num_instructions > STOP_PERIOD){
 	Sample = 1;
 	Num_instructions = 0;
       }
@@ -1420,16 +1421,18 @@ VOID ImageUnload(IMG img, VOID * v) {
     //present and delete all
     list<RedundantInfoForPresentation>::iterator dipIter = gRedundantList.begin();
     int redundancyWrite = 0;
+    uint64_t Topredundant = 0;
     for (; dipIter != gRedundantList.end(); dipIter++) {
         // Print just first MAX_DEAD_CONTEXTS_TO_LOG contexts
         if(redundancyWrite<MAX_LOG_NUM){
             redundancyWrite++;
             fprintf(gTraceFile,"\nCTXT_REDUNDANT_CNT:%lu",dipIter->count);
             DumpInfo(dipIter->pMergedRedundantInfo->context1, dipIter->pMergedRedundantInfo->context2);
+            Topredundant += dipIter->count;
         }
     }
     
-    fprintf(gTraceFile, "Redundant instructions: %lu  Total instruction: %lu  Redundancy: %.5f\n", Num_redundant, Num_ins,(double)Num_redundant/Num_ins); 
+    fprintf(gTraceFile, "Redundant instructions: %lu  Total instruction: %lu  Redundancy: %.5f Top redundancy: %lu  rate: %.5f\n", Num_redundant, Num_ins,(double)Num_redundant/Num_ins,Topredundant,(double)Topredundant/Num_redundant); 
     gRedundantList.clear();
     
     PIN_MutexUnlock(&gMutex);
