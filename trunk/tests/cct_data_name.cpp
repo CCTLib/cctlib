@@ -48,6 +48,9 @@
 #include <unordered_map>
 #include "pin.H"
 
+#define OFFSET 20000000
+#define ChunkSize 512*(1<<10)
+
 //#define USE_SHADOW_FOR_DATA_CENTRIC
 #define USE_TREE_BASED_FOR_DATA_CENTRIC
 #include "cctlib.H"
@@ -89,10 +92,11 @@ VOID ImageUnload(IMG img, VOID * v) {
 	outputflag = false;
 	int ii = 0;
 	fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
+	printf("\n[CCTLIB] Unloading....\n\n");
 
 	//sort
 	int length = dataObjectList.size();
-	uint32_t indexList[length],ind_tmp;
+	uint32_t indexList[length], ind_tmp;
 	long counterList[length],temp;
 	float ratioList[length],ratio_temp;
 	DataObj tempData;
@@ -108,6 +112,7 @@ VOID ImageUnload(IMG img, VOID * v) {
 		counterList[ii] = tempData.counter;
 		ii++;
 	}
+
 	for(ii = 0; ii < length; ii++)
         for(int jj = 0; jj < ii; jj++)
 		{//sort by # of access
@@ -121,31 +126,51 @@ VOID ImageUnload(IMG img, VOID * v) {
 			}
 		}
 	
-	
 	fprintf(gTraceFile,"\n\n");
 	
-	for(ii = 0; ii < min(50,length); ii++)
+	for(ii = 0; ii < min(60,length); ii++)
 	{
-		auto search = dataObjectList.find(indexList[ii]);
+		uint32_t index = indexList[ii];
+		uint32_t sysIndex;
+		int chunk = 0;
+
+		auto search = dataObjectList.find(index);
 		if(search != dataObjectList.end())
 		{
 			tempData = search->second;
+//			printf("1index = %d, 1synName=%d, chunk = %d\n", index, tempData.data.symName, chunk);
+			if (index > OFFSET)
+			{
+//				printf("[CCTLIB] large arrays: %d\n",index);
+				chunk = index%100;
+				sysIndex = (uint32_t)((index - chunk - OFFSET)/100);
+//				printf("index = %d, synName=%d, chunk = %d\n", index, tempData.data.symName, chunk);
+			}
+			else 
+				sysIndex = index;
+
 			uint64_t head = tempData.data.beg_addr;
 			uint64_t tail = tempData.data.end_addr;
 			int sizeInBytes = (int)tail-head;
+
 			if (tempData.data.objectType == DYNAMIC_OBJECT)
-				fprintf(gTraceFile,"\n\nRank %d -->> Dynamic Data %d accessed %ld times, range:[%p,%p]\n",
-					ii,indexList[ii],tempData.counter, head, tail);
+				fprintf(gTraceFile,"\n\nRank %d -->> Dynamic Data %d chunk %d accessed %ld times, range:[%p,%p]\n",
+					ii,sysIndex, chunk, tempData.counter, head, tail);
 			else if(tempData.data.objectType == STATIC_OBJECT)
 				fprintf(gTraceFile,"\n\nRank %d -->> Static Data %d: \"%s\", accessed %ld times, range:[%p,%p]\n",
-					ii,indexList[ii], GetStringPool()+tempData.data.symName, tempData.counter, head, tail);
+					ii,sysIndex, GetStringPool()+tempData.data.symName, tempData.counter, head, tail);
+
 			if (sizeInBytes > 1<<20)
 				fprintf(gTraceFile,"size = %.3f MB.\n", (float)(sizeInBytes)/(float)(1<<20));
 			else if (sizeInBytes > 1<<10)
 				fprintf(gTraceFile,"size = %.3f KB.\n", (float)(sizeInBytes)/(float)(1<<10));
 			else 
 				fprintf(gTraceFile,"size = %d B.\n", sizeInBytes);
-			PrintFullCallingContext(indexList[ii]);			
+//			printf("here5\n");
+
+			PrintFullCallingContext(sysIndex);
+//			printf("here6\n");
+
 		}
 	}
 
@@ -188,10 +213,37 @@ VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
 }
 
 
+uint32_t getIndex(uint64_t beg, uint64_t end, void* addr, uint32_t sysIndex)
+{
+	int size = (int)((end - beg)/1024);
+	int offset = (int)(((long)addr - beg)/1024);
+	
+	int chunk  = floor(offset/(ChunkSize/1024)) + 1;
+	if (chunk>99)
+	{
+		printf("\n!!too large array!! Results may be iffy.\n\n");
+		chunk = chunk%100;
+	}
+
+	uint32_t localIndex = (sysIndex*100 + OFFSET + chunk);
+
+//	printf(" %d, %d,  %d, %d => %d\n ", size, offset, chunk, sysIndex, localIndex);
+
+	return localIndex;
+
+}
+
 
 void updateDataList(void* addr, DataHandle_t data, THREADID threadId)
 {
-	uint32_t index =  data.symName;
+	uint32_t sysIndex = data.symName;
+	uint32_t index;
+
+	int size = data.end_addr - data.beg_addr;
+	if (size > (800* (1 <<10) ))
+		index = getIndex(data.beg_addr, data.end_addr, addr, sysIndex);
+	else
+		index = sysIndex;
 
 	auto search = dataObjectList.find(index);
 	if(search != dataObjectList.end()) {
@@ -211,8 +263,7 @@ void updateDataList(void* addr, DataHandle_t data, THREADID threadId)
 		newDataObj.data = data;
 
 		dataObjectList.insert({index,newDataObj});
-	}
-	
+	}	
 }
 
 
@@ -232,7 +283,7 @@ VOID MemAnalysisRoutine(void* addr, THREADID threadId) {
 				updateDataList(addr, d, threadId);
 			break;
 			case STATIC_OBJECT:
-				//updateDataList(addr, d, threadId);
+				updateDataList(addr, d, threadId);
 			break;
 			default://printf("not up in here! Index= %d\n",d.symName);//yes, executed.
 			break;
