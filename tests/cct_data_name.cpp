@@ -44,25 +44,19 @@
 #include <math.h> //Du
 #include <sstream>
 #include <locale>
-#include <tuple>
 #include <unordered_map>
 #include "pin.H"
 
 #define OFFSET 20000000
 #define ChunkSize 512*(1<<10)
+//#define WINDOW 100000
 
-//#define USE_SHADOW_FOR_DATA_CENTRIC
 #define USE_TREE_BASED_FOR_DATA_CENTRIC
 #include "cctlib.H"
 using namespace std;
 using namespace boost;
 using namespace PinCCTLib;
 
-typedef struct DataObj
-{
-	long counter;
-	DataHandle_t data;
-} DataObj;
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each instruction and associate each memory access to its data object (shadow memory technique).\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -70,18 +64,31 @@ INT32 Usage2() {
 }
 
 FILE* gTraceFile;
-long CTR=0;
+
+struct DataObj {
+	long counter; // # of total accesses by all threads.
+	int threads; //# of threads.
+	DataHandle_t data;
+} ;
+
+//struct AtomicCounter {
+//    std::atomic<long> value;
+//	void init() {value.store(0);}
+//    void increment(){++value;}
+//    long retrieve(){return value.load();}
+//};
+
+long CTR = 0;
+int WINDOW_WIDTH = 1000000;
+int window;
 int TH = 0;//thread to listen
-long window = 100000;//1000000;
 //unsigned long dataSizeTh = 1 << 10;//listen on data that is larger.
 bool outputflag = true;
 float OutputTH = 0.5; //threshold for output similar data objects.
 unordered_map <uint32_t, DataObj> dataObjectList;
-//unordered_map <string, vector<pair<long,int>> > testList; // (data ID , pair(private counter, bucket0-9))
-//unordered_map <int, unordered_map<ContextHandle_t, vector<pair<long,int>>> > allThreadList;
-unordered_map <string, vector<tuple<long,long,int>> > testList; // (data ID , pair(icounter, CTR, bucket0-9))
 
-int ID = -1;
+//unordered_map <uint32_t, vector<int>> DataWindowMap;//(data ID, Vector(Windows))
+unordered_map <uint32_t, int*> DataWindowMap;//(data ID, Vector(Windows))
 
 
 
@@ -90,9 +97,10 @@ VOID ImageUnload(IMG img, VOID * v) {
 	if (outputflag==false) return;
 	//printf("I AM HERE!2\n");
 	outputflag = false;
-	int ii = 0;
-	fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
-	printf("\n[CCTLIB] Unloading....\n\n");
+	int ii, jj;
+	fprintf(gTraceFile, "Unloading %s\n", IMG_Name(img).c_str());
+	printf("\n[CCTLIB] Unloading....\n");
+	printf("\nTotal accesses: %ld \n", CTR);
 
 	//sort
 	int length = dataObjectList.size();
@@ -102,7 +110,9 @@ VOID ImageUnload(IMG img, VOID * v) {
 	DataObj tempData;
 
 	fprintf(gTraceFile,"\n\nA total of %ld memeroy accesses.\n",CTR);
-	fprintf(gTraceFile,"Window size: %ld .\n",window);
+	fprintf(gTraceFile,"Window size: %ld .\n",WINDOW_WIDTH);
+	fprintf(gTraceFile,"total windows: %d .\n",window+1);
+
 
 	ii = 0;
 	for ( auto iter = dataObjectList.begin(); iter != dataObjectList.end(); ++iter )
@@ -126,7 +136,7 @@ VOID ImageUnload(IMG img, VOID * v) {
 			}
 		}
 	
-	fprintf(gTraceFile,"\n\n");
+	fprintf(gTraceFile,"\n");
 	
 	for(ii = 0; ii < min(60,length); ii++)
 	{
@@ -166,14 +176,29 @@ VOID ImageUnload(IMG img, VOID * v) {
 				fprintf(gTraceFile,"size = %.3f KB.\n", (float)(sizeInBytes)/(float)(1<<10));
 			else 
 				fprintf(gTraceFile,"size = %d B.\n", sizeInBytes);
-//			printf("here5\n");
+
+			auto search1 = DataWindowMap.find(index);
+			if(search1 != DataWindowMap.end())
+			{
+				int *window_arr = search1->second;
+
+				fprintf(gTraceFile,"at windows: \t");
+
+				for (jj=0;jj<window+1;jj++ )
+				{
+					fprintf(gTraceFile,"%d\t",window_arr[jj]);
+				}
+				fprintf(gTraceFile,"\n");
+			}
+			else
+				fprintf(gTraceFile,"!!not here!!\n");
+			
 
 			PrintFullCallingContext(sysIndex);
 //			printf("here6\n");
 
 		}
 	}
-
 
     fprintf(gTraceFile,"\n\n\n End...");
 }
@@ -193,7 +218,7 @@ void ClientInit(int argc, char* argv[]) {
     gethostname(name + strlen(name), MAX_FILE_PATH - strlen(name));
     pid_t pid = getpid();
     sprintf(name + strlen(name), "%d", pid);
-    cerr << "\n Creating log file at:" << name << "\n";
+    cerr << "\n Creating log file at:" << name << "\n\n";
     gTraceFile = fopen(name, "w");
     // print the arguments passed
     fprintf(gTraceFile, "\n");
@@ -230,7 +255,6 @@ uint32_t getIndex(uint64_t beg, uint64_t end, void* addr, uint32_t sysIndex)
 //	printf(" %d, %d,  %d, %d => %d\n ", size, offset, chunk, sysIndex, localIndex);
 
 	return localIndex;
-
 }
 
 
@@ -240,55 +264,64 @@ void updateDataList(void* addr, DataHandle_t data, THREADID threadId)
 	uint32_t index;
 
 	int size = data.end_addr - data.beg_addr;
-	if (size > (800* (1 <<10) ))
-		index = getIndex(data.beg_addr, data.end_addr, addr, sysIndex);
-	else
+	if (size < (800* (1<<10) ))
 		index = sysIndex;
+	else
+		index = getIndex(data.beg_addr, data.end_addr, addr, sysIndex);
 
 	auto search = dataObjectList.find(index);
 	if(search != dataObjectList.end()) {
 		//update existing one:
-		DataObj curDataObj = search->second;//search is an iterator.
-		DataObj newDataObj;
-		
-		newDataObj.counter = curDataObj.counter + 1;
-		newDataObj.data = curDataObj.data;
-		dataObjectList.erase(index);
-		dataObjectList.insert({index,newDataObj});
-    }
+		__sync_fetch_and_add(&(search->second).counter,1);
+	}
 	else
 	{	//insert new one
 		DataObj newDataObj;
 		newDataObj.counter = 1;
 		newDataObj.data = data;
-
 		dataObjectList.insert({index,newDataObj});
-	}	
+	}
+
+
+	auto search1 = DataWindowMap.find(index);
+	if(search1 != DataWindowMap.end()) {
+		//update existing one:
+		
+		int *window_arr = search1->second;
+		__sync_fetch_and_add(&(window_arr[window]),1);		
+	}
+	else
+	{	//insert new one
+		int *win_arr = new int[200];
+		DataWindowMap.insert({index, win_arr});
+	}
 }
 
 
-VOID MemAnalysisRoutine(void* addr, THREADID threadId) {
+VOID MemAnalysisRoutine(void* addr, THREADID threadId)
+{
+	//{
+	__sync_fetch_and_add(&CTR,1);
 
-	if (((int)threadId==TH))
+	if ((window+1)*WINDOW_WIDTH < CTR)
+		window = CTR/WINDOW_WIDTH;	
+
+	DataHandle_t d = GetDataObjectHandle(addr, threadId);
+	
+	switch (d.objectType) 
 	{
-		CTR ++;
-
-		DataHandle_t d = GetDataObjectHandle(addr, threadId);
-		
-		switch (d.objectType) 
-		{
-			case STACK_OBJECT:
-			break;
-			case DYNAMIC_OBJECT://printf("Index= %d, DYNAMIC\n",d.pathHandle);//well...
-				updateDataList(addr, d, threadId);
-			break;
-			case STATIC_OBJECT:
-				updateDataList(addr, d, threadId);
-			break;
-			default://printf("not up in here! Index= %d\n",d.symName);//yes, executed.
-			break;
-		}
+		case STACK_OBJECT:
+		break;
+		case DYNAMIC_OBJECT://printf("Index= %d, DYNAMIC\n",d.pathHandle);//well...
+			updateDataList(addr, d, threadId);
+		break;
+		case STATIC_OBJECT:
+			updateDataList(addr, d, threadId);
+		break;
+		default://printf("not up in here! Index= %d\n",d.symName);//yes, executed.
+		break;
 	}
+	//}
 
 }
 
