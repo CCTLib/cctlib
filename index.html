@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>CCTLib by chabbimilind</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/github-light.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>CCTLib</h1>
+        <p>Ubiquitous calling context collection library for Pin-based fine-grained monitoring tools</p>
+
+        <p class="view"><a href="https://github.com/chabbimilind/cctlib">View the Project on GitHub <small>chabbimilind/cctlib</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/chabbimilind/cctlib/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/chabbimilind/cctlib/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/chabbimilind/cctlib">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <p>Fine-grained binary instrumentation is a popular technique to monitor program execution. Intel's Pin is a leading dynamic binary instrumentation framework for building program measurement and analysis tools. A key feature missing in Pin is the ability to associate call paths with instructions as they execute. The availability of calling context information enables Pin tools to provide more detailed diagnostic feedback.</p>
+
+<p>CCTLib is a call path collection library that any Pin tool can use to obtain the full calling context at any and every machine instruction that executes. CCTLib not only associates any instruction with source code along the call path, but also points to the data object accessed by the instruction if it is a memory access.</p>
+
+<p>With CCTLib, we demonstrate that collecting call paths on each executed instruction is possible, even for reasonably long-running programs. Prior art in call path collection for Pin has several limitations. Compared to other open-source Pin tools for call path collection, CCTLib provides richer information that is accurate even for programs with complex control flow and does so with about 30% less overhead--a difference of 14x on average. CCTLib enables attribution of metrics in Pin tools to both code and data.</p>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/chabbimilind">chabbimilind</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
