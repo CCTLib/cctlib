@@ -33,6 +33,13 @@
 <p>CCTLib is a call path collection library that any Pin tool can use to obtain the full calling context at any and every machine instruction that executes. CCTLib not only associates any instruction with source code along the call path, but also points to the data object accessed by the instruction if it is a memory access.</p>
 
 <p>With CCTLib, we demonstrate that collecting call paths on each executed instruction is possible, even for reasonably long-running programs. Prior art in call path collection for Pin has several limitations. Compared to other open-source Pin tools for call path collection, CCTLib provides richer information that is accurate even for programs with complex control flow and does so with about 30% less overhead--a difference of 14x on average. CCTLib enables attribution of metrics in Pin tools to both code and data.</p>
+
+<p>Publications:</p>
+
+<ol>
+<li>Milind Chabbi, Xu Liu, and John Mellor-Crummey. 2014. Call Paths for Pin Tools. In Proceedings of Annual IEEE/ACM International Symposium on Code Generation and Optimization (CGO '14). ACM, New York, NY, USA, , Pages 76 , 11 pages. DOI=10.1145/2544137.2544164 <a href="http://doi.acm.org/10.1145/2544137.2544164">http://doi.acm.org/10.1145/2544137.2544164</a>
+</li>
+</ol>
       </section>
       <footer>
         <p>This project is maintained by <a href="https://github.com/chabbimilind">chabbimilind</a></p>
