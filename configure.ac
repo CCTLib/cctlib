@@ -3,7 +3,8 @@ AC_INIT(cctlib, 0.1, chabbi.milind@gmail.com)
 # The argument here is just something that should be in the current directory
 # (for sanity checking)
 AC_CONFIG_SRCDIR(README)
-AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+#AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+AM_INIT_AUTOMAKE([foreign -Werror])
 AC_CONFIG_HEADERS([src/config.h])
 AC_PROG_CXX
 AC_PROG_CC
@@ -30,18 +31,11 @@ AC_ARG_ENABLE([develop],
 AC_MSG_RESULT([${OPT_ENABLE_DEVELOP}])
 AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
-#-------------------------------------------------
-# Look for libelf
-#-------------------------------------------------
-AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"; exit -1])
-
-AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
-AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
-
 
 PIN_PATH=
 SPARSEHASH_PATH=
 BOOST_PATH=
+LIBELF_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
 
@@ -84,6 +78,20 @@ if test "$SPARSEHASH_PATH" = "" ; then
 AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
 fi
 
+AC_ARG_WITH([libelf],
+  AS_HELP_STRING([--with-libelf=PATH],
+                 [use given libelf installation (absolute path) with CCTLib]),
+   [if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
+     fi
+     LIBELF_PATH=${withval}
+   ])
+
+if test "$LIBELF_PATH" = "" ; then
+AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
+fi
+
+
 CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC -std=c++11 "
 CPPFLAGS+="  -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E "
 LDFLAGS+=" -g "
@@ -120,13 +128,14 @@ else
 fi
 
 
-CPPFLAGS+="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/include -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
-LDFLAGS+=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
+CPPFLAGS+="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/include -I${LIBELF_PATH}/include -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
+LDFLAGS+=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${LIBELF_PATH}/lib/ -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
 
 
 AC_SUBST([PIN_PATH])
 AC_SUBST([SPARSEHASH_PATH])
 AC_SUBST([BOOST_PATH])
+AC_SUBST([LIBELF_PATH])
 AC_SUBST([CXXFLAGS])
 AC_SUBST([CPPFLAGS])
 AC_SUBST([LDFLAGS])
@@ -136,6 +145,7 @@ AC_SUBST([LDFLAGS])
 AC_MSG_NOTICE([  Pin:         ${PIN_PATH}])
 AC_MSG_NOTICE([  Google sparse hash:         ${SPARSEHASH_PATH}])
 AC_MSG_NOTICE([  Boost:         ${BOOST_PATH}])
+AC_MSG_NOTICE([  Libelf:         ${LIBELF_PATH}])
 
 # Write generated configuration file
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])
