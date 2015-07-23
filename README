@@ -24,7 +24,7 @@ http://code.google.com/p/sparsehash/, Boost C++ library version 1_56_0 and libel
 	Compiling
 --------------------------------------------------
 
-1. Set PIN_ROOT environmental variable to point to the root of the Pin installation. No need to do this step if you want the build.sh script to automatically down load Pin from the WWW.
+1. Set PIN_ROOT environmental variable to point to the root of the Pin installation. No need to do this step if you want the build.sh script to automatically download Pin from the WWW.
 
  e.g. 
  export PIN_ROOT=/path/to/pin/root/pin-2.14-67254-gcc.4.4.7-linux/
