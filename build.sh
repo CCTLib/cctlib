@@ -7,8 +7,8 @@ WWW_PIN_LOC="http://software.intel.com/sites/landingpage/pintool/downloads/pin-2
 #PIN_ROOT="/home/mc29/CCTLIB_ALL/cctlib/pin-2.14-67254-gcc.4.4.7-linux/"
 if [ -z "$PIN_ROOT" ]
 then
-echo "PIN_ROOT is NOT set"
-echo "  (1) Download Pin from the WWW and automatically set PINROOT?
+echo "PIN_ROOT is NOT set!"
+echo "  (1) Download Pin from the WWW and automatically set PIN_ROOT?
   (2) Enter PIN_ROOT in the commandline?
   (any key) Exit?"
 userVal=
