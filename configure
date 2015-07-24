@@ -589,18 +589,14 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+CCTLIB_EXTRA_CXXFLAGS
+CCTLIB_EXTRA_CPPFLAGS
+DEBUG
 LIBELF_PATH
 BOOST_PATH
 SPARSEHASH_PATH
+PIN_ROOT
 PIN_PATH
-host_os
-host_vendor
-host_cpu
-host
-build_os
-build_vendor
-build_cpu
-build
 OPT_ENABLE_DEVELOP_FALSE
 OPT_ENABLE_DEVELOP_TRUE
 RANLIB
@@ -698,10 +694,10 @@ enable_option_checking
 enable_silent_rules
 enable_dependency_tracking
 enable_develop
+with_libelf
 with_Pin
 with_boost
 with_sparse_hash
-with_libelf
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1315,10 +1311,6 @@ Program names:
   --program-prefix=PREFIX            prepend PREFIX to installed program names
   --program-suffix=SUFFIX            append SUFFIX to installed program names
   --program-transform-name=PROGRAM   run sed PROGRAM on installed program names
-
-System types:
-  --build=BUILD     configure for building on BUILD [guessed]
-  --host=HOST       cross-compile to build programs to run on HOST [BUILD]
 _ACEOF
 fi
 
@@ -1343,14 +1335,14 @@ Optional Features:
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
+  --with-libelf=PATH      use given libelf installation (absolute path) with
+                          CCTLib
   --with-Pin=PATH         use given Pin installation (absolute path) with
                           CCTLib
   --with-boost=PATH       use given boost installation (absolute path) with
                           CCTLib
   --with-sparse-hash=PATH use given google sparse hash installation (absolute
                           path) with CCTLib
-  --with-libelf=PATH      use given libelf installation (absolute path) with
-                          CCTLib
 
 Some influential environment variables:
   CXX         C++ compiler command
@@ -1873,7 +1865,6 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 # The argument here is just something that should be in the current directory
 # (for sanity checking)
 
-#AM_INIT_AUTOMAKE([foreign -Wall -Werror])
 am__api_version='1.14'
 
 ac_aux_dir=
@@ -4032,13 +4023,48 @@ else
 fi
 
 
+DEBUG=0
+CCTLIB_EXTRA_CPPFLAGS=
+CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -std=c++11"
+
+if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
+  DEBUG=1
+else
+  CCTLIB_EXTRA_CPPFLAGS+="-DNDEBUG"
+fi
+
+#-------------------------------------------------
+# Look for libelf
+#-------------------------------------------------
+#AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"; exit -1])
+
+#AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
+#AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
+
 
 PIN_PATH=
+PIN_ROOT=
 SPARSEHASH_PATH=
 BOOST_PATH=
 LIBELF_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
+
+
+# Check whether --with-libelf was given.
+if test "${with_libelf+set}" = set; then :
+  withval=$with_libelf; if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
+     fi
+     LIBELF_PATH=${withval}
+
+fi
+
+
+if test "$LIBELF_PATH" = "" ; then
+as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
+fi
+
 
 
 # Check whether --with-Pin was given.
@@ -4054,6 +4080,8 @@ fi
 if test "$PIN_PATH" = "" ; then
 as_fn_error $? "--with-Pin requires absolute path as argument; given '${withval}'" "$LINENO" 5
 fi
+
+PIN_ROOT=$PIN_PATH
 
 
 # Check whether --with-boost was given.
@@ -4086,129 +4114,8 @@ as_fn_error $? "--with-sparse-hash requires absolute path as argument; given '${
 fi
 
 
-# Check whether --with-libelf was given.
-if test "${with_libelf+set}" = set; then :
-  withval=$with_libelf; if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
-       as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
-     fi
-     LIBELF_PATH=${withval}
-
-fi
 
 
-if test "$LIBELF_PATH" = "" ; then
-as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
-fi
-
-
-CXXFLAGS+=" -c -g -Wno-deprecated -Wall -Wno-unknown-pragmas -fPIC -std=c++11 "
-CPPFLAGS+="  -DBIGARRAY_MULTIPLIER=1 -DUSING_XED -DTARGET_IA32E -DHOST_IA32E "
-LDFLAGS+=" -g "
-
-#############################
-# Platform specific setup
-#############################
-# Make sure we can run config.sub.
-$SHELL "$ac_aux_dir/config.sub" sun4 >/dev/null 2>&1 ||
-  as_fn_error $? "cannot run $SHELL $ac_aux_dir/config.sub" "$LINENO" 5
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking build system type" >&5
-$as_echo_n "checking build system type... " >&6; }
-if ${ac_cv_build+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_build_alias=$build_alias
-test "x$ac_build_alias" = x &&
-  ac_build_alias=`$SHELL "$ac_aux_dir/config.guess"`
-test "x$ac_build_alias" = x &&
-  as_fn_error $? "cannot guess build type; you must specify one" "$LINENO" 5
-ac_cv_build=`$SHELL "$ac_aux_dir/config.sub" $ac_build_alias` ||
-  as_fn_error $? "$SHELL $ac_aux_dir/config.sub $ac_build_alias failed" "$LINENO" 5
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_build" >&5
-$as_echo "$ac_cv_build" >&6; }
-case $ac_cv_build in
-*-*-*) ;;
-*) as_fn_error $? "invalid value of canonical build" "$LINENO" 5;;
-esac
-build=$ac_cv_build
-ac_save_IFS=$IFS; IFS='-'
-set x $ac_cv_build
-shift
-build_cpu=$1
-build_vendor=$2
-shift; shift
-# Remember, the first character of IFS is used to create $*,
-# except with old shells:
-build_os=$*
-IFS=$ac_save_IFS
-case $build_os in *\ *) build_os=`echo "$build_os" | sed 's/ /-/g'`;; esac
-
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking host system type" >&5
-$as_echo_n "checking host system type... " >&6; }
-if ${ac_cv_host+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test "x$host_alias" = x; then
-  ac_cv_host=$ac_cv_build
-else
-  ac_cv_host=`$SHELL "$ac_aux_dir/config.sub" $host_alias` ||
-    as_fn_error $? "$SHELL $ac_aux_dir/config.sub $host_alias failed" "$LINENO" 5
-fi
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_host" >&5
-$as_echo "$ac_cv_host" >&6; }
-case $ac_cv_host in
-*-*-*) ;;
-*) as_fn_error $? "invalid value of canonical host" "$LINENO" 5;;
-esac
-host=$ac_cv_host
-ac_save_IFS=$IFS; IFS='-'
-set x $ac_cv_host
-shift
-host_cpu=$1
-host_vendor=$2
-shift; shift
-# Remember, the first character of IFS is used to create $*,
-# except with old shells:
-host_os=$*
-IFS=$ac_save_IFS
-case $host_os in *\ *) host_os=`echo "$host_os" | sed 's/ /-/g'`;; esac
-
-
-# Check for which host we are on and setup a few things
-# specifically based on the host
-case $host_os in
-  darwin* )
-        # Do something specific for mac
-        CXXFLAGS+=" -DTARGET_MAC"
-        ;;
-  linux*)
-        # Do something specific for linux
-        CPPFLAGS+=" -DTARGET_LINUX "
-        LDFLAGS+=" -Wl,--hash-style=sysv -shared -Wl,-Bsymbolic -Wl,--version-script=${PIN_PATH}/source/include/pin/pintool.ver"
-        ;;
-    *)
-        #Default Case
-        as_fn_error $? "Your platform is not currently supported" "$LINENO" 5
-        ;;
-esac
-
-if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
-  CXXFLAGS+=" -O0"
-  LDFLAGS+=" -O0"
-else
-  CXXFLAGS+=" -O3 -fomit-frame-pointer -fno-stack-protector -fno-strict-aliasing -DNDEBUG"
-  CPPFLAGS+=" -DNDEBUG "
-  LDFLAGS+=" -O3"
-fi
-
-
-CPPFLAGS+="-I${BOOST_PATH}/include -I${SPARSEHASH_PATH}/include -I${LIBELF_PATH}/include -I${PIN_PATH}/extras/xed2-intel64/include -I${PIN_PATH}/extras/components/include -I${PIN_PATH}/source/include -I${PIN_PATH}/source/include/pin/gen -I${PIN_PATH}/source/include/pin"
-LDFLAGS+=" -Wl,-rpath=${BOOST_PATH}/lib -Wl,-rpath=${PIN_PATH}/extras/xed2-intel64/lib -Wl,-rpath=${LIBELF_PATH}/lib/ -Wl,-rpath=${PIN_PATH}/intel64/lib -Wl,-rpath=${PIN_PATH}/intel64/lib-ext  -L${BOOST_PATH}/lib -L${PIN_PATH}/extras/xed2-intel64/lib -L${PIN_PATH}/intel64/lib -L${PIN_PATH}/intel64/lib-ext -lpin -lxed -ldwarf -lelf -ldl -lboost_filesystem"
 
 
 

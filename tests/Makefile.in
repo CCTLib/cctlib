@@ -75,8 +75,6 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
-build_triplet = @build@
-host_triplet = @host@
 subdir = tests
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -118,12 +116,15 @@ AWK = @AWK@
 BOOST_PATH = @BOOST_PATH@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
+CCTLIB_EXTRA_CPPFLAGS = @CCTLIB_EXTRA_CPPFLAGS@
+CCTLIB_EXTRA_CXXFLAGS = @CCTLIB_EXTRA_CXXFLAGS@
 CFLAGS = @CFLAGS@
 CPPFLAGS = @CPPFLAGS@
 CXX = @CXX@
 CXXDEPMODE = @CXXDEPMODE@
 CXXFLAGS = @CXXFLAGS@
 CYGPATH_W = @CYGPATH_W@
+DEBUG = @DEBUG@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
 ECHO_C = @ECHO_C@
@@ -152,6 +153,7 @@ PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 PIN_PATH = @PIN_PATH@
+PIN_ROOT = @PIN_ROOT@
 RANLIB = @RANLIB@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
@@ -170,22 +172,14 @@ am__quote = @am__quote@
 am__tar = @am__tar@
 am__untar = @am__untar@
 bindir = @bindir@
-build = @build@
 build_alias = @build_alias@
-build_cpu = @build_cpu@
-build_os = @build_os@
-build_vendor = @build_vendor@
 builddir = @builddir@
 datadir = @datadir@
 datarootdir = @datarootdir@
 docdir = @docdir@
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
-host = @host@
 host_alias = @host_alias@
-host_cpu = @host_cpu@
-host_os = @host_os@
-host_vendor = @host_vendor@
 htmldir = @htmldir@
 includedir = @includedir@
 infodir = @infodir@
@@ -209,10 +203,19 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
+
+#include ../Makefile.inc
+#PIN_ROOT=$(PIN_PATH)
+CONFIG_ROOT = $(PIN_ROOT)/source/tools/Config
+TEST_TOOL_ROOTS = cct_client  deadspy_client cct_data_centric_client cct_client_mem_only cct_data_centric_client_tree_based  cctlib_reader footprint_client footprint_client2 valueNum
+APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
-CCTLIB_TEST_CPPFLAGS = $(CPPFLAGS) -I../src/
-CCTLIB_SHADOW_BASED_LIBRARY = ../src/libcctlib.a
-CCTLIB_TREE_BASED_LIBRARY = ../src/libcctlib_tree_based.a
+ALLOW_UNUSED_BUT_SET = -Wno-unused-but-set-variable
+CCTLIB_TEST_FLAGS = $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I$(BOOST_PATH)/include  -I../src/ $(ALLOW_UNUSED_BUT_SET)
+BOOST_LD_FLAGS = -L$(BOOST_PATH)/lib -Wl,-rpath $(BOOST_PATH)/lib 
+BOOST_LIBS = -lboost_filesystem 
+CCTLIB_SHADOW_BASED_LIBRARY = ../src/$(OBJDIR)libcctlib$(LIB_SUFFIX)
+CCTLIB_TREE_BASED_LIBRARY = ../src/$(OBJDIR)libcctlib_tree_based$(LIB_SUFFIX)
 all: all-am
 
 .SUFFIXES:
@@ -396,53 +399,68 @@ uninstall-am:
 	maintainer-clean-generic mostlyclean mostlyclean-generic pdf \
 	pdf-am ps ps-am tags-am uninstall uninstall-am
 
+include $(CONFIG_ROOT)/makefile.config
 
-#include ../Makefile.inc
-all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites.o threaded.o cctlib_reader.so footprint_client.so footprint_client2.so valueNum.so
+$(OBJDIR)cct_client$(OBJ_SUFFIX): cct_client.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-cct_client.so: cct_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_client.cpp 
-	$(CXX)   -o cct_client.so cct_client.o -L../src/ -lcctlib  $(LDFLAGS) 
+$(OBJDIR)cct_client$(PINTOOL_SUFFIX): $(OBJDIR)cct_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-cctlib_reader.so: cctlib_reader.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cctlib_reader.cpp 
-	$(CXX)   -o cctlib_reader.so cctlib_reader.o -L../src/ -lcctlib  $(LDFLAGS) 
+$(OBJDIR)deadspy_client$(OBJ_SUFFIX): deadspy_client.cpp ../src/cctlib.H
+	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-deadspy_client.so: deadspy_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   deadspy_client.cpp 
-	$(CXX)   -o deadspy_client.so deadspy_client.o -L../src/ -lcctlib $(LDFLAGS)  
+$(OBJDIR)deadspy_client$(PINTOOL_SUFFIX): $(OBJDIR)deadspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-cct_client_mem_only.so: cct_client_mem_only.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_client_mem_only.cpp
-	$(CXX)   -o cct_client_mem_only.so cct_client_mem_only.o -L../src/ -lcctlib $(LDFLAGS) 
+$(OBJDIR)cct_data_centric_client$(OBJ_SUFFIX): cct_data_centric_client.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-cct_data_centric_client.so: cct_data_centric_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_data_centric_client.cpp
-	$(CXX)   -o cct_data_centric_client.so cct_data_centric_client.o -L../src/ -lcctlib $(LDFLAGS) 
+$(OBJDIR)cct_data_centric_client$(PINTOOL_SUFFIX): $(OBJDIR)cct_data_centric_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-cct_data_centric_client_tree_based.so: cct_data_centric_client_tree_based.cpp $(CCTLIB_TREE_BASED_LIBRARY) 
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   cct_data_centric_client_tree_based.cpp
-	$(CXX)   -o cct_data_centric_client_tree_based.so cct_data_centric_client_tree_based.o -L../src/ -lcctlib_tree_based $(LDFLAGS)  
+$(OBJDIR)cct_client_mem_only$(OBJ_SUFFIX): cct_client_mem_only.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-deadWrites.o: deadWrites.cpp
-	 $(CXX) -g -o deadWrites.o deadWrites.cpp
+$(OBJDIR)cct_client_mem_only$(PINTOOL_SUFFIX): $(OBJDIR)cct_client_mem_only$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-footprint_client.so: footprint_client.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   footprint_client.cpp
-	$(CXX)   -o footprint_client.so footprint_client.o -L../src/ -lcctlib $(LDFLAGS) 
+$(OBJDIR)cctlib_reader$(OBJ_SUFFIX): cctlib_reader.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-footprint_client2.so: footprint_client2.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   footprint_client2.cpp
-	$(CXX)   -o footprint_client2.so footprint_client2.o -L../src/ -lcctlib $(LDFLAGS) 
+$(OBJDIR)cctlib_reader$(PINTOOL_SUFFIX): $(OBJDIR)cctlib_reader$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
 
-valueNum.so: valueNum.cpp $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(CXX)  $(CXXFLAGS) $(CCTLIB_TEST_CPPFLAGS)   valueNum.cpp
-	$(CXX)   -o valueNum.so valueNum.o -L../src/ -lcctlib $(LDFLAGS) 
+$(OBJDIR)cct_data_centric_client_tree_based$(OBJ_SUFFIX): cct_data_centric_client_tree_based.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-threaded.o: threaded.c
-	 $(CC) -g -fopenmp -o threaded.o threaded.c
+$(OBJDIR)cct_data_centric_client_tree_based$(PINTOOL_SUFFIX): $(OBJDIR)cct_data_centric_client_tree_based$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS) -lcctlib_tree_based  $(TOOL_LIBS) $(BOOST_LD_FLAGS) $(BOOST_LIBS)
+
+#Value numbering 
+$(OBJDIR)valueNum$(OBJ_SUFFIX): valueNum.cpp ../src/cctlib.H
+	$(CXX) $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+
+$(OBJDIR)valueNum$(PINTOOL_SUFFIX): $(OBJDIR)valueNum$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
+
+#Footprint clients
+$(OBJDIR)footprint_client$(OBJ_SUFFIX): footprint_client.cpp ../src/cctlib.H ../src/cctlib.cpp
+	$(CXX) $(CCTLIB_TEST_FLAGS) -DHAVE_METRIC_PER_IPNODE $(COMP_OBJ)$@ $<
+
+$(OBJDIR)footprint_client$(PINTOOL_SUFFIX): $(OBJDIR)footprint_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_PER_IPNODE_METRIC_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_metric  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
+
+$(OBJDIR)footprint_client2$(OBJ_SUFFIX): footprint_client2.cpp ../src/cctlib.H ../src/cctlib.cpp
+	$(CXX) $(CCTLIB_TEST_FLAGS) -DHAVE_METRIC_PER_IPNODE $(COMP_OBJ)$@ $<
+
+$(OBJDIR)footprint_client2$(PINTOOL_SUFFIX): $(OBJDIR)footprint_client2$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_PER_IPNODE_METRIC_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_metric  $(TOOL_LIBS)  $(BOOST_LD_FLAGS) $(BOOST_LIBS)
+
+include $(TOOLS_ROOT)/Config/makefile.default.rules
+
 clean-local:
-	rm -f *.o *.so
+	rm -f $(OBJDIR)/*
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

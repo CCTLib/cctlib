@@ -223,7 +223,10 @@ namespace PinCCTLib {
 #else
         sparse_hash_map<ADDRINT, TraceNode*>* calleeTraceNodes;
 #endif
+
+#ifdef HAVE_METRIC_PER_IPNODE
         void *metric;
+#endif
     };
 
     typedef struct QNode {
@@ -703,7 +706,9 @@ namespace PinCCTLib {
 #else
         t->childIPs[0].calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*> ();
 #endif
+#ifdef HAVE_METRIC_PER_IPNODE
         t->childIPs[0].metric = NULL;
+#endif
         tdata->tlsThreadId = threadId;
         tdata->tlsRootTraceNode = t;
         tdata->tlsRootIPNode = &(t->childIPs[0]);
@@ -1082,11 +1087,13 @@ namespace PinCCTLib {
         return &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
     }
 
+#ifdef HAVE_METRIC_PER_IPNODE
     void** GetIPNodeMetric(const THREADID id, const uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
         return &(tData->tlsCurrentTraceNode->childIPs[slot].metric);
     }
+#endif
 
     uint32_t GetPINCCT32BitContextIndex(IPNode* node) {
         return node - GLOBAL_STATE.preAllocatedContextBuffer;
@@ -2211,8 +2218,10 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         if(node != curTree->end()) {
             record.objectType = node->objectType;
             record.pathHandle = node->pathHandle;
-            record.beg_addr = (uint64_t)node->start;
- 	    record.end_addr = (uint64_t)node->end;
+// Milind - Commented this since thsi consumes too much space.
+// Need to discuss with Xu on how to maintain this efficiently.
+//            record.beg_addr = (uint64_t)node->start;
+// 	    record.end_addr = (uint64_t)node->end;
         } else {
             record.objectType = UNKNOWN_OBJECT;
         }
@@ -2964,6 +2973,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         return 0;
     }
 
+#ifdef HAVE_METRIC_PER_IPNODE
     static void BottomUpTraverse(TraceNode *node, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric), const THREADID threadid);
     
     static void BottomUpTraverseHelper(TraceSplay *node, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric), const THREADID threadid) {
@@ -2996,6 +3006,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         ThreadData* tData = CCTLibGetTLS(threadid);
         BottomUpTraverse(tData->tlsRootTraceNode, opFunc, threadid);
     }
+#endif
 
     bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
          if (ctxt1 == ctxt2)

@@ -75,8 +75,6 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
-build_triplet = @build@
-host_triplet = @host@
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) AUTHORS COPYING \
@@ -200,12 +198,15 @@ AWK = @AWK@
 BOOST_PATH = @BOOST_PATH@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
+CCTLIB_EXTRA_CPPFLAGS = @CCTLIB_EXTRA_CPPFLAGS@
+CCTLIB_EXTRA_CXXFLAGS = @CCTLIB_EXTRA_CXXFLAGS@
 CFLAGS = @CFLAGS@
 CPPFLAGS = @CPPFLAGS@
 CXX = @CXX@
 CXXDEPMODE = @CXXDEPMODE@
 CXXFLAGS = @CXXFLAGS@
 CYGPATH_W = @CYGPATH_W@
+DEBUG = @DEBUG@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
 ECHO_C = @ECHO_C@
@@ -234,6 +235,7 @@ PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 PIN_PATH = @PIN_PATH@
+PIN_ROOT = @PIN_ROOT@
 RANLIB = @RANLIB@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
@@ -252,22 +254,14 @@ am__quote = @am__quote@
 am__tar = @am__tar@
 am__untar = @am__untar@
 bindir = @bindir@
-build = @build@
 build_alias = @build_alias@
-build_cpu = @build_cpu@
-build_os = @build_os@
-build_vendor = @build_vendor@
 builddir = @builddir@
 datadir = @datadir@
 datarootdir = @datarootdir@
 docdir = @docdir@
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
-host = @host@
 host_alias = @host_alias@
-host_cpu = @host_cpu@
-host_os = @host_os@
-host_vendor = @host_vendor@
 htmldir = @htmldir@
 includedir = @includedir@
 infodir = @infodir@
@@ -293,6 +287,8 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 
 #include Makefile.inc
+#PIN_ROOT=$(PIN_PATH)
+CONFIG_ROOT = $(PIN_ROOT)/source/tools/Config
 SUBDIRS = src tests
 all: all-recursive
 
@@ -747,6 +743,7 @@ uninstall-am:
 	maintainer-clean-generic mostlyclean mostlyclean-generic pdf \
 	pdf-am ps ps-am tags tags-am uninstall uninstall-am
 
+include $(CONFIG_ROOT)/makefile.config
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)
 $(SUBDIRS):
@@ -755,23 +752,25 @@ $(SUBDIRS):
 tests: src
 
 clean-local:
-	rm -f deadspy.out.* client.out.* src/*.o src/*.a tests/*.o tests/*.so
+	rm -f deadspy.out.* client.out.* src/$(OBJDIR)/*  tests/$(OBJDIR)/*
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
 
 check:
 	rm -f deadspy.out.* client.out.* 
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
-	@echo "----------TEST1----------" && $(PIN_PATH)/pin.sh -t tests/cct_client.so -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST2----------" && $(PIN_PATH)/pin.sh -t tests/cct_client_mem_only.so -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST3----------" && $(PIN_PATH)/pin.sh -t tests/cct_data_centric_client.so  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
-	@echo "----------TEST4----------" && $(PIN_PATH)/pin.sh -t tests/cct_data_centric_client_tree_based.so  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
-	@echo "----------TEST5----------" && $(PIN_PATH)/pin.sh -t tests/deadspy_client.so  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
-	@echo "----------TEST6----------" && $(PIN_PATH)/pin.sh -t tests/deadspy_client.so  -- tests/deadWrites.o > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST7----------" && $(PIN_PATH)/pin.sh -t tests/cctlib_reader.so  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "---TEST8 (patience)-----" && $(PIN_PATH)/pin.sh -t tests/cct_data_centric_client_tree_based.so  -- tests/threaded.o > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST1----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_client$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST2----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_client_mem_only$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST3----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
+	@echo "----------TEST4----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
+	@echo "----------TEST5----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
+	@echo "----------TEST6----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/deadWrites > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST7----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cctlib_reader$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/threaded > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "*************************************************"
 	@echo "************* ALL TESTS PASSED ******************"
 	@echo "*************************************************"
+
+include $(TOOLS_ROOT)/Config/makefile.default.rules
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

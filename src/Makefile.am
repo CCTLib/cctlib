@@ -1,12 +1,38 @@
 #include ../Makefile.inc
 #all:  libcctlib.a libcctlib_tree_based.a
-lib_LIBRARIES=  libcctlib.a libcctlib_tree_based.a
-libcctlib_a_SOURCES=cctlib.cpp cctlib.H splay-macros.h
-libcctlib_tree_based_a_SOURCES=cctlib.cpp cctlib.H splay-macros.h
+#PIN_ROOT=$(PIN_PATH)
+CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
+include $(CONFIG_ROOT)/makefile.config
+
+LIB_ROOTS=libcctlib libcctlib_tree_based libcctlib_metric
+
+$(OBJDIR)cctlib$(OBJ_SUFFIX): cctlib.cpp cctlib.H splay-macros.h
+	$(CXX) -Wno-deprecated $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -DUSE_SHADOW_FOR_DATA_CENTRIC -I$(LIBELF_PATH)/include -I$(SPARSEHASH_PATH)/include -I$(BOOST_PATH)/include $(COMP_OBJ)$@ $<
+
+$(OBJDIR)libcctlib$(LIB_SUFFIX): $(OBJDIR)cctlib$(OBJ_SUFFIX)
+	$(ARCHIVER)$(OBJDIR)libcctlib$(LIB_SUFFIX) $<
+
+$(OBJDIR)cctlib_metric$(OBJ_SUFFIX): cctlib.cpp cctlib.H splay-macros.h
+	$(CXX) -Wno-deprecated $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -DUSE_SHADOW_FOR_DATA_CENTRIC -DHAVE_METRIC_PER_IPNODE -I$(LIBELF_PATH)/include -I$(SPARSEHASH_PATH)/include -I$(BOOST_PATH)/include $(COMP_OBJ)$@ $<
+
+$(OBJDIR)libcctlib_metric$(LIB_SUFFIX): $(OBJDIR)cctlib_metric$(OBJ_SUFFIX)
+	$(ARCHIVER)$(OBJDIR)libcctlib_metric$(LIB_SUFFIX) $<
+
+
+$(OBJDIR)libcctlib_tree_based$(OBJ_SUFFIX): cctlib.cpp cctlib.H splay-macros.h
+	$(CXX) -Wno-deprecated   $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -DUSE_TREE_BASED_FOR_DATA_CENTRIC -I$(LIBELF_PATH)/include -I$(SPARSEHASH_PATH)/include -I$(BOOST_PATH)/include $(COMP_OBJ)$@ $<
+
+$(OBJDIR)libcctlib_tree_based$(LIB_SUFFIX): $(OBJDIR)libcctlib_tree_based$(OBJ_SUFFIX)
+	$(ARCHIVER)$(OBJDIR)libcctlib_tree_based$(LIB_SUFFIX) $<
+
+
 include_HEADERS=cctlib.H
-libcctlib_CPPFLAGS=-DUSE_SHADOW_FOR_DATA_CENTRIC
-libcctlib_tree_based_CPPFLAGS=-DUSE_TREE_BASED_FOR_DATA_CENTRIC
+
+
+include $(TOOLS_ROOT)/Config/makefile.default.rules
+
+
 
 clean-local:
-	rm -f *.o *.a
+	rm -f $(OBJDIR)/*
 

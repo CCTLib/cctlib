@@ -43,7 +43,6 @@
 #define MAX_CCT_PRINT_DEPTH (20)
 #define MAX_CCT_PATH_DEPTH (100)
 #define MAX_FILE_PATH   (200)
-#define USE_TREE_BASED_FOR_DATA_CENTRIC
 
 namespace PinCCTLib {
 
@@ -60,8 +59,10 @@ namespace PinCCTLib {
             uint32_t symName;
         };
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
-	uint64_t beg_addr;
-	uint64_t end_addr;
+// Milind- I commented this out since it consumes too much space.
+// Need to discuss with Xu on how we want to maintain this efficiently
+//	uint64_t beg_addr;
+//	uint64_t end_addr;
 #endif
     } DataHandle_t;
 
@@ -173,10 +174,12 @@ namespace PinCCTLib {
     */
     void DottifyAllCCTs();
 
+#ifdef HAVE_METRIC_PER_IPNODE
     void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc) (const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void **myMetric, void **parentMetric));
-    bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
-
     void** GetIPNodeMetric(const THREADID threadId, const uint32_t opaqueHandle);
+#endif
+
+    bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 //NOP
 #elif !defined(USE_SHADOW_FOR_DATA_CENTRIC)

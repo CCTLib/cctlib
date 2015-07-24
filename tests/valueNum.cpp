@@ -5,7 +5,6 @@
 #include "pin.H"
 #include "pin_isa.H"
 #include <map>
-#include <ext/hash_map>
 #include <unordered_map>
 #include <list>
 #include <stdint.h>
@@ -36,8 +35,6 @@
 #include <google/dense_hash_map>
 using google::sparse_hash_map;  // namespace where class lives by default
 using google::dense_hash_map;   // namespace where class lives by default
-
-using namespace __gnu_cxx;
 using namespace std;
 
 #include "cctlib.H"
@@ -78,20 +75,6 @@ using namespace PinCCTLib;
 #define STOP_PERIOD (1000000000)
 #define VALUE_N (10)
 
-namespace __gnu_cxx{
-
-    template<> struct hash<const string>
-    {
-        size_t operator()(const string& s) const
-        { return hash<const char*>()( s.c_str() ); } //__stl_hash_string
-    };
-    template<> struct hash<string>
-    {
-        size_t operator()(const string& s) const
-        { return hash<const char*>()( s.c_str() ); }
-    };
-}
-
 enum AccessType{
     READ_ACCESS = 0,
     WRITE_ACCESS = 1
@@ -118,8 +101,8 @@ typedef struct opMap{
 class ThreadData_t {
 public:
     uint64_t regNumber[REG_LAST];
-    hash_map<uint64_t, uint64_t> immediateMap;
-    hash_map<uint64_t, uint64_t>::iterator immediateMapIt;
+    unordered_map<uint64_t, uint64_t> immediateMap;
+    unordered_map<uint64_t, uint64_t>::iterator immediateMapIt;
     
     unordered_map<uint64_t, OPMap> opcodeMap;
     unordered_map<uint64_t, OPMap>::iterator opcodeMapIt;
@@ -128,7 +111,7 @@ public:
     unordered_map<uint64_t, uint64_t>::iterator redundantMapIt;
 
     ThreadData_t(){
-	memset(regNumber, sizeof(uint64_t) * REG_LAST, 0);
+	memset(regNumber, 0, sizeof(uint64_t) * REG_LAST);
     }
 };
 
@@ -532,6 +515,7 @@ bool IsCommutativeOp(int opcode){
 
     if (opcode == XED_ICLASS_SUB || opcode == XED_ICLASS_DIV || opcode == XED_ICLASS_SHL || opcode == XED_ICLASS_SHR)
         return false;
+    return true;
 }
 
 
@@ -640,6 +624,10 @@ VOID valueNumbering(void * op, bool movOrnot, THREADID threadid, void *ip, const
             value = getRegValueNum(opinfo->sRegs[0], threadid);
         else if(immediateCount == 1)
             value = opinfo->immediates[0]; // enconding immediate numbers to avoid the hash map
+        else 
+            // Shasha to handle this case.
+            // putting a -1 to avoid compilation errors
+            value = -1;
 
         setRegValueNum(opinfo->tRegs[0],td,value);
     }else {
