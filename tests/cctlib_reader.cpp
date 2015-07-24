@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
     PinCCTLibInitForPostmortemAnalysis(gTraceFile, "DeadSpy-CCTLib-database");
     vector<Context>  contextVec;
     // Gather full human-readable calling context for a reasonably expected value of context handle.
-    ContextHandle_t ctxtHndl = 7122; // some reasonably OK handle number
+    ContextHandle_t ctxtHndl = 1234; // some reasonably OK handle number
     GetFullCallingContext(ctxtHndl, contextVec);
     // Print to the log file full human-readable calling context.
     PrintFullCallingContext(ctxtHndl);

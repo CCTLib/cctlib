@@ -686,7 +686,7 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
     
     if (movOrnot) {
         if (rMem == 1) {
-            assert(opinfo->tRegs.size() == 1);
+            assert(opinfo->tCount == 1);
 
             value = getMemValueNum((uint64_t)addr, threadID);
             setRegValueNum(opinfo->tRegs[0], td, value);
