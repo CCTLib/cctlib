@@ -4,7 +4,7 @@ CUR_DIR=`pwd`
 
 WWW_PIN_LOC="http://software.intel.com/sites/landingpage/pintool/downloads/pin-2.14-67254-gcc.4.4.7-linux.tar.gz"
 
-PIN_ROOT="/home/mc29/CCTLIB_ALL/cctlib/pin-2.14-67254-gcc.4.4.7-linux/"
+#PIN_ROOT="/home/mc29/CCTLIB_ALL/cctlib/pin-2.14-67254-gcc.4.4.7-linux/"
 if [ -z "$PIN_ROOT" ]
 then
 echo "PIN_ROOT is unset"
