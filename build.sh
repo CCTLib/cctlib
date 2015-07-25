@@ -1,8 +1,31 @@
 set -e
 #PATH_TO_PIN=/home/mc29/CCTLIB_ALL/pin-2.14-67254-gcc.4.4.7-linux/
 CUR_DIR=`pwd`
+PIN_REV=2.14-71313
+LinuxSuffix=gcc.4.4.7-linux.tar.gz
+MacSuffix=clang.5.1-mac.tar.gz
+PIN_WWW_PREFIX=http://software.intel.com/sites/landingpage/pintool/downloads/
+WEB_FETCH=wget
+WEB_FETCH_OUTPUT_FLAG=" -O"
+os_type=`uname`
+echo $os_type
 
-WWW_PIN_LOC="http://software.intel.com/sites/landingpage/pintool/downloads/pin-2.14-67254-gcc.4.4.7-linux.tar.gz"
+case $os_type in
+	Linux*) 
+		PIN_FILE_NAME=pin-${PIN_REV}-${LinuxSuffix}
+		;;
+	Darwin*)
+		PIN_FILE_NAME=pin-${PIN_REV}-${MacSuffix}
+		WEB_FETCH=curl
+		WEB_FETCH_OUTPUT_FLAG=" -o"
+		;;
+	*) ;;
+esac
+
+
+WWW_PIN_LOC=${PIN_WWW_PREFIX}${PIN_FILE_NAME}
+echo ${PIN_WWW_PREFIX}${PIN_FILE_NAME}
+PIN_FILE_BASE=`basename ${PIN_FILE_NAME} .tar.gz`
 
 #PIN_ROOT="/home/mc29/CCTLIB_ALL/cctlib/pin-2.14-67254-gcc.4.4.7-linux/"
 if [ -z "$PIN_ROOT" ]
@@ -14,9 +37,10 @@ echo "  (1) Download Pin from the WWW and automatically set PIN_ROOT?
 userVal=
 read userVal
 case $userVal in
-        1) wget ${WWW_PIN_LOC}
-           tar zxvf pin-2.14-67254-gcc.4.4.7-linux.tar.gz
-           PIN_ROOT=${CUR_DIR}/pin-2.14-67254-gcc.4.4.7-linux
+        1) echo wget ${WWW_PIN_LOC}
+           $WEB_FETCH ${WWW_PIN_LOC} $WEB_FETCH_OUTPUT_FLAG  ${PIN_FILE_NAME}
+           tar zxvf ${PIN_FILE_NAME}
+           PIN_ROOT=${CUR_DIR}/${PIN_FILE_BASE}
                 ;;
         2) echo "Enter the path to PIN_ROOT" ; read PIN_ROOT
                 ;;
@@ -30,6 +54,7 @@ fi
 ############## libelf #################################
 cd $CUR_DIR/externals/
 tar zxvf libelf-0.8.9.tar.gz
+rm -rf $CUR_DIR/libelf-0.8.9-install
 cd libelf-0.8.9
 ./configure --prefix=$CUR_DIR/libelf-0.8.9-install
 make
@@ -37,6 +62,7 @@ make install
 #### Google sparse hash  ################################
 cd $CUR_DIR/externals/
 tar zxvf sparsehash-2.0.2.tar.gz
+rm -rf $CUR_DIR/sparsehash-2.0.2-install/ 
 cd sparsehash-2.0.2
 ./configure --prefix=$CUR_DIR/sparsehash-2.0.2-install/ CXXFLAGS="-std=c++11"
 make
@@ -44,6 +70,7 @@ make install
 #### Boost ##############################################
 cd $CUR_DIR/externals/
 tar jxvf boost_1_56_0.tar.bz2
+rm -rf $CUR_DIR/boost_1_56_0-install/
 cd boost_1_56_0
 sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_56_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11"
 ./b2 -j 4
