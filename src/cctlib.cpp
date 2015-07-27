@@ -375,11 +375,11 @@ namespace PinCCTLib {
         volatile bool DSLock;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         //Data centric support
-        unordered_map<UINT32, vector<PendingOps_t> > staticVariablesInModule;
+        unordered_map<UINT32, vector<PendingOps_t> > staticVariablesInModule
         __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        volatile ConcurrentReaderWriterTree_t* latestConcurrentTree;
+        volatile ConcurrentReaderWriterTree_t* latestConcurrentTree
         __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        ConcurrentReaderWriterTree_t concurrentReaderWriterTree[2];
+        ConcurrentReaderWriterTree_t concurrentReaderWriterTree[2]
         __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
 #endif
     } static GLOBAL_STATE;
@@ -789,7 +789,7 @@ namespace PinCCTLib {
         tData->curSlotNo = slot;
     }
 
-
+/*
     static inline uint32_t GetNumInsInTrace(const TRACE& trace) {
         uint32_t count = 0;
 
@@ -801,6 +801,7 @@ namespace PinCCTLib {
 
         return count;
     }
+*/
 
     static inline uint32_t GetNumInterestingInsInTrace(const TRACE& trace, IsInterestingInsFptr isInterestingIns) {
         uint32_t count = 0;
@@ -1366,6 +1367,7 @@ namespace PinCCTLib {
     static void DottifyCCTNode(TraceNode* traceNode,  uint64_t curDotId, FILE* const fp);
 
     static uint64_t gDotId;
+#if 0
 // Visit all nodes of the splay tree of child traces.
     static void DottifyAllNodesOfSplayTree(TraceSplay* node, uint64_t curDotId, FILE* const fp) {
         if(node == NULL)
@@ -1378,6 +1380,7 @@ namespace PinCCTLib {
         // visit right
         DottifyAllNodesOfSplayTree(node->right, curDotId, fp);
     }
+#endif
 
 // Visit all nodes of the splay tree of child traces.
     static void ListAllNodesOfSplayTree(TraceSplay* node, vector<TraceNode*>& childTraces) {
@@ -1426,12 +1429,10 @@ namespace PinCCTLib {
         }
 
         fprintf(fp, "digraph CCTLibGraph {\n");
-        uint64_t dotId;
 
         for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
             ThreadData* tData = CCTLibGetTLS(id);
             DottifyCCTNode(tData->tlsRootTraceNode, gDotId, fp);
-            dotId++;
         }
 
         fprintf(fp, "\n}");
@@ -2302,7 +2303,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     static void MCSAcquire(QNode* volatile* L, QNode* I) {
         I->next = NULL;
         I->status = LOCKED;
-        QNode*   pred = (QNode*) __sync_lock_test_and_set((uint64_t*)L, I);
+        QNode*   pred = (QNode*) __sync_lock_test_and_set((uint64_t*)L, (uint64_t)I);
 
         if(pred) {
             pred->next = I;
@@ -2313,7 +2314,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
     static void MCSRelease(QNode* volatile* L, QNode* I, uint8_t releaseVal) {
         if(I->next == NULL) {
-            if(__sync_bool_compare_and_swap((uint64_t*) L, I, NULL))
+            if(__sync_bool_compare_and_swap((uint64_t*) L, (uint64_t)I, (uint64_t)NULL))
                 return;
 
             while(I->next == NULL) ; // spin

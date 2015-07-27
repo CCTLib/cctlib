@@ -1,4 +1,4 @@
-set -e
+set -ex
 #PATH_TO_PIN=/home/mc29/CCTLIB_ALL/pin-2.14-67254-gcc.4.4.7-linux/
 CUR_DIR=`pwd`
 PIN_REV=2.14-71313
@@ -16,8 +16,8 @@ case $os_type in
 		;;
 	Darwin*)
 		PIN_FILE_NAME=pin-${PIN_REV}-${MacSuffix}
-		WEB_FETCH=curl
-		WEB_FETCH_OUTPUT_FLAG=" -o"
+		WEB_FETCH=wget
+		WEB_FETCH_OUTPUT_FLAG=" -O"
 		;;
 	*) ;;
 esac

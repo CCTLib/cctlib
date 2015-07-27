@@ -2,12 +2,12 @@
 
 int a[N];
 
-int Foo() {
+void Foo() {
     int i;
 
     for(i = 0 ; i < N ; i++) a[i] = 0;
 }
-int Bar() {
+void Bar() {
     int i;
 
     for(i = 0 ; i < N ; i++) a[i] = 0;

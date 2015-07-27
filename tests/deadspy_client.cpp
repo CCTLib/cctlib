@@ -75,6 +75,11 @@ using namespace std::tr1;
 #include "cctlib.H"
 using namespace PinCCTLib;
 
+
+#if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
 // ensures CONTINUOUS_DEADINFO
 
 #define CONTINUOUS_DEADINFO
