@@ -27,6 +27,7 @@ check:
 	@echo "----------TEST6----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/deadWrites > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST7----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cctlib_reader$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/threaded > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "---TEST9 (patience)-----" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/redspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "*************************************************"
 	@echo "************* ALL TESTS PASSED ******************"
 	@echo "*************************************************"
