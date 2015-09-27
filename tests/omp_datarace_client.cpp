@@ -84,9 +84,7 @@ using namespace ShadowMemory;
 
 
 //#define DEBUG_LOOP
-// Data structures
-enum LabelCreationType
-{
+enum LabelCreationType {
     CREATE_FIRST,
     CREATE_AFTER_FORK,
     CREATE_AFTER_JOIN,
@@ -103,13 +101,17 @@ enum AccessType{
 // Fwd declarations
 class Label;
 
-struct LabelComponent{
+// Data structures
+
+// A full label is name of many concatenated label segments. Each LabelSegment has 3 components--offset, span, and sphase.
+struct LabelSegment{
     uint64_t offset;
     uint64_t span;
     uint64_t phase;
 };
 
-static const LabelComponent defaultExtension = {};
+
+static const LabelSegment defaultExtension = {};
 static FILE *gTraceFile;
 const static char * HW_LOCK = "HW_LOCK";
 static Label ** gRegionIdToMasterLabelMap;
@@ -124,6 +126,12 @@ static int gNumCurSkipImages;
 static string skipImages[] = {OMP_RUMTIMR_LIB_NAME, LINUX_LD_NAME};
 
 
+// VersionInfo_t is a concurrency control mechanism on the labels stores in the shadow memory.
+// Readers read from one end (readStart->data->readEnd) and writers update from another (writeStart->data->writeEnd).
+// A reader is assured of a consistent snapshop if readStart equals readEnd.
+// A writer first increments writeStart and then writes the data and then increments writeEnd.
+// Two writers use "writeStart" as their lock to ensure mutual exclusion.
+
 typedef struct VersionInfo_t{
     union{
         volatile atomic<uint64_t> readStart;
@@ -136,36 +144,52 @@ typedef struct VersionInfo_t{
 }VersionInfo_t;
 
 
+// 2 readers and 1 writer are recorded per byte of memory.
+// In addition a concurrency control mechanism is used for atomic accesses to the shadow memory.
+// TODO: One may optimize the granularity of locking
+
 typedef struct DataraceInfo_t{
+    // Concurreny control via versioning
     VersionInfo_t versionInfo;
+
+    // Read1's label
     Label * read1;
-    /* TODO Context pointers can be 32-bit indices */
+    //Reader1's CCT id
     ContextHandle_t read1Context;
+
+    // Read2's label
     Label * read2;
-    /* TODO Context pointers can be 32-bit indices */
+    //Reader2's CCT id
     ContextHandle_t read2Context;
+
+    // Last writer
     Label * write1;
-    /* TODO Context pointers can be 32-bit indices */
+    // Last writer's CCT id
     ContextHandle_t  write1Context;
 }DataraceInfo_t;
 
+// This is just a wrapper for a piece of Label along with a pointer to the location of the shadow memory.
+// This is used for updating the shadow memory after reading from it.
+// By remembering the shadowAddress, we don't have to recompute it by following the page table indices.
 typedef struct ExtendedDataraceInfo_t{
     DataraceInfo_t * shadowAddress;
     DataraceInfo_t data;
 }ExtendedDataraceInfo_t;
 
 
+
+// A label is a concatenation of several LabelSegments
 class Label {
 private:
-    LabelComponent * m_labelComponent;
+    LabelSegment * m_LabelSegment;
     uint8_t m_labelLength;
     volatile atomic<uint64_t> m_refCount;
     
 public:
     inline uint8_t GetLength() const { return m_labelLength;}
     inline void SetLength(uint64_t len) { m_labelLength = len;}
-    inline void AddRef() { m_refCount.fetch_add(1, memory_order_acq_rel);}
-    inline void RemRef(){
+    inline void IncrementRef() { m_refCount.fetch_add(1, memory_order_acq_rel);}
+    inline void DecrementRef(){
         if (m_refCount.fetch_sub(1, memory_order_acq_rel) == 1){
             /*TODO free if 0 assert(0 && "Free label NYI"); */
         }
@@ -173,72 +197,79 @@ public:
     
     // Initial label
     Label() : m_labelLength(1), m_refCount(0){
-        m_labelComponent = new LabelComponent[GetLength()];
-        m_labelComponent[0].offset = 0;
-        m_labelComponent[0].span = 1;
-        m_labelComponent[0].phase = 0;
+        m_LabelSegment = new LabelSegment[GetLength()];
+        m_LabelSegment[0].offset = 0;
+        m_LabelSegment[0].span = 1;
+        m_LabelSegment[0].phase = 0;
     }
     
     
-    LabelComponent * GetComponent(int index) const{
+    LabelSegment * GetSegmentAtIndex(int index) const{
         assert(index < GetLength());
-        return &m_labelComponent[index];
+        return &m_LabelSegment[index];
     }
     
-    void CopyLabelComponents(const Label & label){
+    void CopyLabelSegments(const Label & label){
         SetLength(label.GetLength());
-        m_labelComponent = new LabelComponent[GetLength()];
+        m_LabelSegment = new LabelSegment[GetLength()];
         for(uint32_t i = 0; i < GetLength() ; i++){
-            m_labelComponent[i] = label.m_labelComponent[i];
+            m_LabelSegment[i] = label.m_LabelSegment[i];
         }
     }
     
-    
-    void LabelCreateAfterFork(const Label & label, const LabelComponent & extension){
+    // After a fork, a new LabelSegment should be appended to the clone of the parent
+    void LabelCreateAfterFork(const Label & label, const LabelSegment & extension){
         SetLength(label.GetLength() + 1);
-        m_labelComponent = new LabelComponent[GetLength()];
+        m_LabelSegment = new LabelSegment[GetLength()];
         uint8_t i = 0;
         for(; i < GetLength()-1; i++){
-            m_labelComponent[i] = label.m_labelComponent[i];
+            m_LabelSegment[i] = label.m_LabelSegment[i];
         }
-        m_labelComponent[i] = extension;
+        m_LabelSegment[i] = extension;
     }
     
+    // After a join, a the last segment should be dropped and offset should be incremented by span
+    // TODO: possible memory leak? refcount?
     void LabelCreateAfterJoin(const Label & label){
         assert(label.GetLength() > 1);
         SetLength(label.GetLength() - 1);
-        m_labelComponent = new LabelComponent[GetLength()];
+        m_LabelSegment = new LabelSegment[GetLength()];
         uint8_t i = 0;
+        
         for(; i < GetLength(); i++){
-            m_labelComponent[i] = label.m_labelComponent[i];
+            m_LabelSegment[i] = label.m_LabelSegment[i];
         }
         // increase the offset of last component by span
-        m_labelComponent[i-1].offset += m_labelComponent[i-1].span;
+        m_LabelSegment[i-1].offset += m_LabelSegment[i-1].span;
     }
     
+
+    // TODO: possible memory leak? refcount?
     void LabelCreateAfterBarrier(const Label & label) {
         // Create a label with my parent's offset incremanted by span
         assert(label.GetLength() > 1);
-        CopyLabelComponents(label);
-        m_labelComponent[GetLength()-2].offset += m_labelComponent[GetLength()-2].span;
-        // What to do about m_labelComponent[GetLength()-1] ????
+        CopyLabelSegments(label);
+        m_LabelSegment[GetLength()-2].offset += m_LabelSegment[GetLength()-2].span;
+        // What to do about m_LabelSegment[GetLength()-1] ????
     }
     
+    // TODO: possible memory leak? refcount?
     void LabelCreateAfterEneringOrderedSection(const Label & label) {
         // Increment phase
         assert(label.GetLength() > 1);
-        CopyLabelComponents(label);
-        m_labelComponent[GetLength()-1].phase ++;
+        CopyLabelSegments(label);
+        m_LabelSegment[GetLength()-1].phase ++;
     }
-    
+
+    // TODO: possible memory leak? refcount?
     void LabelCreateAfterExitingOrderedSection(const Label & label) {
         // Increment phase
         assert(label.GetLength() > 1);
-        CopyLabelComponents(label);
-        m_labelComponent[GetLength()-1].phase ++;
+        CopyLabelSegments(label);
+        m_LabelSegment[GetLength()-1].phase ++;
     }
     
-    explicit Label(LabelCreationType type, const Label & label, const LabelComponent & extension = defaultExtension) {
+    explicit Label(LabelCreationType type, const Label & label, const LabelSegment & extension = defaultExtension) {
         switch(type){
             case CREATE_AFTER_FORK: LabelCreateAfterFork(label, extension); break;
             case CREATE_AFTER_JOIN: LabelCreateAfterJoin(label); break;
@@ -248,11 +279,11 @@ public:
             default: assert(false);
         }
     }
-    
+
     void PrintLabel() const{
         fprintf(gTraceFile,"\n");
         for(uint8_t i = 0; i < GetLength() ; i++){
-            fprintf(gTraceFile,"[%lu,%lu,%lu]", m_labelComponent[i].offset, m_labelComponent[i].span, m_labelComponent[i].phase);
+            fprintf(gTraceFile,"[%lu,%lu,%lu]", m_LabelSegment[i].offset, m_LabelSegment[i].span, m_LabelSegment[i].phase);
         }
     }
     
@@ -269,15 +300,16 @@ public:
         m_len = label.GetLength();
     }
     
-    LabelComponent * NextComponent() {
+    LabelSegment * NextSegment() {
         if(m_len == m_curLoc) {
             return NULL;
         }
-        return m_label.GetComponent(m_curLoc++);
+        return m_label.GetSegmentAtIndex(m_curLoc++);
     }
-    
 };
 
+
+// Holds thread local info
 class ThreadData_t {
     Label * m_curLable;
     ADDRINT m_stackBaseAddress;
@@ -288,9 +320,7 @@ public:
     m_curLable(NULL),
     m_stackBaseAddress(stackBaseAddress),
     m_stackEndAddress(stackEndAddress),
-    m_stackCurrentFrameBaseAddress(stackCurrentFrameBaseAddress)
-    {
-    }
+    m_stackCurrentFrameBaseAddress(stackCurrentFrameBaseAddress){}
     inline Label * GetLabel() const {return m_curLable;}
     inline void SetLabel(Label * label) {
         // TODO: If the current label had a zero ref count, we can possibly delete it
@@ -305,18 +335,22 @@ ThreadData_t* GetTLS(THREADID threadid) {
     return tdata;
 }
 
+// Atomically reads the version number at the beginning for a reader
 static inline uint64_t GetReadStartForLoc(const DataraceInfo_t * const shadowAddress){
     return shadowAddress->versionInfo.readStart.load(memory_order_acquire);
 }
 
+// Atomically reads the version number at the end for a reader
 static inline uint64_t GetReadEndForLoc(const DataraceInfo_t * const shadowAddress){
     return shadowAddress->versionInfo.readEnd.load(memory_order_acquire);
 }
 
+// Atomically reads the version number at the beginning for a writer
 static inline uint64_t GetWriteStartForLoc(const DataraceInfo_t * const shadowAddress){
     return shadowAddress->versionInfo.writeStart.load(memory_order_acquire);;
 }
 
+// Atomically reads the version number at the end for a writer
 static inline uint64_t GetWriteEndForLoc(const DataraceInfo_t * const shadowAddress){
     return shadowAddress->versionInfo.writeEnd.load(memory_order_acquire);
 }
@@ -325,12 +359,7 @@ static inline volatile atomic<uint64_t> * GetWriteStartAddressForLoc( DataraceIn
     return &(shadowAddress->versionInfo.writeEnd);
 }
 
-
-static inline bool TryIncrementWriteEndForLoc(const DataraceInfo_t * const shadowAddress){
-    return shadowAddress->versionInfo.writeEnd;
-}
-
-
+// Updates the shadow memory with new labels and contexts information
 static inline void UpdateShadowDataAtShadowAddress(DataraceInfo_t * shadowAddress, const DataraceInfo_t &  info){
     shadowAddress->read1 = info.read1;
     shadowAddress->read1Context = info.read1Context;
@@ -338,9 +367,12 @@ static inline void UpdateShadowDataAtShadowAddress(DataraceInfo_t * shadowAddres
     shadowAddress->read2Context = info.read2Context;
     shadowAddress->write1 = info.write1;
     shadowAddress->write1Context = info.write1Context;
+
+    // Update the version number at writeEnd
     shadowAddress->versionInfo.writeEnd.store(shadowAddress->versionInfo.writeStart, memory_order_release); //writeStart will be most upto date
 }
 
+// Reads the labels and contexts from shadow memory
 static inline void ReadShadowData(DataraceInfo_t * info, DataraceInfo_t * shadowAddress){
     info->read1 = shadowAddress->read1;
     info->read1Context = shadowAddress->read1Context;
@@ -350,6 +382,7 @@ static inline void ReadShadowData(DataraceInfo_t * info, DataraceInfo_t * shadow
     info->write1Context = shadowAddress->write1Context;
 }
 
+// Snapshot is consistent iff both version numbers are same.
 static inline bool IsConsistentSpapshot(const DataraceInfo_t * const info){
     return info->versionInfo.readStart == info->versionInfo.readEnd;
 }
@@ -361,21 +394,19 @@ inline void ReadShadowMemory(DataraceInfo_t * shadowAddress, DataraceInfo_t * in
 #endif
     
     do{
-        
         info->versionInfo.readStart = GetReadStartForLoc(shadowAddress);
-        // Need fense to prevent load reordering
-        __sync_synchronize();
         ReadShadowData(info, shadowAddress);
         info->versionInfo.readEnd = GetReadEndForLoc(shadowAddress);
-        
+
 #ifdef DEBUG_LOOP
         if(trip++ > 100000){
             fprintf(stderr,"\n Loop trip > %d in line %d ... Ver1 = %lu .. ver2 = %lu ... %d", trip, __LINE__, info->versionInfo.readStart, info->versionInfo.readEnd, PIN_ThreadId());
         }
 #endif
+
     }while(!IsConsistentSpapshot(info));
+
 #ifdef DEBUG_LOOP
-    
     if(trip > 100000){
         fprintf(stderr,"\n Done ... %d", PIN_ThreadId());
     }
@@ -408,7 +439,6 @@ static inline void SetMyLabel(THREADID threadId, Label * label) {
     GetTLS(threadId)->SetLabel(label);
 }
 
-
 static inline void UpdateLabel(Label ** oldLabel, Label * newLabel){
     (*oldLabel) = newLabel;
 }
@@ -419,9 +449,9 @@ static inline void UpdateContext(ContextHandle_t * oldCtxt, ContextHandle_t  ctx
 
 static inline void CommitChangesToShadowMemory(Label * oldLabel, Label * newLabel){
     if(oldLabel) {
-        oldLabel->RemRef();
+        oldLabel->DecrementRef();
     }
-    newLabel->AddRef();
+    newLabel->IncrementRef();
 }
 
 static inline bool HappensBefore(const Label * const oldLabel, const Label * const newLabel){
@@ -447,36 +477,36 @@ static inline bool HappensBefore(const Label * const oldLabel, const Label * con
     LabelIterator newLabelIter = LabelIterator(*newLabel);
     
     // Special case TODO // if oldLabel == newLabel , return true;
-    LabelComponent * oldLabelComponent = NULL;
-    LabelComponent * newLabelComponent = NULL;
+    LabelSegment * oldLabelSegment = NULL;
+    LabelSegment * newLabelSegment = NULL;
     
     while (1){
-        oldLabelComponent = oldLabelIter.NextComponent();
-        newLabelComponent = newLabelIter.NextComponent();
-        if (oldLabelComponent == NULL)
+        oldLabelSegment = oldLabelIter.NextSegment();
+        newLabelSegment = newLabelIter.NextSegment();
+        if (oldLabelSegment == NULL)
             return true; // Found a prefix
         
-        if(newLabelComponent == NULL) {
+        if(newLabelSegment == NULL) {
             assert(0 && "I don't expect this to happen");
             return false; // oldLabel is longer than newLabel
         }
         
-        if(oldLabelComponent->offset != newLabelComponent->offset)
+        if(oldLabelSegment->offset != newLabelSegment->offset)
             break;
     }
     
-    //Case 2: The place where they diverge have are of the form P[O(x),SPAN]S_x
+    //Case 2: The place where they diverge are of the form P[O(x),SPAN]S_x
     // and P[O(y),SPAN]S_y and O(x)  < O(y) and ( O(x) mod SPAN == O(y) mod SPAN )
-    assert(oldLabelComponent->span == newLabelComponent->span);
+    assert(oldLabelSegment->span == newLabelSegment->span);
     
-    if ((oldLabelComponent->offset < newLabelComponent->offset ) &&
-        (oldLabelComponent->offset % newLabelComponent->span == newLabelComponent->offset % newLabelComponent->span) ) {
+    if ((oldLabelSegment->offset < newLabelSegment->offset ) &&
+        (oldLabelSegment->offset % newLabelSegment->span == newLabelSegment->offset % newLabelSegment->span) ) {
         return true;
     }
     
     // Now check the ordered secton case:
-    if ((oldLabelComponent->offset < newLabelComponent->offset) &&
-        (EXIT_RANK(oldLabelComponent->phase) < ENTER_RANK(newLabelComponent->phase)) ) {
+    if ((oldLabelSegment->offset < newLabelSegment->offset) &&
+        (EXIT_RANK(oldLabelSegment->phase) < ENTER_RANK(newLabelSegment->phase)) ) {
         return true;
     }
     return false;
@@ -495,12 +525,12 @@ static inline bool IsLeftOf(const Label * const newLabel, const Label * const ol
     
     
     while (1){
-        LabelComponent * oldLabelComponent = oldLabelIter.NextComponent();
-        LabelComponent * newLabelComponent = newLabelIter.NextComponent();
-        if (oldLabelComponent == NULL || newLabelComponent == NULL)
+        LabelSegment * oldLabelSegment = oldLabelIter.NextSegment();
+        LabelSegment * newLabelSegment = newLabelIter.NextSegment();
+        if (oldLabelSegment == NULL || newLabelSegment == NULL)
             return false; // Found a prefix
         
-        if( (oldLabelComponent->offset % newLabelComponent->span < newLabelComponent->offset % newLabelComponent->span)) {
+        if( (oldLabelSegment->offset % newLabelSegment->span < newLabelSegment->offset % newLabelSegment->span)) {
             return true;
         }
     }
@@ -520,20 +550,20 @@ static inline bool MaximizesExitRank(const Label * const newLabel, const Label *
     LabelIterator newLabelIter = LabelIterator(*newLabel);
     
     while (1){
-        LabelComponent * oldLabelComponent = oldLabelIter.NextComponent();
-        LabelComponent * newLabelComponent = newLabelIter.NextComponent();
-        if (oldLabelComponent == NULL || newLabelComponent == NULL)
+        LabelSegment * oldLabelSegment = oldLabelIter.NextSegment();
+        LabelSegment * newLabelSegment = newLabelIter.NextSegment();
+        if (oldLabelSegment == NULL || newLabelSegment == NULL)
             return false;
         
-        if( (oldLabelComponent->offset % newLabelComponent->span != newLabelComponent->offset % newLabelComponent->span)) {
+        if( (oldLabelSegment->offset % newLabelSegment->span != newLabelSegment->offset % newLabelSegment->span)) {
             // At the level where offsets diverge
-            if( (EXIT_RANK(newLabelComponent->phase) > EXIT_RANK(oldLabelComponent->phase))) {
+            if( (EXIT_RANK(newLabelSegment->phase) > EXIT_RANK(oldLabelSegment->phase))) {
                 return true;
             }
             return false;
         }
-        oldLabelComponent = oldLabelIter.NextComponent();
-        newLabelComponent = newLabelIter.NextComponent();
+        oldLabelSegment = oldLabelIter.NextSegment();
+        newLabelSegment = newLabelIter.NextSegment();
     }
     return false;
 }
@@ -666,7 +696,6 @@ static inline void ExecuteOffsetSpanPhaseProtocol(DataraceInfo_t *status, Label 
     } else { // READ_ACCESS
         CheckRead(status, myLabel, opaqueHandle, threadId);
     }
-    
 }
 
 
@@ -678,22 +707,29 @@ static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, 
     if (myLabel == NULL)
         return;
     
-    
     DataraceInfo_t * status = GetOrCreateShadowBaseAddress<DataraceInfo_t>(addr);
     int overflow = (int)(PAGE_OFFSET((uint64_t)addr)) -  (int)((PAGE_OFFSET_MASK - (accessLen-1)));
     status += PAGE_OFFSET((uint64_t)addr);
+    
     if(overflow <= 0 ){
+        // The accessed word's shadow memory does not straddle 2 64K shadow pages.
+        // Execute the protocol for each byte of the memory accessed.
         for(uint32_t i = 0 ; i < accessLen; i++){
             ExecuteOffsetSpanPhaseProtocol(&status[i], myLabel, accessType, opaqueHandle, threadId);
         }
     } else {
+        // The accessed word's shadow memory straddles 2 64K shadow pages.
+
+        // Execute the protocol for each byte of the memory accessed in the first page
         for(uint32_t nonOverflowBytes = 0 ; nonOverflowBytes < accessLen - overflow; nonOverflowBytes++){
             ExecuteOffsetSpanPhaseProtocol(&status[nonOverflowBytes], myLabel, accessType, opaqueHandle, threadId);
         }
+        // Execute the protocol for each byte of the memory accessed in the next page
         status = GetOrCreateShadowBaseAddress<DataraceInfo_t>(((char *)addr) + accessLen); // +accessLen so that we get next page
         for( int i = 0; i < overflow; i++){
             ExecuteOffsetSpanPhaseProtocol(&status[i], myLabel, accessType, opaqueHandle, threadId);
         }
+        // TODO: We never expect the access to straddle more than 2 pages. If that happens we are hosed.
     }
 }
 
@@ -759,14 +795,13 @@ void new_MASTER_BEGIN_FN_NAME(uint64_t region_id, long span, THREADID threadid){
 
 void new_DYNAMIC_BEGIN_FN_NAME(uint64_t region_id, long span, long iter, THREADID threadid){
     // Fetch parent label and create new one
-    
     //fprintf(stderr,"\n fetched parent label");
     
     assert(gRegionIdToMasterLabelMap[region_id] != NULL);
     
     Label * parentLabel =  gRegionIdToMasterLabelMap[region_id];
     // Create child label
-    LabelComponent extension;
+    LabelSegment extension;
     extension.span = span;
     extension.offset = iter;
     extension.phase = 0;
@@ -777,7 +812,6 @@ void new_DYNAMIC_BEGIN_FN_NAME(uint64_t region_id, long span, long iter, THREADI
 
 
 void new_DYNAMIC_END_FN_NAME(THREADID threadId){
-    
     // Fetch current label and create new one
     Label * parentLabel =  GetMyLabel(threadId);
     Label * myLabel = new Label(CREATE_AFTER_JOIN, *parentLabel);
@@ -788,7 +822,6 @@ void new_DYNAMIC_END_FN_NAME(THREADID threadId){
 
 
 void new_ORDERED_ENTER_FN_NAME(uint64_t region_id, THREADID threadId){
-    
     // Fetch current label and create new one
     Label * parentLabel =  GetMyLabel(threadId);
     Label * myLabel = new Label(CREATE_AFTER_ENTERING_ORDERED_SECTION, *parentLabel);
@@ -798,7 +831,6 @@ void new_ORDERED_ENTER_FN_NAME(uint64_t region_id, THREADID threadId){
 }
 
 void new_ORDERED_EXIT_FN_NAME(uint64_t region_id, THREADID threadId){
-    
     // Fetch current label and create new one
     Label * parentLabel =  GetMyLabel(threadId);
     Label * myLabel = new Label(CREATE_AFTER_EXITING_ORDERED_SECTION, *parentLabel);
@@ -823,14 +855,12 @@ void new_CRITICAL_EXIT_FN_NAME(void * name, THREADID threadid){
     }
 }
 
-// Wrap all malloc and free in any image
+// Overrides for various functions
 VOID Overrides (IMG img, VOID * v) {
+    
     // Master setup
-    
     RTN rtn = RTN_FindByName (img, MASTER_BEGIN_FN_NAME);
-    
     if (RTN_Valid (rtn)) {
-        
         // Define a function prototype that describes the application routine
         // that will be replaced.
         //
@@ -846,9 +876,7 @@ VOID Overrides (IMG img, VOID * v) {
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
                               IARG_THREAD_ID, IARG_END);
-        
         // Free the function prototype.
-        //
         PROTO_Free (proto_master);
     }
     
@@ -856,154 +884,84 @@ VOID Overrides (IMG img, VOID * v) {
     // Dynamic Start
     rtn = RTN_FindByName (img, DYNAMIC_BEGIN_FN_NAME);
     if (RTN_Valid (rtn)) {
-        
-        // Define a function prototype that describes the application routine
-        // that will be replaced.
-        //
         PROTO proto_worker = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
                                              DYNAMIC_BEGIN_FN_NAME, PIN_PARG (uint64_t),PIN_PARG (long),PIN_PARG (long),
                                              PIN_PARG_END ());
-        
-        // Replace the application routine with the replacement function.
-        // Additional arguments have been added to the replacement routine.
-        //
         RTN_ReplaceSignature (rtn, AFUNPTR (new_DYNAMIC_BEGIN_FN_NAME),
                               IARG_PROTOTYPE, proto_worker,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
                               IARG_THREAD_ID, IARG_END);
-        
-        // Free the function prototype.
-        //
         PROTO_Free (proto_worker);
     }
     
     // Dynamic end
-    
     rtn = RTN_FindByName (img, DYNAMIC_END_FN_NAME);
     if (RTN_Valid (rtn)) {
-        
-        // Define a function prototype that describes the application routine
-        // that will be replaced.
-        //
         PROTO proto_end = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
                                           DYNAMIC_END_FN_NAME, PIN_PARG_END ());
-        
-        // Replace the application routine with the replacement function.
-        // Additional arguments have been added to the replacement routine.
-        //
         RTN_ReplaceSignature (rtn, AFUNPTR (new_DYNAMIC_END_FN_NAME),
                               IARG_PROTOTYPE, proto_end,
                               IARG_THREAD_ID, IARG_END);
-        
-        // Free the function prototype.
-        //
         PROTO_Free (proto_end);
     }
     
     // Ordered Enter
-    
     rtn = RTN_FindByName (img, ORDERED_ENTER_FN_NAME);
     if (RTN_Valid (rtn)) {
-        
-        // Define a function prototype that describes the application routine
-        // that will be replaced.
-        //
         PROTO ordered_enter = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
                                               ORDERED_ENTER_FN_NAME, PIN_PARG (uint64_t), PIN_PARG_END ());
-        
-        // Replace the application routine with the replacement function.
-        // Additional arguments have been added to the replacement routine.
-        //
         RTN_ReplaceSignature (rtn, AFUNPTR (new_ORDERED_ENTER_FN_NAME),
                               IARG_PROTOTYPE, ordered_enter,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                               IARG_THREAD_ID, IARG_END);
-        
-        // Free the function prototype.
-        //
         PROTO_Free (ordered_enter);
     }
     
     // Ordered Exit
-    
     rtn = RTN_FindByName (img, ORDERED_EXIT_FN_NAME);
     if (RTN_Valid (rtn)) {
-        
-        // Define a function prototype that describes the application routine
-        // that will be replaced.
-        //
         PROTO ordered_exit = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
                                              ORDERED_EXIT_FN_NAME, PIN_PARG (uint64_t), PIN_PARG_END ());
-        
-        // Replace the application routine with the replacement function.
-        // Additional arguments have been added to the replacement routine.
-        //
         RTN_ReplaceSignature (rtn, AFUNPTR (new_ORDERED_EXIT_FN_NAME),
                               IARG_PROTOTYPE, ordered_exit,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                               IARG_THREAD_ID, IARG_END);
-        
-        // Free the function prototype.
-        //
         PROTO_Free (ordered_exit);
     }
     
     // Critical Enter
     rtn = RTN_FindByName (img, CRITICAL_ENTER_FN_NAME);
     if (RTN_Valid (rtn)) {
-        
-        // Define a function prototype that describes the application routine
-        // that will be replaced.
-        //
         PROTO critical_enter = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
                                                CRITICAL_ENTER_FN_NAME, PIN_PARG (void*), PIN_PARG_END ());
-        
-        // Replace the application routine with the replacement function.
-        // Additional arguments have been added to the replacement routine.
-        //
         RTN_ReplaceSignature (rtn, AFUNPTR (new_CRITICAL_ENTER_FN_NAME),
                               IARG_PROTOTYPE, critical_enter,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                               IARG_THREAD_ID, IARG_END);
-        
-        // Free the function prototype.
-        //
         PROTO_Free (critical_enter);
     }
     // Critical Exit
     rtn = RTN_FindByName (img, CRITICAL_EXIT_FN_NAME);
     if (RTN_Valid (rtn)) {
-        
-        // Define a function prototype that describes the application routine
-        // that will be replaced.
-        //
         PROTO critical_exit = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
                                               CRITICAL_EXIT_FN_NAME, PIN_PARG (void*), PIN_PARG_END ());
-        
-        // Replace the application routine with the replacement function.
-        // Additional arguments have been added to the replacement routine.
-        //
         RTN_ReplaceSignature (rtn, AFUNPTR (new_CRITICAL_EXIT_FN_NAME),
                               IARG_PROTOTYPE, critical_exit,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                               IARG_THREAD_ID, IARG_END);
-        
-        // Free the function prototype.
-        //
         PROTO_Free (critical_exit);
     }
 }
 
 
-// Is called for every load, store instruction and instruments reads and writes
+// Is called for every load, store instruction to insert necessary instrumentation.
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (IsIgnorableIns(ins))
         return;
     
     // If this is an atomic instruction, act as if a lock (HW LOCK) was taken and released
-    
     if (INS_IsAtomicUpdate(ins)) {
         INS_InsertPredicatedCall(ins, IPOINT_BEFORE,
                                  (AFUNPTR) new_CRITICAL_ENTER_FN_NAME,
@@ -1020,18 +978,13 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     
     for (UINT32 memOp = 0; memOp < memOperands; memOp++) {
         if (INS_MemoryOperandIsWritten(ins, memOp)) {
-            
             INS_InsertPredicatedCall(ins, IPOINT_BEFORE,
                                      (AFUNPTR) CheckRace,
                                      IARG_MEMORYOP_EA,memOp, IARG_MEMORYWRITE_SIZE,  IARG_BOOL, WRITE_ACCESS /* write */, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
-            
         } else if (INS_MemoryOperandIsRead(ins, memOp)) {
-            
             INS_InsertPredicatedCall(ins, IPOINT_BEFORE,(AFUNPTR) CheckRace, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_BOOL, READ_ACCESS /* read */, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
-            
         }
     }
-    
     if (INS_IsAtomicUpdate(ins)) {
         INS_InsertPredicatedCall(ins, IPOINT_AFTER,
                                  (AFUNPTR) new_CRITICAL_EXIT_FN_NAME,
@@ -1049,7 +1002,6 @@ INT32 Usage() {
 
 VOID ThreadStart(THREADID threadid, CONTEXT *ctxt, INT32 flags, VOID *v) {
     // Get the stack base address:
-    
     ADDRINT stackBaseAddr = PIN_GetContextReg(ctxt, REG_STACK_PTR);
     pthread_attr_t attr;
     size_t stacksize;
@@ -1074,11 +1026,9 @@ static inline VOID InstrumentImageLoad(IMG img, VOID *v){
     }
 }
 
-// Initialized the needed data structures before launching the target program
+// Initialize the data structures needed before launching the target program
 void InitDataRaceSpy(int argc, char *argv[]){
-    
     // Create output file
-    
     char name[MAX_FILE_PATH] = "DataRaceSpy.out.";
     char * envPath = getenv("OUTPUT_FILE");
     if(envPath){
@@ -1111,10 +1061,9 @@ void InitDataRaceSpy(int argc, char *argv[]){
     IMG_AddInstrumentFunction(InstrumentImageLoad, 0);
 }
 
-// Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
+// Main for DataraceSpy, initialize the tool, register instrumentation functions and call the target program.
 
 int main(int argc, char *argv[]) {
-    
     // Initialize PIN
     if (PIN_Init(argc, argv))
         return Usage();
@@ -1127,7 +1076,6 @@ int main(int argc, char *argv[]) {
     
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
-    
     
     // Look up and replace some functions
     IMG_AddInstrumentFunction (Overrides, 0);
