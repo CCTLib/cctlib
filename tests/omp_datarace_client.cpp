@@ -34,6 +34,7 @@
 
 
 #include <stdio.h>
+#include <atomic>
 #include <stdlib.h>
 #include <map>
 #include <list>
@@ -62,33 +63,14 @@
 #include <pthread.h>
 #include "pin.H"
 #include "cctlib.H"
+#include "shadow_memory.cpp"
+
 using namespace std;
 using namespace PinCCTLib;
+using namespace ShadowMemory;
 
 // All globals
 #define MAX_FILE_PATH   (200)
-
-// 64KB shadow pages
-#define PAGE_OFFSET_BITS (16LL)
-#define PAGE_OFFSET(addr) ( addr & 0xFFFF)
-#define PAGE_OFFSET_MASK ( 0xFFFF)
-
-#define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
-
-// 2 level page table
-#define PTR_SIZE (sizeof(struct Status *))
-#define LEVEL_1_PAGE_TABLE_BITS  (20)
-#define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
-#define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )
-
-#define LEVEL_2_PAGE_TABLE_BITS  (12)
-#define LEVEL_2_PAGE_TABLE_ENTRIES  (1 << LEVEL_2_PAGE_TABLE_BITS )
-#define LEVEL_2_PAGE_TABLE_SIZE  (LEVEL_2_PAGE_TABLE_ENTRIES * PTR_SIZE )
-
-#define LEVEL_1_PAGE_TABLE_SLOT(addr) ((((uint64_t)addr) >> (LEVEL_2_PAGE_TABLE_BITS + PAGE_OFFSET_BITS)) & 0xfffff)
-#define LEVEL_2_PAGE_TABLE_SLOT(addr) ((((uint64_t)addr) >> (PAGE_OFFSET_BITS)) & 0xFFF)
-
-#define SHADOW_STRUCT_SIZE (sizeof (T))
 
 // Enter rank of a phase is twice the number of ordered sections it has entered
 // This is same as the phase number rounded up to the next multiple of 2.
@@ -102,9 +84,7 @@ using namespace PinCCTLib;
 
 
 //#define DEBUG_LOOP
-
 // Data structures
-
 enum LabelCreationType
 {
     CREATE_FIRST,
@@ -120,6 +100,9 @@ enum AccessType{
     WRITE_ACCESS = 1
 };
 
+// Fwd declarations
+class Label;
+
 struct LabelComponent{
     uint64_t offset;
     uint64_t span;
@@ -127,20 +110,63 @@ struct LabelComponent{
 };
 
 static const LabelComponent defaultExtension = {};
-FILE *gTraceFile;
+static FILE *gTraceFile;
+const static char * HW_LOCK = "HW_LOCK";
+static Label ** gRegionIdToMasterLabelMap;
+// key for accessing TLS storage in the threads. initialized once in main()
+static  TLS_KEY tls_key;
+// Range of address where images to skip are loaded e.g., OMP runtime, linux loader.
+#define OMP_RUMTIMR_LIB_NAME "/home/xl10/support/gcc-4.7-install/lib64/libgomp.so.1"
+#define LINUX_LD_NAME    "/lib64/ld-linux-x86-64.so.2"
+#define MAX_SKIP_IMAGES (2)
+static ADDRINT gSkipImageAddressRanges[MAX_SKIP_IMAGES][2];
+static int gNumCurSkipImages;
+static string skipImages[] = {OMP_RUMTIMR_LIB_NAME, LINUX_LD_NAME};
+
+
+typedef struct VersionInfo_t{
+    union{
+        volatile atomic<uint64_t> readStart;
+        volatile atomic<uint64_t> writeEnd;
+    };
+    union{
+        volatile atomic<uint64_t> writeStart;
+        volatile atomic<uint64_t> readEnd;
+    };
+}VersionInfo_t;
+
+
+typedef struct DataraceInfo_t{
+    VersionInfo_t versionInfo;
+    Label * read1;
+    /* TODO Context pointers can be 32-bit indices */
+    ContextHandle_t read1Context;
+    Label * read2;
+    /* TODO Context pointers can be 32-bit indices */
+    ContextHandle_t read2Context;
+    Label * write1;
+    /* TODO Context pointers can be 32-bit indices */
+    ContextHandle_t  write1Context;
+}DataraceInfo_t;
+
+typedef struct ExtendedDataraceInfo_t{
+    DataraceInfo_t * shadowAddress;
+    DataraceInfo_t data;
+}ExtendedDataraceInfo_t;
+
 
 class Label {
 private:
     LabelComponent * m_labelComponent;
     uint8_t m_labelLength;
-    uint64_t m_refCount;
+    volatile atomic<uint64_t> m_refCount;
     
 public:
     inline uint8_t GetLength() const { return m_labelLength;}
     inline void SetLength(uint64_t len) { m_labelLength = len;}
-    inline void AddRef() {__sync_fetch_and_add(&m_refCount,1);}
+    inline void AddRef() { m_refCount.fetch_add(1, memory_order_acq_rel);}
     inline void RemRef(){
-        if (__sync_fetch_and_sub(&m_refCount,1) == 1){
+        if (m_refCount.fetch_sub(1, memory_order_acq_rel) == 1){
             /*TODO free if 0 assert(0 && "Free label NYI"); */
         }
     }
@@ -232,7 +258,6 @@ public:
     
 };
 
-
 class LabelIterator {
 private:
     const Label & m_label;
@@ -252,45 +277,6 @@ public:
     }
     
 };
-
-// All fwd declarations
-
-uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
-
-const static char * HW_LOCK = "HW_LOCK";
-
-Label ** gRegionIdToMasterLabelMap;
-
-typedef struct VersionInfo_t{
-    union{
-        volatile uint64_t readStart;
-        volatile uint64_t writeEnd;
-    };
-    union{
-        volatile uint64_t writeStart;
-        volatile uint64_t readEnd;
-    };
-}VersionInfo_t;
-
-
-typedef struct DataraceInfo_t{
-    VersionInfo_t versionInfo;
-    Label * read1;
-    /* TODO Context pointers can be 32-bit indices */
-    ContextHandle_t read1Context;
-    Label * read2;
-    /* TODO Context pointers can be 32-bit indices */
-    ContextHandle_t read2Context;
-    Label * write1;
-    /* TODO Context pointers can be 32-bit indices */
-    ContextHandle_t  write1Context;
-}DataraceInfo_t;
-
-typedef struct ExtendedDataraceInfo_t{
-    DataraceInfo_t * shadowAddress;
-    DataraceInfo_t data;
-}ExtendedDataraceInfo_t;
-
 
 class ThreadData_t {
     Label * m_curLable;
@@ -312,20 +298,6 @@ public:
     }
 };
 
-
-// key for accessing TLS storage in the threads. initialized once in main()
-static  TLS_KEY tls_key;
-
-// Range of address where images to skip are loaded e.g., OMP runtime, linux loader.
-#define OMP_RUMTIMR_LIB_NAME "/home/xl10/support/gcc-4.7-install/lib64/libgomp.so.1"
-#define LINUX_LD_NAME    "/lib64/ld-linux-x86-64.so.2"
-#define MAX_SKIP_IMAGES (2)
-static ADDRINT gSkipImageAddressRanges[MAX_SKIP_IMAGES][2];
-static int gNumCurSkipImages;
-static string skipImages[] = {OMP_RUMTIMR_LIB_NAME, LINUX_LD_NAME};
-
-
-
 // function to access thread-specific data
 ThreadData_t* GetTLS(THREADID threadid) {
     ThreadData_t* tdata =
@@ -333,94 +305,43 @@ ThreadData_t* GetTLS(THREADID threadid) {
     return tdata;
 }
 
-
-
-volatile bool gShadowPageLock;
-inline VOID TakeLock(volatile bool * myLock) {
-    do{
-        while(*myLock);
-    }while(!__sync_bool_compare_and_swap(myLock,0,1));
+static inline uint64_t GetReadStartForLoc(const DataraceInfo_t * const shadowAddress){
+    return shadowAddress->versionInfo.readStart.load(memory_order_acquire);
 }
 
-inline VOID ReleaseLock(volatile bool * myLock){
-    *myLock = 0;
+static inline uint64_t GetReadEndForLoc(const DataraceInfo_t * const shadowAddress){
+    return shadowAddress->versionInfo.readEnd.load(memory_order_acquire);
 }
 
-
-
-// Given a address generated by the program, returns the corresponding shadow address FLOORED to  PAGE_SIZE
-// If the shadow page does not exist a new one is MMAPed
-
-template <class T>
-inline T * GetOrCreateShadowBaseAddress(void const * const address) {
-    T * shadowPage;
-    uint8_t  *** l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
-    if ( *l1Ptr == 0) {
-        TakeLock(&gShadowPageLock);
-        // If some other thread created L2 page table in the meantime, then let's not do the same.
-        if (*l1Ptr == 0) {
-            *l1Ptr =  (uint8_t **) calloc(1,LEVEL_2_PAGE_TABLE_SIZE);
-        }
-        // If some other thread created the same shadow page in the meantime, then let's not do the same.
-        if(((*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ) {
-            (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * SHADOW_STRUCT_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-        }
-        ReleaseLock(&gShadowPageLock);
-    } else if(((*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-        TakeLock(&gShadowPageLock);
-        // If some other thread created the same shadow page in the meantime, then let's not do the same.
-        if(((*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ) {
-            (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * SHADOW_STRUCT_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-        }
-        ReleaseLock(&gShadowPageLock);
-    }
-    shadowPage = (T *)((*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]);
-    return shadowPage;
+static inline uint64_t GetWriteStartForLoc(const DataraceInfo_t * const shadowAddress){
+    return shadowAddress->versionInfo.writeStart.load(memory_order_acquire);;
 }
 
-template <class T>
-inline T * GetOrCreateShadowAddress(void * address) {
-    T * shadowPage = GetOrCreateShadowBaseAddress<T>(address);
-    return shadowPage + PAGE_OFFSET((uint64_t)address);
+static inline uint64_t GetWriteEndForLoc(const DataraceInfo_t * const shadowAddress){
+    return shadowAddress->versionInfo.writeEnd.load(memory_order_acquire);
 }
 
-inline uint64_t GetReadStartForLoc(const DataraceInfo_t * const shadowAddress){
-    return shadowAddress->versionInfo.readStart;
-}
-
-inline uint64_t GetReadEndForLoc(const DataraceInfo_t * const shadowAddress){
-    return shadowAddress->versionInfo.readEnd;
-}
-
-inline uint64_t GetWriteStartForLoc(const DataraceInfo_t * const shadowAddress){
-    return shadowAddress->versionInfo.writeStart;
-}
-
-inline uint64_t GetWriteEndForLoc(const DataraceInfo_t * const shadowAddress){
-    return shadowAddress->versionInfo.writeEnd;
-}
-
-inline volatile uint64_t * GetWriteStartAddressForLoc( DataraceInfo_t * const shadowAddress){
+static inline volatile atomic<uint64_t> * GetWriteStartAddressForLoc( DataraceInfo_t * const shadowAddress){
     return &(shadowAddress->versionInfo.writeEnd);
 }
 
 
-inline bool TryIncrementWriteEndForLoc(const DataraceInfo_t * const shadowAddress){
+static inline bool TryIncrementWriteEndForLoc(const DataraceInfo_t * const shadowAddress){
     return shadowAddress->versionInfo.writeEnd;
 }
 
 
-void UpdateShadowDataAtShadowAddress(DataraceInfo_t * shadowAddress, const DataraceInfo_t &  info){
+static inline void UpdateShadowDataAtShadowAddress(DataraceInfo_t * shadowAddress, const DataraceInfo_t &  info){
     shadowAddress->read1 = info.read1;
     shadowAddress->read1Context = info.read1Context;
     shadowAddress->read2 = info.read2;
     shadowAddress->read2Context = info.read2Context;
     shadowAddress->write1 = info.write1;
     shadowAddress->write1Context = info.write1Context;
-    shadowAddress->versionInfo.writeEnd = shadowAddress->versionInfo.writeStart; //writeStart will be most upto date
+    shadowAddress->versionInfo.writeEnd.store(shadowAddress->versionInfo.writeStart, memory_order_release); //writeStart will be most upto date
 }
 
-void ReadShadowData(DataraceInfo_t * info, DataraceInfo_t * shadowAddress){
+static inline void ReadShadowData(DataraceInfo_t * info, DataraceInfo_t * shadowAddress){
     info->read1 = shadowAddress->read1;
     info->read1Context = shadowAddress->read1Context;
     info->read2 = shadowAddress->read2;
@@ -429,7 +350,7 @@ void ReadShadowData(DataraceInfo_t * info, DataraceInfo_t * shadowAddress){
     info->write1Context = shadowAddress->write1Context;
 }
 
-inline bool IsConsistentSpapshot(const DataraceInfo_t * const info){
+static inline bool IsConsistentSpapshot(const DataraceInfo_t * const info){
     return info->versionInfo.readStart == info->versionInfo.readEnd;
 }
 // Read a consistent snapshot of the shadow address:
@@ -465,11 +386,11 @@ inline void ReadShadowMemory(DataraceInfo_t * shadowAddress, DataraceInfo_t * in
 
 // Write a consistent snapshot of the shadow address:
 // Uses Leslie Lamport algorithm listed for readers and writers with two integers.
-inline bool TryWriteShadowMemory(DataraceInfo_t *  shadowAddress, const DataraceInfo_t &  info) {
+static inline bool TryWriteShadowMemory(DataraceInfo_t *  shadowAddress, const DataraceInfo_t &  info) {
     // Get the first integer for this shadow location:
-    volatile uint64_t * firstVersionLoc = GetWriteStartAddressForLoc(shadowAddress);
+    volatile atomic<uint64_t> * firstVersionLoc = GetWriteStartAddressForLoc(shadowAddress);
     uint64_t version = info.versionInfo.writeStart;
-    if(!__sync_bool_compare_and_swap(firstVersionLoc, version, version+1))
+    if(! firstVersionLoc->compare_exchange_strong(version, version+1))
         return false; // fail retry
     
     UpdateShadowDataAtShadowAddress(shadowAddress, info);
@@ -478,32 +399,32 @@ inline bool TryWriteShadowMemory(DataraceInfo_t *  shadowAddress, const Datarace
 
 
 // Fetch the current threads's logical label
-inline Label * GetMyLabel(THREADID threadId) {
+static inline Label * GetMyLabel(THREADID threadId) {
     return GetTLS(threadId)->GetLabel();
 }
 
 // Fetch the current threads's logical label
-inline void SetMyLabel(THREADID threadId, Label * label) {
+static inline void SetMyLabel(THREADID threadId, Label * label) {
     GetTLS(threadId)->SetLabel(label);
 }
 
 
-void UpdateLabel(Label ** oldLabel, Label * newLabel){
+static inline void UpdateLabel(Label ** oldLabel, Label * newLabel){
     (*oldLabel) = newLabel;
 }
 
-void UpdateContext(ContextHandle_t * oldCtxt, ContextHandle_t  ctxt){
+static inline void UpdateContext(ContextHandle_t * oldCtxt, ContextHandle_t  ctxt){
     (*oldCtxt) = ctxt;
 }
 
-void CommitChangesToShadowMemory(Label * oldLabel, Label * newLabel){
+static inline void CommitChangesToShadowMemory(Label * oldLabel, Label * newLabel){
     if(oldLabel) {
         oldLabel->RemRef();
     }
     newLabel->AddRef();
 }
 
-bool HappensBefore(const Label * const oldLabel, const Label * const newLabel){
+static inline bool HappensBefore(const Label * const oldLabel, const Label * const newLabel){
     // newLabel ought to be non null
     assert(newLabel && "newLabel can't be NULL");
     
@@ -561,7 +482,7 @@ bool HappensBefore(const Label * const oldLabel, const Label * const newLabel){
     return false;
 }
 
-bool IsLeftOf(const Label * const newLabel, const Label * const oldLabel){
+static inline bool IsLeftOf(const Label * const newLabel, const Label * const oldLabel){
     // newLabel ought to be non null
     assert(newLabel && "newLabel can't be NULL");
     
@@ -587,7 +508,7 @@ bool IsLeftOf(const Label * const newLabel, const Label * const oldLabel){
     return false;
 }
 
-bool MaximizesExitRank(const Label * const newLabel, const Label * const oldLabel){
+static inline bool MaximizesExitRank(const Label * const newLabel, const Label * const oldLabel){
     // newLabel ought to be non null
     assert(newLabel && "newLabel can't be NULL");
     
@@ -618,7 +539,7 @@ bool MaximizesExitRank(const Label * const newLabel, const Label * const oldLabe
 }
 
 
-static void DumpRaceInfo(ContextHandle_t oldCtxt,Label * oldLbl, ContextHandle_t newCtxt, Label * newLbl){
+static inline void DumpRaceInfo(ContextHandle_t oldCtxt,Label * oldLbl, ContextHandle_t newCtxt, Label * newLbl){
     PIN_LockClient();
     fprintf(gTraceFile, "\n ----------");
     oldLbl->PrintLabel();
@@ -630,7 +551,7 @@ static void DumpRaceInfo(ContextHandle_t oldCtxt,Label * oldLbl, ContextHandle_t
     PIN_UnlockClient();
 }
 
-void CheckRead(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaqueHandle, THREADID threadId) {
+static inline void CheckRead(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaqueHandle, THREADID threadId) {
     bool reported = false;
     // TODO .. Is this do-while excessive?
     do{
@@ -684,7 +605,7 @@ void CheckRead(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaqueH
     }while(1);
 }
 
-void CheckWrite(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaqueHandle, THREADID threadId) {
+static inline void CheckWrite(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaqueHandle, THREADID threadId) {
     bool reported = false;
     
     do {
@@ -739,7 +660,7 @@ void CheckWrite(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaque
 
 
 // Run the datarace protocol and report race.
-void ExecuteOffsetSpanPhaseProtocol(DataraceInfo_t *status, Label * myLabel, bool accessType, uint32_t opaqueHandle, THREADID threadId) {
+static inline void ExecuteOffsetSpanPhaseProtocol(DataraceInfo_t *status, Label * myLabel, bool accessType, uint32_t opaqueHandle, THREADID threadId) {
     if(accessType == WRITE_ACCESS){
         CheckWrite(status, myLabel, opaqueHandle, threadId);
     } else { // READ_ACCESS
@@ -749,7 +670,7 @@ void ExecuteOffsetSpanPhaseProtocol(DataraceInfo_t *status, Label * myLabel, boo
 }
 
 
-VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, uint32_t opaqueHandle, THREADID threadId) {
+static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, uint32_t opaqueHandle, THREADID threadId) {
     // Get my Label
     Label * myLabel = GetMyLabel(threadId);
     
@@ -778,7 +699,7 @@ VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, uint32_t opaqu
 
 
 // If it is one of ignoreable instructions, then skip instrumentation.
-bool IsIgnorableIns(INS ins){
+static inline bool IsIgnorableIns(INS ins){
     //TODO .. Eliminate this check with a better one
     /*
      Access to the stack simply means that the instruction accesses memory relative to the stack pointer (ESP or RSP), or the frame pointer (EBP or RBP). In code compiled without a frame pointer (where EBP/RBP is used as a general register), this may give a misleading result.
@@ -808,19 +729,12 @@ bool IsIgnorableIns(INS ins){
 #define ORDERED_EXIT_FN_NAME "gomp_datarace_end_ordered_section"
 #define CRITICAL_ENTER_FN_NAME "gomp_datarace_begin_critical"
 #define CRITICAL_EXIT_FN_NAME "gomp_datarace_end_critical"
-
-
-
-
 //    void gomp_datarace_begin_dynamic_work(uint64_t region_id, long span, long iter);
 //    void gomp_datarace_master_end_dynamic_work()
 //    void gomp_datarace_master_begin_dynamic_work(uint64_t region_id, long span);
 //    void gomp_datarace_begin_ordered_section(uint64_t region_id);
 //    void gomp_datarace_begin_critical(void *);
 //    void gomp_datarace_end_critical(void *);
-
-
-
 typedef void (*FP_MASTER)(uint64_t region_id, long span);
 typedef void (*FP_WORKER)(uint64_t region_id, long span, long iter);
 typedef void (*FP_WORKER_END)();
@@ -893,9 +807,6 @@ void new_ORDERED_EXIT_FN_NAME(uint64_t region_id, THREADID threadId){
     //myLabel->PrintLabel();
 }
 
-
-
-
 void new_CRITICAL_ENTER_FN_NAME( void * name, THREADID threadid){
     if(name){
         // name is the address of the a symbol i.g. 0x602d20 <.gomp_critical_user_FOO> for a lock FOO
@@ -911,7 +822,6 @@ void new_CRITICAL_EXIT_FN_NAME(void * name, THREADID threadid){
         // Analymous locks
     }
 }
-
 
 // Wrap all malloc and free in any image
 VOID Overrides (IMG img, VOID * v) {
@@ -1138,7 +1048,6 @@ INT32 Usage() {
 }
 
 VOID ThreadStart(THREADID threadid, CONTEXT *ctxt, INT32 flags, VOID *v) {
-    
     // Get the stack base address:
     
     ADDRINT stackBaseAddr = PIN_GetContextReg(ctxt, REG_STACK_PTR);
