@@ -126,10 +126,10 @@ static int gNumCurSkipImages;
 static string skipImages[] = {OMP_RUMTIMR_LIB_NAME, LINUX_LD_NAME};
 
 
-// VersionInfo_t is a concurrency control mechanism on the labels stores in the shadow memory.
+// VersionInfo_t is a concurrency control mechanism on the labels stored in the shadow memory.
 // Readers read from one end (readStart->data->readEnd) and writers update from another (writeStart->data->writeEnd).
-// A reader is assured of a consistent snapshop if readStart equals readEnd.
-// A writer first increments writeStart and then writes the data and then increments writeEnd.
+// A reader is assured of a consistent snapshot if readStart equals readEnd.
+// A writer first increments writeStart via a CAS and then writes the data and then increments writeEnd.
 // Two writers use "writeStart" as their lock to ensure mutual exclusion.
 
 typedef struct VersionInfo_t{
@@ -145,7 +145,7 @@ typedef struct VersionInfo_t{
 
 
 // 2 readers and 1 writer are recorded per byte of memory.
-// In addition a concurrency control mechanism is used for atomic accesses to the shadow memory.
+// In addition, a concurrency control mechanism is used for atomic accesses to the shadow memory.
 // TODO: One may optimize the granularity of locking
 
 typedef struct DataraceInfo_t{
@@ -347,7 +347,7 @@ static inline uint64_t GetReadEndForLoc(const DataraceInfo_t * const shadowAddre
 
 // Atomically reads the version number at the beginning for a writer
 static inline uint64_t GetWriteStartForLoc(const DataraceInfo_t * const shadowAddress){
-    return shadowAddress->versionInfo.writeStart.load(memory_order_acquire);;
+    return shadowAddress->versionInfo.writeStart.load(memory_order_acquire);
 }
 
 // Atomically reads the version number at the end for a writer
@@ -387,23 +387,24 @@ static inline bool IsConsistentSpapshot(const DataraceInfo_t * const info){
     return info->versionInfo.readStart == info->versionInfo.readEnd;
 }
 // Read a consistent snapshot of the shadow address:
-// Uses Leslie Lamport algorithm listed for readers and writers with two integers.
+// Uses Leslie Lamport's algorithm listed for readers and writers with two integers.
 inline void ReadShadowMemory(DataraceInfo_t * shadowAddress, DataraceInfo_t * info) {
 #ifdef DEBUG_LOOP
     int trip = 0;
 #endif
     
     do{
+        // Read first version number
         info->versionInfo.readStart = GetReadStartForLoc(shadowAddress);
+        // Read data
         ReadShadowData(info, shadowAddress);
+        // Read second version number
         info->versionInfo.readEnd = GetReadEndForLoc(shadowAddress);
-
 #ifdef DEBUG_LOOP
         if(trip++ > 100000){
             fprintf(stderr,"\n Loop trip > %d in line %d ... Ver1 = %lu .. ver2 = %lu ... %d", trip, __LINE__, info->versionInfo.readStart, info->versionInfo.readEnd, PIN_ThreadId());
         }
 #endif
-
     }while(!IsConsistentSpapshot(info));
 
 #ifdef DEBUG_LOOP
@@ -413,7 +414,6 @@ inline void ReadShadowMemory(DataraceInfo_t * shadowAddress, DataraceInfo_t * in
 #endif
     
 }
-
 
 // Write a consistent snapshot of the shadow address:
 // Uses Leslie Lamport algorithm listed for readers and writers with two integers.
@@ -427,7 +427,6 @@ static inline bool TryWriteShadowMemory(DataraceInfo_t *  shadowAddress, const D
     UpdateShadowDataAtShadowAddress(shadowAddress, info);
     return true;
 }
-
 
 // Fetch the current threads's logical label
 static inline Label * GetMyLabel(THREADID threadId) {
@@ -457,7 +456,6 @@ static inline void CommitChangesToShadowMemory(Label * oldLabel, Label * newLabe
 static inline bool HappensBefore(const Label * const oldLabel, const Label * const newLabel){
     // newLabel ought to be non null
     assert(newLabel && "newLabel can't be NULL");
-    
     
     /*
      [0,1,0][2,200,0]
@@ -637,12 +635,9 @@ static inline void CheckRead(DataraceInfo_t * shadowAddress, Label * myLabel, ui
 
 static inline void CheckWrite(DataraceInfo_t * shadowAddress, Label * myLabel, uint32_t opaqueHandle, THREADID threadId) {
     bool reported = false;
-    
     do {
-        
         DataraceInfo_t shadowData;
         ReadShadowMemory(shadowAddress, &shadowData);
-        
         //#define DEBUG
 #ifdef DEBUG
         if(shadowData.write1) {
@@ -673,12 +668,10 @@ static inline void CheckWrite(DataraceInfo_t * shadowAddress, Label * myLabel, u
             DumpRaceInfo(shadowData.read2Context, shadowData.read2, GetContextHandle(threadId, opaqueHandle), myLabel);
             reported = true;
         }
-        
         Label * oldW1Label = shadowData.write1;
         // Update label
         UpdateLabel(&shadowData.write1, myLabel);
         UpdateContext(&shadowData.write1Context, GetContextHandle(threadId, opaqueHandle));
-        
         if(!TryWriteShadowMemory(shadowAddress, shadowData)) {
             // someone updated the shadow memory before we could, we need to redo the entire process
             continue;
@@ -702,7 +695,6 @@ static inline void ExecuteOffsetSpanPhaseProtocol(DataraceInfo_t *status, Label 
 static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, uint32_t opaqueHandle, THREADID threadId) {
     // Get my Label
     Label * myLabel = GetMyLabel(threadId);
-    
     // if myLabel is NULL, then we are in the initial serial part of the program, hence we can skip the rest
     if (myLabel == NULL)
         return;
@@ -719,7 +711,6 @@ static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, 
         }
     } else {
         // The accessed word's shadow memory straddles 2 64K shadow pages.
-
         // Execute the protocol for each byte of the memory accessed in the first page
         for(uint32_t nonOverflowBytes = 0 ; nonOverflowBytes < accessLen - overflow; nonOverflowBytes++){
             ExecuteOffsetSpanPhaseProtocol(&status[nonOverflowBytes], myLabel, accessType, opaqueHandle, threadId);
@@ -747,15 +738,12 @@ static inline bool IsIgnorableIns(INS ins){
     if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)){
         return true;
     }
-    
     // If ins is in libgomp.so, or /lib64/ld-linux-x86-64.so.2 skip it
-    
     for(int i = 0; i < gNumCurSkipImages ; i++) {
         if( (INS_Address(ins) >= gSkipImageAddressRanges[i][0])  && ((INS_Address(ins) < gSkipImageAddressRanges[i][1]))){
             return true;
         }
     }
-    
     return false;
 }
 #define MASTER_BEGIN_FN_NAME "gomp_datarace_master_begin_dynamic_work"
@@ -851,13 +839,12 @@ void new_CRITICAL_EXIT_FN_NAME(void * name, THREADID threadid){
     if(name) {
         // name is the address of the a symbol i.g. 0x602d20 <.gomp_critical_user_FOO> for a lock FOO
     } else {
-        // Analymous locks
+        // Anonymous locks
     }
 }
 
 // Overrides for various functions
 VOID Overrides (IMG img, VOID * v) {
-    
     // Master setup
     RTN rtn = RTN_FindByName (img, MASTER_BEGIN_FN_NAME);
     if (RTN_Valid (rtn)) {
@@ -879,7 +866,6 @@ VOID Overrides (IMG img, VOID * v) {
         // Free the function prototype.
         PROTO_Free (proto_master);
     }
-    
     
     // Dynamic Start
     rtn = RTN_FindByName (img, DYNAMIC_BEGIN_FN_NAME);
@@ -969,13 +955,10 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
                                  IARG_THREAD_ID, IARG_END);
     }
     
-    
     // How may memory operations?
     UINT32 memOperands = INS_MemoryOperandCount(ins);
-    
     // Iterate over each memory operand of the instruction and add Analysis routine to check races.
     // We correctly handle instructions that do both read and write.
-    
     for (UINT32 memOp = 0; memOp < memOperands; memOp++) {
         if (INS_MemoryOperandIsWritten(ins, memOp)) {
             INS_InsertPredicatedCall(ins, IPOINT_BEFORE,
@@ -1007,7 +990,6 @@ VOID ThreadStart(THREADID threadid, CONTEXT *ctxt, INT32 flags, VOID *v) {
     size_t stacksize;
     pthread_attr_init(&attr);
     pthread_attr_getstacksize(&attr, &stacksize);
-    
     ThreadData_t* tdata = new ThreadData_t(stackBaseAddr, stackBaseAddr + stacksize, stackBaseAddr);
     //fprintf(stderr,"\n m_stackBaseAddress = %lu, m_stackEndAddress = %lu, size = %lu", stackBaseAddr, stackBaseAddr + stacksize, stacksize);
     // Label will be NULL
@@ -1062,25 +1044,19 @@ void InitDataRaceSpy(int argc, char *argv[]){
 }
 
 // Main for DataraceSpy, initialize the tool, register instrumentation functions and call the target program.
-
 int main(int argc, char *argv[]) {
     // Initialize PIN
     if (PIN_Init(argc, argv))
         return Usage();
-    
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();
-    
     // Intialize DataraceSpy
     InitDataRaceSpy(argc, argv);
-    
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
-    
     // Look up and replace some functions
     IMG_AddInstrumentFunction (Overrides, 0);
     fprintf(stderr,"\n TODO TODO ... eliminate stack local check and make it robust");
-    
     // Launch program now
     PIN_StartProgram();
     return 0;
