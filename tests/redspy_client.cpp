@@ -114,8 +114,13 @@ using namespace PinCCTLib;
 
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
 
+struct AddrValPair{
+    void * address;
+    uint8_t value[MAX_WRITE_OP_LENGTH];
+};
+
 struct RedSpyThreadData{
-    uint8_t buffer[MAX_WRITE_OPS_IN_INS][MAX_WRITE_OP_LENGTH];
+    AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
     uint64_t bytesWritten;
 };
 
@@ -235,30 +240,39 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
 
 template<uint16_t AccessLen, uint32_t bufferOffset>
 struct RedSpyAnalysis{
-    static inline bool IsWriteRedundant(void* addr, THREADID threadId){
+    static inline bool IsWriteRedundant(void * &addr, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        AddrValPair * avPair = & tData->buffer[bufferOffset];
+        addr = avPair->address;
         switch(AccessLen){
-            case 1: return *((uint8_t*)(tData->buffer[bufferOffset])) == *(static_cast<uint8_t*>(addr));
-            case 2: return *((uint16_t*)(tData->buffer[bufferOffset])) == *(static_cast<uint16_t*>(addr));
-            case 4: return *((uint32_t*)(tData->buffer[bufferOffset])) == *(static_cast<uint32_t*>(addr));
-            case 8: return *((uint64_t*)(tData->buffer[bufferOffset])) == *(static_cast<uint64_t*>(addr));
-            default: return memcmp(tData->buffer[bufferOffset], addr, AccessLen) == 0;
+            case 1: return *((uint8_t*)(&avPair->value)) == *(static_cast<uint8_t*>(avPair->address));
+            case 2: return *((uint16_t*)(&avPair->value)) == *(static_cast<uint16_t*>(avPair->address));
+            case 4: return *((uint32_t*)(&avPair->value)) == *(static_cast<uint32_t*>(avPair->address));
+            case 8: return *((uint64_t*)(&avPair->value)) == *(static_cast<uint64_t*>(avPair->address));
+            default: return memcmp(&avPair->value, avPair->address, AccessLen) == 0;
         }
     }
     
     static inline VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        AddrValPair * avPair = & tData->buffer[bufferOffset];
+//printf("\n B: %lx %lu %d %d %lx", (uint64_t)addr, tData->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
+//fflush(stdout);
+        avPair->address = addr;
         switch(AccessLen){
-            case 1: *((uint8_t*)(tData->buffer[bufferOffset])) = *(static_cast<uint8_t*>(addr)); break;
-            case 2: *((uint16_t*)(tData->buffer[bufferOffset])) = *(static_cast<uint16_t*>(addr)); break;
-            case 4: *((uint32_t*)(tData->buffer[bufferOffset])) = *(static_cast<uint32_t*>(addr)); break;
-            case 8: *((uint64_t*)(tData->buffer[bufferOffset])) = *(static_cast<uint64_t*>(addr)); break;
-            default:memcpy(tData->buffer[bufferOffset], addr, AccessLen);
+            case 1: *((uint8_t*)(&avPair->value)) = *(static_cast<uint8_t*>(addr)); break;
+            case 2: *((uint16_t*)(&avPair->value)) = *(static_cast<uint16_t*>(addr)); break;
+            case 4: *((uint32_t*)(&avPair->value)) = *(static_cast<uint32_t*>(addr)); break;
+            case 8: *((uint64_t*)(&avPair->value)) = *(static_cast<uint64_t*>(addr)); break;
+            default:memcpy(&avPair->value, addr, AccessLen);
         }
     }
     
-    static inline VOID CheckNByteValueAfterWrite(void* addr, uint32_t opaqueHandle, THREADID threadId){
+    static inline VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
+        void * addr;
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
+//printf("\t A: %lx %lu %d %d %lx", (uint64_t)addr, ClientGetTLS(threadId)->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
+//fflush(stdout);
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
         uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
@@ -326,16 +340,18 @@ struct RedSpyAnalysis{
 
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    memcpy(tData->buffer[bufferOffset], addr, accessLen);
+    memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
+    tData->buffer[bufferOffset].address = addr;
 }
 
-static inline VOID CheckAfterLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
+static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    void * addr = tData->buffer[bufferOffset].address;
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     
     uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
     ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
-    if(memcmp(tData->buffer[bufferOffset], addr, accessLen) == 0){
+    if(memcmp( & (tData->buffer[bufferOffset].value), addr, accessLen) == 0){
         // redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
             status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
@@ -386,7 +402,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
 
 #define HANDLE_CASE(NUM, BUFFER_INDEX) \
 case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);}break
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
 
 static int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
@@ -415,7 +431,7 @@ struct RedSpyInstrument{
                 
             default: {
                 INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
+                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
             }
         }
     }
