@@ -681,6 +681,16 @@ namespace PinCCTLib {
         return (GLOBAL_STATE.preAllocatedContextBuffer + oldBufIndex);
     }
 
+     /*
+            Description:
+                    Client tools call this API when they need the char string for a symbol name.
+            Arguments:
+                    index: a string pool index 
+    */
+    char * GetStringFromStringPool(const uint32_t index) {
+        return GLOBAL_STATE.preAllocatedStringPool + index;
+    }
+
     static inline uint32_t GetNextStringPoolIndex(char* name) {
         uint32_t len = strlen(name) + 1;
         uint64_t  oldStringPoolIndex = __sync_fetch_and_add(&GLOBAL_STATE.curPreAllocatedStringPoolIndex, len);

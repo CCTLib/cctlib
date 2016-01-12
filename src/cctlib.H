@@ -143,6 +143,13 @@ namespace PinCCTLib {
                     threadId: Pin's thread id of the asking thread.
     */
     DataHandle_t GetDataObjectHandle(VOID* address, const THREADID threadId);
+     /*
+            Description:
+                    Client tools call this API when they need the char string for a symbol name.
+            Arguments:
+                    index: a string pool index 
+    */
+    char * GetStringFromStringPool(const uint32_t index);
     /*
             Description:
                     Prints the full calling context whose handle is ctxtHandle.
