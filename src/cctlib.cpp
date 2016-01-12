@@ -683,7 +683,7 @@ namespace PinCCTLib {
 
      /*
             Description:
-                    Client tools call this API when they need the char string for a symbol name.
+                    Client tools call this API when they need the char string for a symbol from string pool index.
             Arguments:
                     index: a string pool index 
     */
