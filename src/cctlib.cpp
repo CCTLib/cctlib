@@ -2231,8 +2231,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             record.pathHandle = node->pathHandle;
 // Milind - Commented this since thsi consumes too much space.
 // Need to discuss with Xu on how to maintain this efficiently.
-//            record.beg_addr = (uint64_t)node->start;
-// 	    record.end_addr = (uint64_t)node->end;
+            record.beg_addr = (uint64_t)node->start;
+ 	    record.end_addr = (uint64_t)node->end;
         } else {
             record.objectType = UNKNOWN_OBJECT;
         }

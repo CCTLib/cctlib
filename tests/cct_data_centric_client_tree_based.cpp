@@ -43,7 +43,8 @@
 #include "pin.H"
 // Enable data-centric
 //
-/// links with a different file #define USE_TREE_BASED_FOR_DATA_CENTRIC
+/// links with a different file 
+#define USE_TREE_BASED_FOR_DATA_CENTRIC
 #include "cctlib.H"
 using namespace std;
 using namespace PinCCTLib;
@@ -90,8 +91,17 @@ VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
 }
 
 VOID MemAnalysisRoutine(void* addr, THREADID threadId) {
-    GetDataObjectHandle(addr, threadId);
+    if((uint64_t)addr & 0x7f0000000000)
+       return;
+ 
+    DataHandle_t data = GetDataObjectHandle(addr, threadId);
+    if(data.objectType == DYNAMIC_OBJECT)
+       printf("dynamic memory access %p, begin: %p, end:%p\n",addr,(void *)data.beg_addr,(void *)data.end_addr);
+    else if(data.objectType == STATIC_OBJECT)
+       printf("static memory access %p, begin: %p, end:%p\n",addr,(void *)data.beg_addr,(void *)data.end_addr);
+    
 }
+
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     //if (INS_IsMemoryRead (ins) || INS_IsMemoryWrite(ins))
@@ -118,8 +128,7 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     }
 }
 
-int main(int argc, char* argv[]) {
-    // Initialize PIN
+int main(int argc,char* argv[]){
     if(PIN_Init(argc, argv))
         return Usage2();
 
@@ -128,7 +137,9 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0, /*doDataCentric=*/ true);
+    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0, /*doDataCentric=*/ true);
+
+    // Obtain  a key for TLS storage.
     // Launch program now
     PIN_StartProgram();
     return 0;
