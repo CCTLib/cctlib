@@ -32,7 +32,7 @@
 //
 // ******************************************************* EndRiceCopyright *
 
-
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -484,6 +484,9 @@ VOID CheckIntraArrayElements(void *addr,THREADID threadId, const uint32_t opHand
         if(it != tData->staticDataObjects.end()){
             if(it->second.lastOperation != 0){
 //check the same elements in this dataObject
+
+              printf("%s\n",GetStringFromStringPool(dataHandle.symName));
+
                 if(it->second.accessLen == 1){
                             unordered_map<uint8_t,list<uint32_t>> valuesMap1;
                             unordered_map<uint8_t,list<uint32_t>>::iterator it1;
@@ -504,15 +507,23 @@ VOID CheckIntraArrayElements(void *addr,THREADID threadId, const uint32_t opHand
                                 index++;
                             }
                             max = 1;
+                            uint8_t vvv = 0;
                             list<uint32_t> maxList;
                             for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
                                 if(max < it1->second.size()){
                                     max = it1->second.size();
                                     maxList = it1->second;
+                                    vvv = it1->first;
                                 }
                             }
                             redundancy = (double)max/(index+1);
                             if(redundancy > 0.5){
+printf("%d,%" PRIu8 "\n",1,vvv);
+list<uint32_t>::iterator iii;
+iii = maxList.begin();
+for(iii = maxList.begin();iii != maxList.end(); ++iii)
+    printf("%d,",*iii);
+
                                 IntraRedIndexPair newpair;
                                 newpair.redundancy = redundancy;
                                 newpair.indexes = maxList;                            
@@ -539,15 +550,23 @@ VOID CheckIntraArrayElements(void *addr,THREADID threadId, const uint32_t opHand
                                 index++;
                             }
                             max = 1;
+                            uint16_t vvv = 0;
                             list<uint32_t> maxList;
                             for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
                                 if(max < it1->second.size()){
                                     max = it1->second.size();
                                     maxList = it1->second;
+                                    vvv = it1->first;
                                 }
                             }
                             redundancy = (double)max/(index+1);
                             if(redundancy > 0.5){
+printf("%d,%" PRIu16 "\n",2,vvv);
+list<uint32_t>::iterator iii;
+iii = maxList.begin();
+for(iii = maxList.begin();iii != maxList.end(); ++iii)
+    printf("%d,",*iii);
+
                                 IntraRedIndexPair newpair;
                                 newpair.redundancy = redundancy;
                                 newpair.indexes = maxList;                            
@@ -574,15 +593,23 @@ VOID CheckIntraArrayElements(void *addr,THREADID threadId, const uint32_t opHand
                                 index++;
                             }
                             max = 1;
+                            uint32_t vvv = 0;
                             list<uint32_t> maxList;
                             for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
                                 if(max < it1->second.size()){
                                     max = it1->second.size();
                                     maxList = it1->second;
+                                    vvv = it1->first;
                                 }
                             }
                             redundancy = (double)max/(index+1);
                             if(redundancy > 0.5){
+printf("%d,%" PRIu32 "\n",4,vvv);
+list<uint32_t>::iterator iii;
+iii = maxList.begin();
+for(iii = maxList.begin();iii != maxList.end(); ++iii)
+    printf("%d,",*iii);
+
                                 IntraRedIndexPair newpair;
                                 newpair.redundancy = redundancy;
                                 newpair.indexes = maxList;                            
@@ -609,15 +636,23 @@ VOID CheckIntraArrayElements(void *addr,THREADID threadId, const uint32_t opHand
                                 index++;
                             }
                             max = 1;
+                            uint64_t vvv = 0;
                             list<uint32_t> maxList;
                             for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
                                 if(max < it1->second.size()){
                                     max = it1->second.size();
                                     maxList = it1->second;
+                                    vvv = it1->first;
                                 }
                             }
                             redundancy = (double)max/(index+1);
                             if(redundancy > 0.5){
+printf("%d,%" PRIu64 "\n",8,vvv);
+list<uint32_t>::iterator iii;
+iii = maxList.begin();
+for(iii = maxList.begin();iii != maxList.end(); ++iii)
+    printf("%d,",*iii);
+
                                 IntraRedIndexPair newpair;
                                 newpair.redundancy = redundancy;
                                 newpair.indexes = maxList;                            
