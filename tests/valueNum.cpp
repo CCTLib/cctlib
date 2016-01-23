@@ -73,7 +73,7 @@ using namespace PinCCTLib;
 #define MAX_OPERAND (6)
 #define SAMPLE_PERIOD (1000000)
 #define STOP_PERIOD (1000000000)
-#define VALUE_N (1)
+#define VALUE_N (10)
 
 enum AccessType{
     READ_ACCESS = 0,
@@ -83,7 +83,6 @@ enum AccessType{
 FILE *gTraceFile;
 static uint64_t gValue;
 static uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
-struct timeval startT,endT;
 
 bool Sample = 1;
 uint64_t Num_instructions = 0;
@@ -620,8 +619,6 @@ VOID valueNumbering(void * op, bool movOrnot, THREADID threadid, void *ip, const
     int immediateCount = opinfo->immeCount;
 
     if (movOrnot) {
-
-        assert(sRegsCount+immediateCount==1);
 
         if(sRegsCount == 1)
             value = getRegValueNum(opinfo->sRegs[0], threadid);
@@ -1345,7 +1342,7 @@ inline bool MergedRedundantInfoComparer(const RedundantInfoForPresentation & fir
     return first.count > second.count ? true : false;
 }
 
-/*static void DumpInfo(uint32_t oldIndex, uint32_t  newIndex){
+static void DumpInfo(uint32_t oldIndex, uint32_t  newIndex){
     PIN_LockClient();
     fprintf(gTraceFile, "\n ----------");
     PrintFullCallingContext(newIndex);
@@ -1353,16 +1350,12 @@ inline bool MergedRedundantInfoComparer(const RedundantInfoForPresentation & fir
     PrintFullCallingContext(oldIndex);
     fprintf(gTraceFile, "\n ----------");
     PIN_UnlockClient();
-}*/
+}
 
 VOID ImageUnload(IMG img, VOID * v) {
-    gettimeofday(&endT,NULL);
-
-    printf("time:%.2f\n",(endT.tv_sec-startT.tv_sec)+(double)(endT.tv_usec-startT.tv_usec)/1000000);
-
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     //printf("size of the map:%u ---- size of instructions:%u\n",total,totalI);        
-    /*ThreadData_t * td = GetTLS(PIN_ThreadId ());
+    ThreadData_t * td = GetTLS(PIN_ThreadId ());
     PIN_MutexLock(&gMutex);
 
     unordered_map<uint64_t, uint64_t>::iterator mapIt = td->redundantMap.begin();
@@ -1431,7 +1424,7 @@ VOID ImageUnload(IMG img, VOID * v) {
     gRedundantList.clear();
     
     PIN_MutexUnlock(&gMutex);
-    */
+    
 }
 
 VOID RegDeadFini(INT32 code, VOID * v){
@@ -1492,8 +1485,7 @@ void InitValueNumbering(int argc, char *argv[]){
 // Main for Value Numbering, initialize the tool, register instrumentation functions and call the target program.
 
 int main(int argc, char *argv[]) {
-
-    gettimeofday(&startT,NULL);    
+    
     // Initialize PIN
     if (PIN_Init(argc, argv))
         return Usage();
