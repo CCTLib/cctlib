@@ -76,7 +76,7 @@ $(OBJDIR)redspy_intraArray_client$(OBJ_SUFFIX): redspy_intraArray_client.cpp ../
 	$(CXX)  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)redspy_intraArray_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_intraArray_client$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
-	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_based  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 
 #Value numbering 

@@ -52,7 +52,7 @@
 
 //enable Data-centric
 #define USE_TREE_BASED_FOR_DATA_CENTRIC
-
+#define USE_TREE_WITH_ADDR
 #include "cctlib.H"
 using namespace std;
 using namespace PinCCTLib;

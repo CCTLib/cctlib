@@ -61,8 +61,10 @@ namespace PinCCTLib {
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 // Milind- I commented this out since it consumes too much space.
 // Need to discuss with Xu on how we want to maintain this efficiently
+#ifdef USE_TREE_WITH_ADDR
 	uint64_t beg_addr;
 	uint64_t end_addr;
+#endif
 #endif
     } DataHandle_t;
 
