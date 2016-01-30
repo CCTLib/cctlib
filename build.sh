@@ -1,5 +1,5 @@
 set -ex
-#PATH_TO_PIN=/home/mc29/CCTLIB_ALL/pin-2.14-67254-gcc.4.4.7-linux/
+#PATH_TO_PIN=/home/scratch/xl10/support/pin-2.14-71313-gcc.4.4.7-linux
 CUR_DIR=`pwd`
 PIN_REV=2.14-71313
 LinuxSuffix=gcc.4.4.7-linux.tar.gz

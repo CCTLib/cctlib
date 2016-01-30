@@ -196,6 +196,9 @@ namespace PinCCTLib {
 #define USE_SHADOW_FOR_DATA_CENTRIC
 #endif
 
+    // write the output into hpcviewer's format
+    int init_hpcrun_format(int argc, char *argv[]);
+    int newCCT_hpcrun_write(THREADID threadid);
 }
 
 #endif

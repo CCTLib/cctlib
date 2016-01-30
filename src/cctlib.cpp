@@ -54,6 +54,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <iostream>
+#include <libgen.h>
 #include <locale>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -281,6 +282,8 @@ namespace PinCCTLib {
 #endif
         // TODO .. identify why perf screws up w/o this buffer
         uint32_t DUMMY_HELPS_PERF  __attribute__((aligned(CACHE_LINE_SIZE)));
+        // For hpcrun format -- report the number of new CCT nodes
+        uint64_t nodeCount;
     } __attribute__((aligned));
 
 
@@ -3041,5 +3044,897 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
              return true;
          return false;
     }
+
+/* ==================================hpcviewer support===================================*/
+     
+// necessary macros
+#define HASH_PRIME 2001001003
+#define HASH_GEN   4001
+#define SPINLOCK_UNLOCKED_VALUE (0L)
+#define SPINLOCK_LOCKED_VALUE (1L)
+#define OSUtil_hostid_NULL (-1)
+#define INITIALIZE_SPINLOCK(x) { .thelock = (x) }
+#define SPINLOCK_UNLOCKED INITIALIZE_SPINLOCK(SPINLOCK_UNLOCKED_VALUE)
+#define SPINLOCK_LOCKED INITIALIZE_SPINLOCK(SPINLOCK_LOCKED_VALUE)
+
+#define HPCRUN_FMT_NV_prog       "program-name"
+#define HPCRUN_FMT_NV_progPath   "program-path"
+#define HPCRUN_FMT_NV_envPath    "env-path"
+#define HPCRUN_FMT_NV_jobId      "job-id"
+#define HPCRUN_FMT_NV_mpiRank    "mpi-id"
+#define HPCRUN_FMT_NV_tid        "thread-id"
+#define HPCRUN_FMT_NV_hostid     "host-id"
+#define HPCRUN_FMT_NV_pid        "process-id"
+#define HPCRUN_SAMPLE_PROB       "HPCRUN_PROCESS_FRACTION"
+#define HPCRUN_FMT_NV_traceMinTime "trace-min-time"
+#define HPCRUN_FMT_NV_traceMaxTime "trace-max-time"
+
+#define FILENAME_TEMPLATE "%s/%s-%06u-%03d-%08lx-%u-%d.%s"
+#define TEMPORARY "%s/%s-"
+#define RANK 0
+
+#define FILES_RANDOM_GEN 4
+#define FILES_MAX_GEN 11
+#define FILES_EARLY 0x1
+#define FILES_LATE 0x2 
+#define DEFAULT_PROB 0.1
+
+// *** atomic-op-asm.h && atomic-op-gcc.h ***
+#if defined (LL_BODY) && defined(SC_BODY)
+
+#define read_modify_write(type, addr, expn, result) {  \
+  type __new;    \
+  do {           \
+    result = (type) load_linked((unsigned long*)addr); \
+    __new = expn;\
+} while (!store_conditional((unsigned long*)addr, (unsigned long) __new)); \
+}
+#else
+
+#define read_modify_write(type, addr, expn, result) {            \
+  type __new;                                                    \
+  do {                                                           \
+    result = *addr;                                              \
+    __new = expn;                                                \
+  } while (compare_and_swap(addr, result, __new) != result);     \
+}
+#endif
+
+#define compare_and_swap(addr, oldval, newval) \
+    __sync_val_compare_and_swap(addr, oldval, newval)
+
+// ***********************
+
+// create a new node type to substitute IPNode and TraceNode
+struct NewIPNode {
+	vector<NewIPNode*> childIPNodes;
+	NewIPNode* parentIPNode;
+	ADDRINT IPAddress;
+	uint32_t parentID;
+	uint32_t ID;
+	TraceSplay* tmpSplay;
+	void* metric;
+};
+
+typedef uint16_t size_t;
+
+typedef enum {
+  MetricFlags_Ty_NULL = 0,
+  MetricFlags_Ty_Raw,
+  MetricFlags_Ty_Final,
+  MetricFlags_Ty_Derived
+} MetricFlags_Ty_t;
+
+
+typedef enum {
+  MetricFlags_ValTy_NULL = 0,
+  MetricFlags_ValTy_Incl,
+  MetricFlags_ValTy_Excl
+} MetricFlags_ValTy_t;
+
+
+typedef enum {
+  MetricFlags_ValFmt_NULL = 0,
+  MetricFlags_ValFmt_Int,
+  MetricFlags_ValFmt_Real,
+} MetricFlags_ValFmt_t;
+
+
+typedef struct epoch_flags_bitfield {
+  bool isLogicalUnwind : 1;
+  uint64_t unused      : 63;
+} epoch_flags_bitfield;
+
+
+typedef union epoch_flags_t {
+  epoch_flags_bitfield fields;
+  uint64_t             bits; // for reading/writing
+} epoch_flags_t;
+
+
+typedef struct metric_desc_properties_t {
+  unsigned time:1;
+  unsigned cycles:1;
+} metric_desc_properties_t;
+
+
+typedef struct hpcrun_metricFlags_fields {
+  MetricFlags_Ty_t      ty    : 8;
+  MetricFlags_ValTy_t   valTy : 8;
+  MetricFlags_ValFmt_t  valFmt: 8;
+  uint8_t               unused0;
+  uint16_t              partner;
+  uint8_t  /*bool*/     show;
+  uint8_t /*bool*/      showPercent;
+  uint64_t              unused1;
+} hpcrun_metricFlags_fields;
+
+
+typedef union hpcrun_metricFlags_t {
+  hpcrun_metricFlags_fields fields;
+  uint8_t bits[2 * 8]; // for reading/writing
+  uint64_t bits_big[2]; // for easy initialization
+} hpcrun_metricFlags_t;
+
+typedef struct metric_desc_t {
+  char* name;
+  char* description;
+ //uint8_t bits[2 * 8];
+  //uint64_t bits_big[2];
+  hpcrun_metricFlags_t flags;
+  uint64_t period;
+  metric_desc_properties_t properties;
+  char* formula;
+  char* format;
+} metric_desc_t;
+
+
+typedef struct metric_set_t metric_set_t;
+
+
+typedef struct spinlock_s {
+  volatile long thelock;
+} spinlock_t;
+
+
+struct fileid {
+  int done;
+  long host;
+  int gen;
+};
+
+
+extern const metric_desc_t metricDesc_NULL;
+
+const metric_desc_t metricDesc_NULL = {
+  NULL, // name
+  NULL, // description
+  MetricFlags_Ty_NULL,
+  MetricFlags_ValTy_NULL,
+  MetricFlags_ValFmt_NULL,
+  0, // fields.unused0
+  0, // fields.partner
+  (uint8_t)true, // fields.show
+  (uint8_t)true, // fields.showPercent
+  0, // unused 1
+  0, // period
+  0, // properties.time
+  0, // properties.cycles
+  NULL,
+  NULL,
+};
+
+
+
+extern const hpcrun_metricFlags_t hpcrun_metricFlags_NULL;
+
+const hpcrun_metricFlags_t hpcrun_metricFlags_NULL = {
+   MetricFlags_Ty_NULL,
+   MetricFlags_ValTy_NULL,
+   MetricFlags_ValFmt_NULL,
+   0, // fields.unused0
+   0, // fields.partner
+   (uint8_t)true, // fields.show
+   (uint8_t)true, // fields.showPercent
+   0, // unused 1
+};
+
+
+static epoch_flags_t epoch_flags = {
+  .bits = 0x0000000000000000
+};
+
+static const uint64_t default_measurement_granularity = 1;
+static const uint32_t default_ra_to_callsite_distance = 1;
+
+// ***************** file ************************
+static spinlock_t files_lock = SPINLOCK_UNLOCKED;
+static pid_t mypid = 0;
+static struct fileid earlyid;
+static struct fileid lateid;
+static int log_done = 0;
+static int log_rename_done = 0;
+static int log_rename_ret = 0;
+// ***********************************************
+/*   for HPCViewer output format     */
+std::string dirName;
+std::string *filename;
+
+// *************************************** format ****************************************
+static const char HPCRUN_FMT_Magic[] = "HPCRUN-profile____";
+static const int HPCRUN_FMT_MagicLen = (sizeof(HPCRUN_FMT_Magic)-1);
+static const char HPCRUN_FMT_Endian[] = "b";
+static const int HPCRUN_FMT_EndianLen = (sizeof(HPCRUN_FMT_Endian)-1);
+static const char HPCRUN_ProfileFnmSfx[] = "hpcrun";
+static const char HPCRUN_FMT_Version[] = "02.00";
+static const char HPCRUN_FMT_VersionLen = (sizeof(HPCRUN_FMT_Version)-1);
+static const char HPCRUN_FMT_EpochTag[] = "EPOCH___";
+static const int HPCRUN_FMT_EpochTagLen = (sizeof(HPCRUN_FMT_EpochTag)-1);
+const uint bufSZ = 32; // sufficient to hold a 64-bit integer in base 10
+int hpcfmt_str_fwrite(const char* str, FILE* outfs);
+int hpcrun_fmt_hdrwrite(FILE* fs);
+int hpcrun_fmt_hdr_fwrite(FILE* fs, const char* arg1, const char* arg2);
+int hpcrun_open_profile_file(int thread, const char* fileName);
+static int hpcrun_open_file(int thread, const char * suffix, int flags, const char* fileName);
+extern int fputs (const char *__restrict __s, FILE *__restrict __stream);
+int hpcrun_fmt_loadmap_fwrite(FILE* fs, std::string pathname);
+int hpcrun_fmt_epochHdr_fwrite(FILE* fs, epoch_flags_t flags,
+                               uint64_t measurementGranularity, uint32_t raToCallsiteOfst);
+static void hpcrun_files_init();
+uint OSUtil_pid();
+const char* OSUtil_jobid();
+long OSUtil_hostid();
+void hpcrun_set_metric_info_w_fn(int metric_id, const char* name,
+                            MetricFlags_ValFmt_t valFmt, size_t period, FILE* fs);
+size_t hpcio_be2_fwrite(uint16_t* val, FILE* fs);
+size_t hpcio_be4_fwrite(uint32_t* val, FILE* fs);
+size_t hpcio_be8_fwrite(uint64_t* val, FILE* fs);
+size_t hpcio_beX_fwrite(uint8_t* val, size_t size, FILE* fs);
+//string GetFileName(std::string & pathname);
+// ******************************************************************************************
+
+// ****************Merge splay trees **************************************************
+NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t parentID, uint64_t *nodeCount);
+void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childIPs, uint64_t *nodeCount);
+NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node);
+void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount);
+uint32_t GetID(void);
+// ************************************************************************************
+
+// ****************Print merged splay tree*********************************************
+void IPNode_fwrite(NewIPNode* node, FILE* fs);
+void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs);
+// ************************************************************************************
+
+uint OSUtil_pid(){
+  pid_t pid = getpid();
+  return (uint) pid;
+}
+
+
+const char* OSUtil_jobid() {
+  char* jid = NULL;
+
+  // Cobalt
+  jid = getenv("COBALT_JOB_ID");
+  if(jid) return jid;
+
+  // PBS
+  jid = getenv("PBS_JOB_ID");
+  if(jid) return jid;
+
+  // SLURM
+  jid = getenv("SLURM_JOB_ID");
+  if(jid) return jid;
+
+  // Sun Grid Engine
+  jid = getenv("JOB_ID");
+  if(jid) return jid;
+
+  return jid;
+}
+
+
+long OSUtil_hostid() {
+  static long hostid = OSUtil_hostid_NULL;
+
+  if(hostid == OSUtil_hostid_NULL) {
+    // gethostid returns a 32-bit id. treat it as unsigned to prevent useless sign extension
+    hostid = (uint32_t) gethostid();
+  }
+
+  return hostid;
+}
+
+static inline int
+hpcfmt_int2_fwrite(uint16_t val, FILE* outfs)
+{
+  if ( sizeof(uint16_t) != hpcio_be2_fwrite(&val, outfs) ) {
+    return 0;
+  }
+  return 1;
+}
+
+
+static inline int
+hpcfmt_int4_fwrite(uint32_t val, FILE* outfs)
+{
+  if ( sizeof(uint32_t) != hpcio_be4_fwrite(&val, outfs) ) {
+    return 0;
+  }
+  return 1;
+}
+
+
+static inline int
+hpcfmt_int8_fwrite(uint64_t val, FILE* outfs)
+{
+  if ( sizeof(uint64_t) != hpcio_be8_fwrite(&val, outfs) ) {
+    return 0;
+  }
+  return 1;
+}
+
+
+static inline int
+hpcfmt_intX_fwrite(uint8_t* val, size_t size, FILE* outfs) {
+  if (size != hpcio_beX_fwrite(val, size, outfs)) {
+    return 0;
+  }
+  return 1;
+}
+
+
+int hpcio_fclose(FILE* fs) {
+  if(fs && fclose(fs) == EOF) {
+    return 1;
+  }
+  return 0;
+}
+
+static void hpcrun_files_init(void) {
+  pid_t cur_pid = getpid();
+
+  if(mypid != cur_pid){
+    mypid = cur_pid;
+    earlyid.done = 0;
+    earlyid.host = OSUtil_hostid();
+    earlyid.gen = 0;
+    lateid = earlyid;
+    log_done = 0;
+    log_rename_done = 0;
+    log_rename_ret = 0;
+  }
+}
+
+
+// Replace "id" with the next unique id if possible. Normally, (hostid, pid, gen) 
+// works after one or two iteration. To be extra robust (eg, hostid is not unique),
+// at some point, give up and pick a random hostid.
+// Returns: 0 on success, else -1 on failure.
+static int hpcrun_files_next_id(struct fileid *id) {
+  struct timeval tv;
+  int fd;
+
+  if (id->done || id->gen >= FILES_MAX_GEN) {
+    // failure, out of options
+    return -1;
+  }
+
+  id->gen++;
+  if (id->gen >= FILES_RANDOM_GEN) {
+    // give up and use a random host id
+    fd = open("/dev/urandom", O_RDONLY);
+    printf("Inside hpcrun_files_next_id fd = %d\n", fd);
+    if (fd >= 0) {
+      read(fd, &id->host, sizeof(id->host));
+      close(fd);
+    }
+    gettimeofday(&tv, NULL);
+    id->host += (tv.tv_sec << 20) + tv.tv_usec;
+    id->host &= 0x00ffffffff;
+  }
+  return 0;
+}
+
+static int hpcrun_open_file(int thread, const char * suffix, int flags, const char* fileName) {
+  char name[PATH_MAX];
+  struct fileid *id;
+  int fd, ret;
+
+  id = (flags & FILES_EARLY) ? &earlyid : &lateid;
+
+  for(;;) {
+    errno = 0;
+     ret = snprintf(name, PATH_MAX, FILENAME_TEMPLATE, dirName.c_str(), fileName, RANK, thread, id->host, mypid, id->gen, suffix);
+
+    if (ret >= PATH_MAX) {
+      fd = -1;
+      errno = ENAMETOOLONG;
+      break;
+    }
+
+    fd = open(name, O_WRONLY | O_CREAT | O_EXCL, 0644);
+
+    if (fd >= 0){
+      // sucess
+      break;
+    }
+
+    if (errno != EEXIST || hpcrun_files_next_id(id) != 0) {
+      // failure, out of options
+      fd = -1;
+      break;
+    }
+
+  }
+
+  id->done = 1;
+
+  if (flags & FILES_EARLY) {
+    // late id starts where early id is chosen
+    lateid = earlyid;
+    lateid.done = 0;
+  }
+
+  if (fd < 0) {
+    printf("cctlib_hpcrun: unable to open %s file: '%s': %s", suffix, name, strerror(errno));
+  }
+
+  return fd;
+
+}
+
+static int unsigned long fetch_and_store(volatile long* addr, long newval) {
+  long result;
+  read_modify_write(long, addr, newval, result);
+  return result;
+}
+
+
+static inline void spinlock_unlock(spinlock_t *l) {
+  l->thelock = SPINLOCK_UNLOCKED_VALUE;
+}
+
+
+static inline void spinlock_lock(spinlock_t *l){
+  /* test-and-test-and-set lock*/
+  for(;;){
+    while(l->thelock != SPINLOCK_UNLOCKED_VALUE);
+
+    if(fetch_and_store(&l->thelock, SPINLOCK_LOCKED_VALUE) == SPINLOCK_UNLOCKED_VALUE) {
+      break;
+    }
+  }
+}
+
+
+// Write out the format for metric table. Needs updates
+void
+hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE* fs)
+{
+  // Write out the number of metric table in the program 
+  hpcfmt_int4_fwrite((uint32_t) 1, fs);  // 1 metric table
+  metric_desc_t mdesc = metricDesc_NULL;
+  mdesc.flags = hpcrun_metricFlags_NULL;
+
+  for (int i = 0; i < 16; i++) {
+     mdesc.flags.bits[i] = (uint8_t) 0x00;
+  }
+
+  mdesc.name = (char*) name;
+  mdesc.description = (char*) name; // TODO
+  mdesc.period = period;
+  mdesc.flags.fields.ty        = MetricFlags_Ty_Raw;
+  MetricFlags_ValFmt_t valFmt  = (MetricFlags_ValFmt_t) 1;
+  mdesc.flags.fields.valFmt    = valFmt;
+  mdesc.formula = NULL;
+  mdesc.format = NULL;
+
+  hpcfmt_str_fwrite(mdesc.name, fs);
+  hpcfmt_str_fwrite(mdesc.description, fs);
+  hpcfmt_intX_fwrite(mdesc.flags.bits, sizeof(mdesc.flags), fs); // Write metric flags bits for reading/writing
+  hpcfmt_int8_fwrite(mdesc.period, fs);
+  hpcfmt_str_fwrite(mdesc.formula, fs);
+  hpcfmt_str_fwrite(mdesc.format, fs);
+}
+
+// Get the filename from pathname
+//string GetFileName(std::string & pathname) {
+//  size_t index = pathname.find_last_of("/");
+//  string fileName = pathname.substr(index + 1);
+//  return fileName;
+//}
+
+
+// Initialize binary file and write hpcrun header
+FILE* lazy_open_data_file(int tID, std::string *filename){
+  FILE* fs;// = file;
+
+//  const char* pathCharName = pathname.c_str();
+//  string fileName = GetFileName(pathname);
+  const char* fileCharName = filename->c_str();
+
+  int fd = hpcrun_open_profile_file(tID, fileCharName);
+  fs = fdopen(fd, "w");
+
+  if(fs == NULL) return NULL;
+
+  const char* jobIdStr = OSUtil_jobid();
+
+  if(!jobIdStr) jobIdStr = "";
+
+  char mpiRankStr[bufSZ];
+  mpiRankStr[0] = '0';
+  snprintf(mpiRankStr, bufSZ, "%d", 0);
+  char tidStr[bufSZ];
+  snprintf(tidStr, bufSZ, "%d", tID);
+  char hostidStr[bufSZ];
+  snprintf(hostidStr, bufSZ, "%lx", OSUtil_hostid());
+  char pidStr[bufSZ];
+  snprintf(pidStr, bufSZ, "%u", OSUtil_pid());
+  char traceMinTimeStr[bufSZ];
+  snprintf(traceMinTimeStr, bufSZ, "%" PRIu64, (unsigned long int)0);
+  char traceMaxTimeStr[bufSZ];
+  snprintf(traceMaxTimeStr, bufSZ, "%" PRIu64, (unsigned long int)0);
+
+  // ======  file hdr  =====
+  hpcrun_fmt_hdrwrite(fs);
+  static int global_arg_len = 9;
+  hpcfmt_int4_fwrite(global_arg_len, fs);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_prog, fileCharName);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_progPath, filename->c_str());
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_envPath, getenv("PATH"));
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_jobId, jobIdStr);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_tid, tidStr);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_hostid, hostidStr);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_pid, pidStr);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_traceMinTime, traceMinTimeStr);
+  hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_traceMaxTime, traceMaxTimeStr);
+  hpcrun_fmt_epochHdr_fwrite(fs, epoch_flags, default_measurement_granularity, default_ra_to_callsite_distance);
+  hpcrun_set_metric_info_w_fn(1, "METRIC_DUMMY", 1, fs);
+  hpcrun_fmt_loadmap_fwrite(fs, *filename);
+  return fs;
+}
+
+int hpcrun_fmt_loadmap_fwrite(FILE* fs, std::string filename) {
+  uint16_t num = 1;
+  // Write loadmap size
+  hpcfmt_int4_fwrite((uint32_t)GLOBAL_STATE.ModuleInfoMap.size(), fs); // Write loadmap size
+
+  unordered_map<UINT32, ModuleInfo>::iterator it, ito;
+  // First print out the load module of the executable binary
+  for (it=GLOBAL_STATE.ModuleInfoMap.begin(); it!= GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
+    if (it->second.moduleName.find(filename) != std::string::npos) {
+      ito = it;
+
+      // Write loadmap information
+      hpcfmt_int2_fwrite(num++, fs); // Write loadmap id
+      hpcfmt_str_fwrite(it->second.moduleName.c_str(), fs); // Write loadmap name
+      hpcfmt_int8_fwrite((uint64_t)0, fs); // Write loadmap flags
+      break;
+    }
+  }
+
+  // write other load modules
+  for (it=GLOBAL_STATE.ModuleInfoMap.begin(); it!= GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
+    // currently only print out the load module of the executable binary
+    if (it == ito) {
+      continue;
+    }
+
+    // Write loadmap information
+    hpcfmt_int2_fwrite(num++, fs); // Write loadmap id
+    hpcfmt_str_fwrite(it->second.moduleName.c_str(), fs); // Write loadmap name
+    hpcfmt_int8_fwrite((uint64_t)0, fs); // Write loadmap flags
+  }
+
+  return 0;
+}
+
+
+int hpcrun_open_profile_file(int thread, const char* fileName){
+  int ret;
+  spinlock_lock(&files_lock);
+  hpcrun_files_init();
+  ret = hpcrun_open_file(thread, HPCRUN_ProfileFnmSfx, FILES_LATE, fileName);
+  spinlock_unlock(&files_lock);
+  return ret;
+}
+
+
+int hpcrun_fmt_hdrwrite(FILE* fs) {
+  fwrite(HPCRUN_FMT_Magic,   1, HPCRUN_FMT_MagicLen, fs);
+  fwrite(HPCRUN_FMT_Version, 1, HPCRUN_FMT_VersionLen, fs);
+  fwrite(HPCRUN_FMT_Endian,  1, HPCRUN_FMT_EndianLen, fs);
+  return 1;
+}
+
+
+int hpcrun_fmt_epochHdr_fwrite(FILE* fs, epoch_flags_t flags,
+                               uint64_t measurementGranularity, uint32_t raToCallsiteOfst) {
+  fwrite(HPCRUN_FMT_EpochTag, 1, HPCRUN_FMT_EpochTagLen, fs);
+  hpcfmt_int8_fwrite(flags.bits, fs);
+  hpcfmt_int8_fwrite(measurementGranularity, fs);
+  hpcfmt_int4_fwrite(raToCallsiteOfst, fs);
+  hpcfmt_int4_fwrite((uint32_t)1, fs);
+  hpcrun_fmt_hdr_fwrite(fs, "TODO:epoch-name", "TODO:epoch-value");
+  return 1;
+}
+
+
+int hpcrun_fmt_hdr_fwrite(FILE* fs, const char* arg1, const char* arg2){
+  hpcfmt_str_fwrite(arg1, fs);
+  hpcfmt_str_fwrite(arg2, fs);
+  return 1;
+}
+
+int hpcfmt_str_fwrite(const char* str, FILE* outfs){
+  unsigned int i;
+  uint32_t len = (str) ? strlen(str) : 0;
+  hpcfmt_int4_fwrite(len, outfs);
+
+  for (i = 0; i < len; i++){
+    int c = fputc(str[i], outfs);
+
+    if(c == EOF) return 0;
+
+  }
+
+  return 1;
+}
+
+
+size_t hpcio_be2_fwrite(uint16_t* val, FILE* fs)
+{
+  uint16_t v = *val; // local copy of val
+  int shift = 0, num_write = 0, c;
+
+  for (shift = 8; shift >= 0; shift -= 8) {
+    c = fputc( ((v >> shift) & 0xff) , fs);
+
+    if (c == EOF) { break; }
+
+    num_write++;
+  }
+
+  return num_write;
+}
+
+
+size_t hpcio_be4_fwrite(uint32_t* val, FILE* fs)
+{
+  uint32_t v = *val; // local copy of val
+  int shift = 0, num_write = 0, c;
+
+  for (shift = 24; shift >= 0; shift -= 8) {
+    c = fputc( ((v >> shift) & 0xff) , fs);
+
+    if (c == EOF) { break; }
+    num_write++;
+  }
+
+  return num_write;
+}
+
+size_t hpcio_be8_fwrite(uint64_t* val, FILE* fs)
+{
+  uint64_t v = *val; // local copy of val
+  int shift = 0, num_write = 0, c;
+
+  for (shift = 56; shift >= 0; shift -= 8) {
+    c = fputc( ((v >> shift) & 0xff) , fs);
+
+    if (c == EOF) { break; }
+
+    num_write++;
+  }
+
+  return num_write;
+}
+
+
+size_t hpcio_beX_fwrite(uint8_t* val, size_t size, FILE* fs)
+{
+  size_t num_write = 0;
+
+  for(uint i = 0; i < size; ++i) {
+    int c = fputc(val[i], fs);
+
+    if (c == EOF) break;
+    num_write++;
+  }
+
+  return num_write;
+}
+
+
+// Construct NewIPNode
+NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t parentID, uint64_t* nodeCount) {
+  if (NULL == oldIPNode) return NULL;
+
+  NewIPNode* curIP = new NewIPNode();
+  curIP->parentIPNode = parentIP;
+  curIP->IPAddress = GetIPFromInfo(oldIPNode);
+  curIP->parentID = parentID;
+  curIP->tmpSplay = oldIPNode-> calleeTraceNodes;
+#ifdef HAVE_METRIC_PER_IPNODE
+  curIP->metric = oldIPNode->metric;
+#endif
+
+  if (curIP->tmpSplay) curIP->ID = GetID();
+  else curIP->ID = -GetID();
+
+  (*nodeCount)++;
+  return curIP;
+}
+
+// Inorder tranversal of the previous splay tree and create the new tree
+void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childIPs, uint64_t *nodeCount) {
+  if(NULL == childIPs) return;
+
+  TraceNode* tNode = childIPs->value;
+  uint32_t i;
+  tranverseIPs(curIPNode, childIPs->left, nodeCount);
+
+  for (i = 0; i < tNode->nSlots; i++) {
+    NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, &(tNode->childIPs[i]));
+    if (sameIP) {
+      mergeIP(sameIP, &(tNode->childIPs[i]), nodeCount);
+    } else {
+      NewIPNode* nNode = constructIPNode(curIPNode, &(tNode->childIPs[i]), curIPNode->ID, nodeCount);
+      curIPNode->childIPNodes.push_back(nNode);
+
+      if (nNode->tmpSplay) {
+        tranverseIPs(nNode, nNode->tmpSplay, nodeCount);
+      }
+    }
+  }
+  tranverseIPs(curIPNode, childIPs->right, nodeCount);
+  return;
+}
+
+
+// Check to see whether another IPNode has the same address under the same parent
+NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
+  size_t i;
+  ADDRINT address = GetIPFromInfo(node);
+
+  for (i = 0; i < nodes.size(); i++) {
+
+    if (nodes.at(i)->IPAddress == address) return nodes.at(i);
+
+  }
+
+  return NULL;
+}
+
+// Merging the children of two nodes 
+void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount) {
+#ifdef HAVE_METRIC_PER_IPNODE
+  uint64_t* m = (uint64_t*) prev->metric;
+  uint64_t* n = (uint64_t*) cur->metric;
+  if (m && n) {
+    *m += *n;
+  } else if (!m && n) {
+    prev->metric = n;
+  }
+#endif
+
+  if (cur->calleeTraceNodes) {
+    tranverseIPs(prev, cur->calleeTraceNodes, nodeCount);
+  }
+
+  return;
+}
+
+
+// Helper function to assign ID for each node
+uint32_t GetID(void) {
+  // begin with 2 because 0 is the common root
+  static uint32_t IDGlobal = 2;
+  uint32_t id = __sync_fetch_and_add(&IDGlobal, 2);
+  return id;
+}
+
+// Write out each IP's id, parent id, loadmodule id (1) and address 
+void IPNode_fwrite(NewIPNode* node, FILE* fs) {
+  if (!node) return;
+  hpcfmt_int4_fwrite(node->ID, fs);
+  hpcfmt_int4_fwrite(node->parentID, fs);
+  hpcfmt_int2_fwrite(1, fs); // Set loadmodule id to 1
+  hpcfmt_int8_fwrite(node->IPAddress, fs);
+
+  uint64_t metricVal = 0;
+#ifdef HAVE_METRIC_PER_IPNODE 
+  uint64_t* metricPtr = (uint64_t*) node->metric;
+  // dereference the pointer 
+  if (NULL == node->metric){
+    metricVal = 0;
+  } else {
+    metricVal = (uint64_t)*(metricPtr);
+  }
+#endif
+  hpcfmt_int8_fwrite(metricVal, fs);
+  return;
+}
+
+
+// Tranverse and print the calling context tree (nodes first)
+void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
+
+  if (nodes.size() == 0) return;
+  size_t i;
+
+  for(i = 0; i < nodes.size(); i++) {
+    IPNode_fwrite(nodes.at(i), fs);
+  }
+
+  for(i = 0; i < nodes.size(); i++) {
+
+    if(nodes.at(i)->childIPNodes.size() != 0) {
+      tranverseNewCCT(nodes.at(i)->childIPNodes, fs);
+    }
+
+  }
+  return;
+}
+
+/*======APIs to support hpcviewer format======*/
+/*
+ * Initialize the formatting preparation
+ * (called by the clients)
+ * TODO: initialize metric table, provide custom metric merge functions
+ */
+int init_hpcrun_format(int argc, char *argv[])
+{
+  // Extract executable name
+  int i;
+  for (i=0; i<argc; i++) {
+    if (strcmp(argv[i], "--") == 0) {
+      filename = new string(basename(argv[i+1]));
+      break;
+    }
+  }
+  // Create the measurement directory
+  dirName = "hpctoolkit-" + *filename + "-measurements";
+  int status = mkdir(dirName.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+ 
+  return 0;
+}
+
+/*
+ * Write the calling context tree of 'threadid' thread 
+ * (Called from clientele program) 
+ */
+int newCCT_hpcrun_write(THREADID threadid) {
+
+  
+  FILE *fs = lazy_open_data_file(int (threadid), filename); 
+  if(!fs) return -1;
+
+  uint32_t i;
+  ThreadData* tdata = CCTLibGetTLS(threadid);
+  TraceNode* cctlib = tdata->tlsRootTraceNode;
+  vector<NewIPNode*> IPHandle;
+
+  for(i = 0; i < cctlib->nSlots; i++) {
+    NewIPNode* nIP = constructIPNode(NULL, &(cctlib->childIPs[i]), 0, &tdata->nodeCount);
+    IPHandle.push_back(nIP);
+
+    if(nIP->tmpSplay) {
+      tranverseIPs(nIP, nIP->tmpSplay, &tdata->nodeCount);
+    }
+
+  }
+
+  hpcfmt_int8_fwrite(tdata->nodeCount, fs);
+  tranverseNewCCT(IPHandle, fs);
+  hpcio_fclose(fs);
+  return 0;
+}
+
+// ************************************************************    
+
 }
 
