@@ -3046,6 +3046,9 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
 /* ==================================hpcviewer support===================================*/
+/*
+ * This support is added by Xiaonan Hu and tailored by Xu Liu at College of William and Mary.
+ */
      
 // necessary macros
 #define HASH_PRIME 2001001003
