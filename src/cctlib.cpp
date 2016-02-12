@@ -2899,6 +2899,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 //DO_DATA_CENTRIC
     static void InitDataCentric() {
         // For shadow memory based approach initialize the L1 page table LEVEL_1_PAGE_TABLE_SIZE
+        GLOBAL_STATE.doDataCentric = true;
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
         gL1PageTable = (uint8_t***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE * sizeof(uint8_t***), PROT_WRITE
                                          | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
