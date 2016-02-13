@@ -32,7 +32,7 @@
 //
 // ******************************************************* EndRiceCopyright *
 
-
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -110,7 +110,9 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
-
+#define SAME_RATE (0.1)
+#define SAME_RECORD_LIMIT (0)
+#define RED_RATE (0.9)
 
 
 #define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
@@ -125,12 +127,16 @@ struct AddrValPair{
 };
 
 typedef struct dataObjectStatus{
-    uint16_t accessLen;
-    uint8_t lastOperation; //1 means write,0 means read
+    uint32_t numOfReads; //num of reads
+    uint8_t secondWrite;
+    uint64_t startAddr;
+    uint32_t lastWCtxt;
+    uint8_t accessLen;
 }DataObjectStatus;
 
 typedef struct intraRedIndexPair{
     double redundancy;
+    uint32_t curCtxt;
     list<uint32_t> indexes;
 }IntraRedIndexPair;
 
@@ -191,7 +197,8 @@ INT32 Usage2() {
 // Main for RedSpy, initialize the tool, register instrumentation functions and call the target program.
 static FILE* gTraceFile;
 static uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
-
+static long COUNT = 0;
+uint32_t lastStatic;
 // Initialized the needed data structures before launching the target program
 static void ClientInit(int argc, char* argv[]) {
     // Create output file
@@ -239,20 +246,13 @@ static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BY
 static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
 
 static unordered_map<uint64_t, uint64_t> RedMap[THREAD_MAX];
-static inline void AddToRedTable(uint64_t key, int index,  uint16_t value, THREADID threadId) {
+static inline void AddToRedTable(uint64_t key, uint16_t value, THREADID threadId) {
 #ifdef MULTI_THREADED
     LOCK_RED_MAP();
 #endif
-    uint64_t ind;
-    uint64_t val = (uint64_t)value;
-    if(index == -1)
-        ind = 0x00000000ffffffff;
-    else
-        ind = (uint64_t)index;
-    uint64_t result = (ind << 32) | val;
     unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].find(key);
     if ( it  == RedMap[threadId].end()) {
-        RedMap[threadId][key] = result;
+        RedMap[threadId][key] = value;
     } else {
         it->second += value;
     }
@@ -282,9 +282,9 @@ int inline FindRedPair(list<IntraRedIndexPair> redlist,IntraRedIndexPair redpair
 }
 
 //type:0 means dynamic data object while 1 means static
-VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t cnxt,IntraRedIndexPair redPair,THREADID threadId,uint8_t type){
+VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t lastW, IntraRedIndexPair redPair,THREADID threadId,uint8_t type){
     uint64_t data = (uint64_t)dataObj;
-    uint64_t context = (uint64_t)cnxt;
+    uint64_t context = (uint64_t)lastW;
     uint64_t key = (data << 32) | context;
   
     if(type == 0){
@@ -312,326 +312,230 @@ VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t cnxt,IntraRedIn
     }
 }
 
+/* update the reading access pattern */
+VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
+        /////////////////////////////////////////
+        if((uint64_t)addr & 0x7f0000000000)
+            return;
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+ 
+        DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
+        if(dataHandle.objectType == DYNAMIC_OBJECT){
+            unordered_map<uint32_t,DataObjectStatus>::iterator it;
+            it = tData->dynamicDataObjects.find(dataHandle.pathHandle);
+            if(it != tData->dynamicDataObjects.end()){
+                it->second.numOfReads += 1;
+            }
+        }else if(dataHandle.objectType == STATIC_OBJECT){
+            unordered_map<uint32_t,DataObjectStatus>::iterator it;
+            it = tData->staticDataObjects.find(dataHandle.symName);
+            if(it != tData->staticDataObjects.end()){
+//printf("add reads %d\n",it->second.numOfReads);
+                it->second.numOfReads += 1;
+            }
+        }
+}
+
+inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t lastWctxt, uint32_t curCtxt, uint16_t accessLen, uint64_t begaddr, uint64_t endaddr,THREADID threadId, uint8_t type ){
+        uint64_t address;
+        uint32_t index;
+        if(accessLen == 1){
+            unordered_map<uint8_t,list<uint32_t>> valuesMap1;
+            unordered_map<uint8_t,list<uint32_t>>::iterator it1;
+            address = begaddr;
+            index = 0;
+            while(address < endaddr){
+            
+                uint8_t value1 = *static_cast<uint8_t *>((void *)address);
+                it1 = valuesMap1.find(value1);
+                if(it1 == valuesMap1.end()){
+                    list<uint32_t> newlist;
+                    newlist.push_back(index);
+                    valuesMap1.insert(std::pair<uint8_t,list<uint32_t>>(value1,newlist));
+                }else{
+                    it1->second.push_back(index);
+                }
+                    address += 1;
+                    index++;
+            }
+            uint32_t numUniqueValue = valuesMap1.size();
+            double redRate = (double)(index - numUniqueValue)/index;
+            list<uint32_t> maxList;
+            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
+                if(it1->second.size() > index*SAME_RATE){
+                    maxList.push_back(*(it1->second.begin()));
+                }
+            }
+            if(redRate > RED_RATE || maxList.size() > SAME_RECORD_LIMIT){
+                IntraRedIndexPair newpair;
+                newpair.redundancy = redRate;
+                newpair.curCtxt = curCtxt;
+                newpair.indexes = maxList;                            
+                RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
+            }
+        }else if(accessLen == 2){
+            unordered_map<uint16_t,list<uint32_t>> valuesMap1;
+            unordered_map<uint16_t,list<uint32_t>>::iterator it1;
+            address = begaddr;
+            index = 0;
+            while(address < endaddr){
+            
+                uint16_t value1 = *static_cast<uint16_t *>((void *)address);
+                it1 = valuesMap1.find(value1);
+                if(it1 == valuesMap1.end()){
+                    list<uint32_t> newlist;
+                    newlist.push_back(index);
+                    valuesMap1.insert(std::pair<uint16_t,list<uint32_t>>(value1,newlist));
+                }else{
+                    it1->second.push_back(index);
+                }
+                    address += 2;
+                    index++;
+            }
+            uint32_t numUniqueValue = valuesMap1.size();
+            double redRate = (double)(index - numUniqueValue)/index;
+            list<uint32_t> maxList;
+            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
+                if(it1->second.size() > index*SAME_RATE){
+                    maxList.push_back(*(it1->second.begin()));
+                }
+            }
+            if(redRate > RED_RATE || maxList.size() > SAME_RECORD_LIMIT){
+                IntraRedIndexPair newpair;
+                newpair.redundancy = redRate;
+                newpair.curCtxt = curCtxt;
+                newpair.indexes = maxList;                            
+                RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
+            }
+        }else if(accessLen == 4){
+            unordered_map<uint32_t,list<uint32_t>> valuesMap1;
+            unordered_map<uint32_t,list<uint32_t>>::iterator it1;
+            address = begaddr;
+            index = 0;
+            while(address < endaddr){
+            
+                 uint32_t value1 = *static_cast<uint32_t *>((void *)address);
+                 it1 = valuesMap1.find(value1);
+                 if(it1 == valuesMap1.end()){
+                    list<uint32_t> newlist;
+                    newlist.push_back(index);
+                    valuesMap1.insert(std::pair<uint32_t,list<uint32_t>>(value1,newlist));
+                 }else{
+                    it1->second.push_back(index);
+                 }
+                    address += 4;
+                    index++;
+            }
+            uint32_t numUniqueValue = valuesMap1.size();
+            double redRate = (double)(index - numUniqueValue)/index;
+            list<uint32_t> maxList;
+            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
+                if(it1->second.size() > index*SAME_RATE){
+                    maxList.push_back(*(it1->second.begin()));
+                }
+            }
+            if(redRate > RED_RATE || maxList.size() > SAME_RECORD_LIMIT){
+                IntraRedIndexPair newpair;
+                newpair.redundancy = redRate;
+                newpair.curCtxt = curCtxt;
+                newpair.indexes = maxList;                            
+                RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
+            }   
+        }else if(accessLen == 8){
+            unordered_map<uint64_t,list<uint32_t>> valuesMap1;
+            unordered_map<uint64_t,list<uint32_t>>::iterator it1;
+            address = begaddr;
+            index = 0;
+            while(address < endaddr){
+            
+                uint64_t value1 = *static_cast<uint64_t *>((void *)address);
+                it1 = valuesMap1.find(value1);
+                if(it1 == valuesMap1.end()){
+                    list<uint32_t> newlist;
+                    newlist.push_back(index);
+                    valuesMap1.insert(std::pair<uint64_t,list<uint32_t>>(value1,newlist));
+                }else{
+                    it1->second.push_back(index);
+                }
+                address += 8;
+                index++;
+            }
+            uint32_t numUniqueValue = valuesMap1.size();
+            double redRate = (double)(index - numUniqueValue)/index;
+            list<uint32_t> maxList;
+            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
+                if(it1->second.size() > index*SAME_RATE){
+                    maxList.push_back(*(it1->second.begin()));
+                }
+            }
+            if(redRate > RED_RATE || maxList.size() > SAME_RECORD_LIMIT){
+                IntraRedIndexPair newpair;
+                newpair.redundancy = redRate;
+                newpair.curCtxt = curCtxt;
+                newpair.indexes = maxList;                            
+                RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
+            }
+        }else{
+            printf("\nHaven't thought about how to handle this case\n"); 
+        }
+}
+
 //check whether there are same elements inside the data objects
-VOID CheckIntraArrayElements(void *addr,THREADID threadId, const uint32_t opHandle){
+VOID CheckIntraArrayElements(void *addr, uint16_t AccessLen, THREADID threadId, const uint32_t opHandle){
+
+    if((uint64_t)addr & 0x7f0000000000)
+        return;
+
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
     uint32_t curCtxt = GetContextHandle(threadId, opHandle);
 
-    if((uint64_t)addr & 0x7f0000000000)
-        return;
-                           
     if(dataHandle.objectType == DYNAMIC_OBJECT){
+        if((dataHandle.end_addr-dataHandle.beg_addr)/AccessLen <= 1)
+            return;
         unordered_map<uint32_t,DataObjectStatus>::iterator it;
-        uint64_t address;
-        uint32_t index,max;
-        double redundancy;
         it = tData->dynamicDataObjects.find(dataHandle.pathHandle);
         if(it != tData->dynamicDataObjects.end()){
-            if(it->second.lastOperation != 0){
-//check the same elements in this dataObject
-                if(it->second.accessLen == 1){
-                            unordered_map<uint8_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint8_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint8_t value1 = *static_cast<uint8_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint8_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 1;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.pathHandle,curCtxt, newpair,threadId,0);
-                            }
-                }else if(it->second.accessLen == 2){
-                            unordered_map<uint16_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint16_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint16_t value1 = *static_cast<uint16_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint16_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 2;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.pathHandle,curCtxt, newpair,threadId,0);
-                            }
-                }else if(it->second.accessLen == 4){
-                            unordered_map<uint32_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint32_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint32_t value1 = *static_cast<uint32_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint32_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 4;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.pathHandle,curCtxt, newpair,threadId,0);
-                            }
-                 
-                }else if(it->second.accessLen == 8){
-                            unordered_map<uint64_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint64_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint64_t value1 = *static_cast<uint64_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint64_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 8;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.pathHandle,curCtxt, newpair,threadId,0);
-                            }
-
-                }else{
-                            printf("\nHaven't thought about how to handle this case\n"); 
-                           //  break;
-                }
-                it->second.lastOperation = 0;
+            uint32_t arraySize = (dataHandle.end_addr - dataHandle.beg_addr)/AccessLen;
+            if(it->second.numOfReads > arraySize/4){
+                CheckAndRecordIntraArrayRedundancy(dataHandle.pathHandle, it->second.lastWCtxt, curCtxt, AccessLen, dataHandle.beg_addr, dataHandle.end_addr, threadId, 0);
             }
+            if(it->second.numOfReads != 0)
+                it->second.secondWrite+=1;
+            it->second.numOfReads = 0;
+            it->second.lastWCtxt = curCtxt;
+        }else{
+            DataObjectStatus newStatus;
+            newStatus.numOfReads = 0;
+            newStatus.secondWrite = 0;
+            newStatus.startAddr = dataHandle.beg_addr;
+            newStatus.accessLen = AccessLen;
+            newStatus.lastWCtxt = curCtxt;
+            tData->dynamicDataObjects.insert(std::pair<uint32_t,DataObjectStatus>(dataHandle.pathHandle,newStatus)); 
         }
     }else if(dataHandle.objectType == STATIC_OBJECT){
+        if((dataHandle.end_addr-dataHandle.beg_addr)/AccessLen <= 1)
+            return;      
         unordered_map<uint32_t,DataObjectStatus>::iterator it;
-        uint64_t address;
-        uint32_t index,max;
-        double redundancy;
         it = tData->staticDataObjects.find(dataHandle.symName);
         if(it != tData->staticDataObjects.end()){
-            if(it->second.lastOperation != 0){
-//check the same elements in this dataObject
-                if(it->second.accessLen == 1){
-                            unordered_map<uint8_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint8_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint8_t value1 = *static_cast<uint8_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint8_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 1;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.symName,curCtxt, newpair,threadId,1);
-                            }
-
-                }else if(it->second.accessLen == 2){
-                            unordered_map<uint16_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint16_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint16_t value1 = *static_cast<uint16_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint16_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 2;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.symName,curCtxt, newpair,threadId,1);
-                            }
-
-                }else if(it->second.accessLen == 4){
-                            unordered_map<uint32_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint32_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint32_t value1 = *static_cast<uint32_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint32_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 4;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.symName,curCtxt, newpair,threadId,1);
-                            }
-
-                }else if(it->second.accessLen == 8){
-                            unordered_map<uint64_t,list<uint32_t>> valuesMap1;
-                            unordered_map<uint64_t,list<uint32_t>>::iterator it1;
-                            address = dataHandle.beg_addr;
-                            index = 0;
-                            while(address < dataHandle.end_addr){
-            
-                                uint64_t value1 = *static_cast<uint64_t *>((void *)address);
-                                it1 = valuesMap1.find(value1);
-                                if(it1 == valuesMap1.end()){
-                                    list<uint32_t> newlist;
-                                    newlist.push_back(index);
-                                    valuesMap1.insert(std::pair<uint64_t,list<uint32_t>>(value1,newlist));
-                                }else{
-                                    it1->second.push_back(index);
-                                }
-                                address += 8;
-                                index++;
-                            }
-                            max = 1;
-                            list<uint32_t> maxList;
-                            for (it1 = valuesMap1.begin(); it1 != valuesMap1.end(); ++it1){
-                                if(max < it1->second.size()){
-                                    max = it1->second.size();
-                                    maxList = it1->second;
-                                }
-                            }
-                            redundancy = (double)max/(index+1);
-                            if(redundancy > 0.5){
-                                IntraRedIndexPair newpair;
-                                newpair.redundancy = redundancy;
-                                newpair.indexes = maxList;                            
-                                RecordIntraArrayRedundancy(dataHandle.symName,curCtxt, newpair,threadId,1);
-                            }
-
-                }else{     
-                            printf("\nHaven't thought about how to handle this case\n");
-                            //break; 
-                }
-                it->second.lastOperation = 0;
+            uint32_t arraySize = (dataHandle.end_addr - dataHandle.beg_addr)/AccessLen; 
+            if(it->second.numOfReads > arraySize/4){
+                CheckAndRecordIntraArrayRedundancy(dataHandle.symName, it->second.lastWCtxt, curCtxt, AccessLen, dataHandle.beg_addr, dataHandle.end_addr, threadId, 1);
             }
+            if(it->second.numOfReads != 0)
+                it->second.secondWrite+=1;
+            it->second.numOfReads = 0;
+            it->second.lastWCtxt = curCtxt;
+        }else{
+            DataObjectStatus newStatus;
+            newStatus.numOfReads = 0;
+            newStatus.secondWrite = 0;
+            newStatus.startAddr = dataHandle.beg_addr;
+            newStatus.accessLen = AccessLen;
+            newStatus.lastWCtxt = curCtxt;
+            tData->staticDataObjects.insert(std::pair<uint32_t,DataObjectStatus>(dataHandle.symName,newStatus)); 
         }
-
     }
 }
 
@@ -651,7 +555,7 @@ struct RedSpyAnalysis{
         }
     }
     
-    static inline VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
+    static inline VOID RecordNByteValueBeforeWrite(void* addr, uint32_t opaqueHandle, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 //printf("\n B: %lx %lu %d %d %lx", (uint64_t)addr, tData->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
@@ -663,38 +567,9 @@ struct RedSpyAnalysis{
             case 4: *((uint32_t*)(&avPair->value)) = *(static_cast<uint32_t*>(addr)); break;
             case 8: *((uint64_t*)(&avPair->value)) = *(static_cast<uint64_t*>(addr)); break;
             default:memcpy(&avPair->value, addr, AccessLen);
-        }
-        /////////////////////////////////////////
-        if((uint64_t)addr & 0x7f0000000000)
-            return;
-        DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
-        if(dataHandle.objectType == DYNAMIC_OBJECT){
-            if((dataHandle.end_addr - dataHandle.beg_addr)/AccessLen <= 1)
-                return;
-            unordered_map<uint32_t,DataObjectStatus>::iterator it;
-            it = tData->dynamicDataObjects.find(dataHandle.pathHandle);
-            if(it == tData->dynamicDataObjects.end()){
-                DataObjectStatus newStatus;
-                newStatus.accessLen = AccessLen;
-                newStatus.lastOperation += 1;
-                tData->dynamicDataObjects.insert(std::pair<uint32_t,DataObjectStatus>(dataHandle.pathHandle,newStatus));
-            }else{
-                it->second.lastOperation += 1;
-            }
-        }else if(dataHandle.objectType == STATIC_OBJECT){
-            if((dataHandle.end_addr - dataHandle.beg_addr)/AccessLen <= 1)
-                return; 
-            unordered_map<uint32_t,DataObjectStatus>::iterator it;
-            it = tData->staticDataObjects.find(dataHandle.symName);
-            if(it == tData->staticDataObjects.end()){
-                DataObjectStatus newStatus;
-                newStatus.accessLen = AccessLen;
-                newStatus.lastOperation += 1;
-                tData->staticDataObjects.insert(std::pair<uint32_t,DataObjectStatus>(dataHandle.symName,newStatus));
-            }else{
-                it->second.lastOperation += 1;
-            }
         } 
+
+        CheckIntraArrayElements(addr,AccessLen,threadId,opaqueHandle);
     }
     
     static inline VOID CheckNByteValueAfterWrite(void * address, uint32_t opaqueHandle, THREADID threadId){
@@ -708,23 +583,12 @@ struct RedSpyAnalysis{
         ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
         const bool isAccessWithinPageBoundary = IS_ACCESS_WITHIN_PAGE_BOUNDARY( (uint64_t)addr, AccessLen);
         if(isRedundantWrite) {
-            int indexInfo = -1; 
-            if((uint64_t)address & 0x7f0000000000){
-                ;
-            }else{
-                DataHandle_t dataHandle = GetDataObjectHandle(address,threadId);
-                if(dataHandle.objectType == DYNAMIC_OBJECT || dataHandle.objectType == STATIC_OBJECT){                
-                    indexInfo = (dataHandle.end_addr - (uint64_t)address)/AccessLen;
-                    if(indexInfo<=1)
-                        indexInfo = -1;
-                }
-            }
             // detected redundancy
             if(isAccessWithinPageBoundary) {
                 // All from same ctxt?
                 if (UnrolledConjunction<0, AccessLen, 1>::Body( [&] (int index) -> bool { return (prevIP[index] == prevIP[0]); })) {
                     // report in RedTable
-                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle),indexInfo, AccessLen, threadId);
+                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), AccessLen, threadId);
                     // Update context
                     UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
                         // Update context
@@ -734,7 +598,7 @@ struct RedSpyAnalysis{
                     // different contexts
                     UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
                         // report in RedTable
-                        AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[index], curCtxtHandle),indexInfo, 1,threadId);
+                        AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[index], curCtxtHandle), 1,threadId);
                         // Update context
                         prevIP[index] = curCtxtHandle;
                     });
@@ -742,7 +606,7 @@ struct RedSpyAnalysis{
             } else {
                 // Write across a 64-K page boundary
                 // First byte is on this page though
-                AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle),indexInfo, 1, threadId);
+                AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), 1, threadId);
                 // Update context
                 prevIP[0] = curCtxtHandle;
                 
@@ -751,7 +615,7 @@ struct RedSpyAnalysis{
                     status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
                     prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
                     // report in RedTable
-                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle),indexInfo, 1, threadId);
+                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), 1, threadId);
                     // Update context
                     prevIP[0] = curCtxtHandle;
                 } );
@@ -778,38 +642,13 @@ struct RedSpyAnalysis{
 };
 
 
-static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
+static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
-    tData->buffer[bufferOffset].address = addr;
-    /////////////////////////////////////////
-    if((uint64_t)addr & 0x7f0000000000)
-        return;
-    DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
-    if(dataHandle.objectType == DYNAMIC_OBJECT){
-        unordered_map<uint32_t,DataObjectStatus>::iterator it;
-        it = tData->dynamicDataObjects.find(dataHandle.pathHandle);
-        if(it == tData->dynamicDataObjects.end()){
-            DataObjectStatus newStatus;
-            newStatus.accessLen = accessLen;
-            newStatus.lastOperation += 1;
-            tData->dynamicDataObjects.insert(std::pair<uint32_t,DataObjectStatus>(dataHandle.pathHandle,newStatus));
-        }else{
-            it->second.lastOperation += 1;
-        }
-    }else if(dataHandle.objectType == STATIC_OBJECT){
-        unordered_map<uint32_t,DataObjectStatus>::iterator it;
-        it = tData->staticDataObjects.find(dataHandle.symName);
-        if(it == tData->staticDataObjects.end()){
-            DataObjectStatus newStatus;
-            newStatus.accessLen = accessLen;
-            newStatus.lastOperation += 1;
-            tData->staticDataObjects.insert(std::pair<uint32_t,DataObjectStatus>(dataHandle.symName,newStatus));
-        }else{
-            it->second.lastOperation += 1;
-        }
-    } 
+    tData->buffer[bufferOffset].address = addr; 
+    CheckIntraArrayElements(addr, accessLen,threadId,opaqueHandle);
 }
+
 
 static inline VOID CheckAfterLargeWrite(void* address, UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
@@ -820,22 +659,12 @@ static inline VOID CheckAfterLargeWrite(void* address, UINT32 accessLen,  uint32
     ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
     if(memcmp( & (tData->buffer[bufferOffset].value), addr, accessLen) == 0){
         // redundant
-        int indexInfo = -1; 
-        if((uint64_t)address & 0x7f0000000000){
-                ;
-        }else{
-            DataHandle_t dataHandle = GetDataObjectHandle(address,threadId);
-            if(dataHandle.objectType == DYNAMIC_OBJECT || dataHandle.objectType == STATIC_OBJECT){                
-                indexInfo = (dataHandle.end_addr - (uint64_t)address)/accessLen;
-                if(indexInfo<=1)
-                    indexInfo = -1;
-            }
-        }
+        
         for(UINT32 index = 0 ; index < accessLen; index++){
             status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
             prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
             // report in RedTable
-            AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle),indexInfo, 1, threadId);
+            AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), 1, threadId);
             // Update context
             prevIP[0] = curCtxtHandle;
         }
@@ -879,7 +708,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
 }
 
 #define HANDLE_CASE(NUM, BUFFER_INDEX) \
-case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
+case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);\
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
 
@@ -908,7 +737,7 @@ struct RedSpyInstrument{
                 HANDLE_CASE(16, readBufferSlotIndex);
                 
             default: {
-                INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);
+                INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
                 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
             }
         }
@@ -928,7 +757,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         // Read the value at location before and after the instruction
         for(UINT32 memop = 0; memop < memOperands; memop++){
            if(INS_MemoryOperandIsRead(ins,memop) && !INS_MemoryOperandIsWritten(ins,memop)){
-               INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
+               INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
            }else if(INS_MemoryOperandIsWritten(ins,memop)){
                RedSpyInstrument<0>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
            }
@@ -938,8 +767,8 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     
     int readBufferSlotIndex=0;
     for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
-        if(INS_MemoryOperandIsRead(ins,memOp)){
-             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
+        if(INS_MemoryOperandIsRead(ins,memOp) && !INS_MemoryOperandIsWritten(ins,memOp)){
+            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
         }       
  
         if(!INS_MemoryOperandIsWritten(ins, memOp))
@@ -981,7 +810,6 @@ struct RedundacyData {
     ContextHandle_t dead;
     ContextHandle_t kill;
     uint64_t frequency;
-    list<uint32_t> index;
 };
 
 static inline string ConvertListToString(list<uint32_t> inlist){
@@ -1029,24 +857,13 @@ static void PrintRedundancyPairs(THREADID threadId) {
              }
              bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
              if(ct1 && ct2){
-                  uint32_t val = (*it).second & 0x00000000ffffffff;
-                  uint32_t ind = (*it).second >> 32;
-                  (*tmpIt).frequency += val;
-                  grandTotalRedundantBytes += val;
-                  if(ind & 0xffffffff)
-                      break;
-                  list<uint32_t>::iterator findit = find((*tmpIt).index.begin(),(*tmpIt).index.end(),ind);
-                  if(findit == (*tmpIt).index.end())
-                      (*tmpIt).index.push_back(ind);
+                  (*tmpIt).frequency += (*it).second;
+                  grandTotalRedundantBytes += (*it).second;
                   break;
              }
         }
         if(tmpIt == tmpList.end()){
-             uint32_t val = (*it).second & 0x00000000ffffffff;
-             uint32_t ind = (*it).second >> 32;
-             list<uint32_t> newInd;
-             newInd.push_back(ind);
-             RedundacyData tmp = { dead, kill, val, newInd};
+             RedundacyData tmp = { dead, kill, (*it).second};
              tmpList.push_back(tmp);
              grandTotalRedundantBytes += tmp.frequency;
         }
@@ -1064,8 +881,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
             } else {
                 PrintFullCallingContext((*listIt).dead);
             }
-            string indexlist = ConvertListToString((*listIt).index);
-            fprintf(gTraceFile, "\n-------------Redundantly written at index:%s by---------------------------\n",indexlist.c_str());
+            fprintf(gTraceFile, "\n-------------Redundantly written by---------------------------\n");
             PrintFullCallingContext((*listIt).kill);
         }
         else {
@@ -1073,6 +889,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
         }
         cntxtNum++;
     }
+
     fprintf(gTraceFile,"\n*************** Intra Array Redundancy of Thread %d ***************\n",threadId);
     unordered_map<uint64_t,list<IntraRedIndexPair>>::iterator itIntra;
     uint8_t staticAccount = 0;
@@ -1087,9 +904,10 @@ static void PrintRedundancyPairs(THREADID threadId) {
         list<IntraRedIndexPair>::iterator listit;
         fprintf(gTraceFile,"\n");
         for(listit = itIntra->second.begin(); listit != itIntra->second.end(); ++listit){
-            fprintf(gTraceFile,"Red:%.2f, at Indexes:",(*listit).redundancy);
+            fprintf(gTraceFile,"Red:%.2f, unique Indexes:",(*listit).redundancy);
             string indexlist = ConvertListToString((*listit).indexes);
-            fprintf(gTraceFile,"%s",indexlist.c_str());
+            fprintf(gTraceFile,"%s\n",indexlist.c_str());
+            PrintFullCallingContext((*listit).curCtxt);
         }
         fprintf(gTraceFile,"\n----------------------------");
         staticAccount++;
@@ -1130,7 +948,23 @@ static VOID ImageUnload(IMG img, VOID* v) {
     stIntraDataRed[threadid].clear();
 }
 
-static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
+static VOID ThreadFiniFunc(THREADID threadId, const CONTEXT *ctxt, INT32 code, VOID *v) {
+
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    unordered_map<uint32_t,DataObjectStatus>::iterator it;
+    for( it = tData->staticDataObjects.begin(); it != tData->staticDataObjects.end();++it){
+        if(it->second.secondWrite == 0){
+            DataHandle_t dataHandle = GetDataObjectHandle((void*)(it->second.startAddr),threadId); 
+            CheckAndRecordIntraArrayRedundancy(it->first, it->second.lastWCtxt, it->second.lastWCtxt, it->second.accessLen, dataHandle.beg_addr, dataHandle.end_addr, threadId, 1);           
+        }
+    }
+    for( it = tData->dynamicDataObjects.begin(); it != tData->dynamicDataObjects.end();++it){
+        if(it->second.secondWrite == 0){
+            DataHandle_t dataHandle = GetDataObjectHandle((void*)(it->second.startAddr),threadId); 
+            CheckAndRecordIntraArrayRedundancy(it->first, it->second.lastWCtxt, it->second.lastWCtxt, it->second.accessLen, dataHandle.beg_addr, dataHandle.end_addr, threadId, 0);           
+        }
+    }
+
 }
 
 static VOID FiniFunc(INT32 code, VOID *v) {
