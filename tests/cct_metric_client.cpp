@@ -128,7 +128,7 @@ int main(int argc, char* argv[]) {
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
     // Init hpcrun format output
-    init_hpcrun_format(argc, argv);
+    init_hpcrun_format(argc, argv, true);
     
     // Collete data for visualization
     PIN_AddThreadStartFunction(ThreadStartFunc, 0);

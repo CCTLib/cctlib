@@ -181,6 +181,7 @@ namespace PinCCTLib {
 #endif
 
     static inline ADDRINT GetIPFromInfo(IPNode*);
+    static inline void SetIPFromInfo(IPNode* ipNode, ADDRINT val);
     static inline const string& GetModulePathFromInfo(IPNode* ipNode);
     static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath);
 
@@ -339,6 +340,9 @@ namespace PinCCTLib {
 
 
     struct CCT_LIB_GLOBAL_STATE {
+        // record the IP of the first instruction in main
+        bool skip; // whether we want to skip all the frames above main; default is false
+        ADDRINT mainIP;
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
         bool applicationStarted ; // false by default
@@ -1652,6 +1656,21 @@ namespace PinCCTLib {
         ADDRINT* ip = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
         return ip[slotNo];
     }
+// Given a pointer (i.e. slot) within a trace node, set the IP corresponding to that slot
+// Used for creating dummy root by eliding all frames above "main"
+    static inline void SetIPFromInfo(IPNode* ipNode, ADDRINT val) {
+        TraceNode* traceNode = ipNode->parentTraceNode;
+        // what is my slot id ?
+        uint32_t slotNo = 0;
+
+        for(; slotNo < traceNode->nSlots; slotNo++) {
+            if(&traceNode->childIPs[slotNo] == ipNode)
+                break;
+        }
+
+        ADDRINT* ip = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
+        ip[slotNo] = val;
+    }
 
 
 // Given a pointer (i.e. slot) within a trace node, returns the module name corresponding to that slot
@@ -2893,6 +2912,21 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                 RTN_Close(freeRtn);
             }
         }
+
+        // Get the first instruction of main
+        if (GLOBAL_STATE.skip) {
+	  RTN mainRtn = RTN_FindByName(img, "main");
+	  if(!RTN_Valid(mainRtn)) {
+		mainRtn = RTN_FindByName(img, "MAIN");
+		if(!RTN_Valid(mainRtn)) {
+			mainRtn = RTN_FindByName(img, "MAIN_");
+		}
+	  } 
+	  if (RTN_Valid(mainRtn)) {
+		GLOBAL_STATE.mainIP = RTN_Address(mainRtn);
+	  }
+        }
+
     }
 
 
@@ -3846,6 +3880,9 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
   if (!node) return;
   hpcfmt_int4_fwrite(node->ID, fs);
   hpcfmt_int4_fwrite(node->parentID, fs);
+  if (node->IPAddress == 0)
+    hpcfmt_int2_fwrite(0, fs);
+  else
   hpcfmt_int2_fwrite(1, fs); // Set loadmodule id to 1
   hpcfmt_int8_fwrite(node->IPAddress, fs);
 
@@ -3884,13 +3921,33 @@ void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
   return;
 }
 
+static void findMain(IPNode* curIPNode, TraceSplay* childIPs, IPNode **mainNode) {
+  if(NULL == childIPs) return;
+
+  TraceNode* tNode = childIPs->value;
+  uint32_t i;
+  findMain(curIPNode, childIPs->left, mainNode);
+
+  for (i = 0; i < tNode->nSlots; i++) {
+    if (GetIPFromInfo(&(tNode->childIPs[i])) == GLOBAL_STATE.mainIP) {
+      *mainNode = &(tNode->childIPs[i]);
+      return;
+    }
+    if (tNode->childIPs[i].calleeTraceNodes) {
+        findMain(&(tNode->childIPs[i]), tNode->childIPs[i].calleeTraceNodes, mainNode);
+    }
+  }
+  findMain(curIPNode, childIPs->right, mainNode);
+  return;
+}
+
 /*======APIs to support hpcviewer format======*/
 /*
  * Initialize the formatting preparation
  * (called by the clients)
  * TODO: initialize metric table, provide custom metric merge functions
  */
-int init_hpcrun_format(int argc, char *argv[])
+int init_hpcrun_format(int argc, char *argv[], bool skip)
 {
   // Extract executable name
   int i;
@@ -3903,10 +3960,12 @@ int init_hpcrun_format(int argc, char *argv[])
   // Create the measurement directory
   dirName = "hpctoolkit-" + *filename + "-measurements";
   int status = mkdir(dirName.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
+  if (skip) GLOBAL_STATE.skip = true;
  
   return 0;
 }
-
+  
 /*
  * Write the calling context tree of 'threadid' thread 
  * (Called from clientele program) 
@@ -3921,7 +3980,27 @@ int newCCT_hpcrun_write(THREADID threadid) {
   ThreadData* tdata = CCTLibGetTLS(threadid);
   TraceNode* cctlib = tdata->tlsRootTraceNode;
   vector<NewIPNode*> IPHandle;
+  
+  // find the main node (the entry point by the programmer)
+  IPNode *mainNode = NULL;
+  if (GLOBAL_STATE.skip) {
+    for(i = 0; i < cctlib->nSlots; i++) {
+      findMain(&(cctlib->childIPs[i]), cctlib->childIPs[i].calleeTraceNodes, &mainNode);
+    }
+  }
 
+  // only keep the main subtree
+  if (mainNode) {
+    // update cctlib and make the dummy root
+    cctlib = new TraceNode();
+    cctlib->nSlots = 1;
+    cctlib->childIPs = mainNode->parentTraceNode->callerIPNode;
+    SetIPFromInfo(cctlib->childIPs, 0x0); // dummy root should have 0 ip
+#ifdef HAVE_METRIC_PER_IPNODE
+    cctlib->childIPs->metric = NULL;
+#endif
+  }
+  
   for(i = 0; i < cctlib->nSlots; i++) {
     NewIPNode* nIP = constructIPNode(NULL, &(cctlib->childIPs[i]), 0, &tdata->nodeCount);
     IPHandle.push_back(nIP);
