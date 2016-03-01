@@ -138,6 +138,7 @@ typedef struct intraRedIndexPair{
     double redundancy;
     uint32_t curCtxt;
     list<uint32_t> indexes;
+    list<uint32_t> spatialRedInd;
 }IntraRedIndexPair;
 
 struct RedSpyThreadData{
@@ -267,15 +268,7 @@ static unordered_map<uint64_t, list<IntraRedIndexPair>> stIntraDataRed[THREAD_MA
 int inline FindRedPair(list<IntraRedIndexPair> redlist,IntraRedIndexPair redpair){
     list<IntraRedIndexPair>::iterator it;
     for(it = redlist.begin();it != redlist.end(); ++it){
-        if((*it).redundancy != redpair.redundancy)
-            continue;
-        list<uint32_t>::iterator indit, indit2;
-        indit2 = redpair.indexes.begin();
-        for(indit = (*it).indexes.begin(); indit != (*it).indexes.end() && indit2 != redpair.indexes.end(); ++indit,++indit2){
-            if((*indit) != (*indit2))
-                break;
-        }
-        if(indit == (*it).indexes.end() && indit2 == redpair.indexes.end())
+        if((*it).redundancy == redpair.redundancy && (*it).curCtxt == redpair.curCtxt)
             return 1;
     }
     return 0;
@@ -342,11 +335,15 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
         if(accessLen == 1){
             unordered_map<uint8_t,list<uint32_t>> valuesMap1;
             unordered_map<uint8_t,list<uint32_t>>::iterator it1;
+            list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
+            uint8_t valueLast;
             while(address < endaddr){
             
                 uint8_t value1 = *static_cast<uint8_t *>((void *)address);
+                if(value1 == valueLast)
+                    spatialRedIndex.push_back(index);
                 it1 = valuesMap1.find(value1);
                 if(it1 == valuesMap1.end()){
                     list<uint32_t> newlist;
@@ -355,8 +352,9 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 }else{
                     it1->second.push_back(index);
                 }
-                    address += 1;
-                    index++;
+                address += 1;
+                index++;
+                valueLast = value1;
             }
             uint32_t numUniqueValue = valuesMap1.size();
             double redRate = (double)(index - numUniqueValue)/index;
@@ -370,17 +368,22 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 IntraRedIndexPair newpair;
                 newpair.redundancy = redRate;
                 newpair.curCtxt = curCtxt;
-                newpair.indexes = maxList;                            
+                newpair.indexes = maxList; 
+                newpair.spatialRedInd = spatialRedIndex;                         
                 RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
             }
         }else if(accessLen == 2){
             unordered_map<uint16_t,list<uint32_t>> valuesMap1;
             unordered_map<uint16_t,list<uint32_t>>::iterator it1;
+            list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
+            uint16_t valueLast;
             while(address < endaddr){
             
                 uint16_t value1 = *static_cast<uint16_t *>((void *)address);
+                if(value1 == valueLast)
+                   spatialRedIndex.push_back(index);
                 it1 = valuesMap1.find(value1);
                 if(it1 == valuesMap1.end()){
                     list<uint32_t> newlist;
@@ -389,8 +392,9 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 }else{
                     it1->second.push_back(index);
                 }
-                    address += 2;
-                    index++;
+                address += 2;
+                index++;
+                valueLast = value1;
             }
             uint32_t numUniqueValue = valuesMap1.size();
             double redRate = (double)(index - numUniqueValue)/index;
@@ -405,16 +409,21 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 newpair.redundancy = redRate;
                 newpair.curCtxt = curCtxt;
                 newpair.indexes = maxList;                            
+                newpair.spatialRedInd = spatialRedIndex;
                 RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
             }
         }else if(accessLen == 4){
             unordered_map<uint32_t,list<uint32_t>> valuesMap1;
             unordered_map<uint32_t,list<uint32_t>>::iterator it1;
+            list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
+            uint32_t valueLast;
             while(address < endaddr){
             
                  uint32_t value1 = *static_cast<uint32_t *>((void *)address);
+                 if(value1 == valueLast)
+                    spatialRedIndex.push_back(index);
                  it1 = valuesMap1.find(value1);
                  if(it1 == valuesMap1.end()){
                     list<uint32_t> newlist;
@@ -423,8 +432,9 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                  }else{
                     it1->second.push_back(index);
                  }
-                    address += 4;
-                    index++;
+                 address += 4;
+                 index++;
+                 valueLast = value1;
             }
             uint32_t numUniqueValue = valuesMap1.size();
             double redRate = (double)(index - numUniqueValue)/index;
@@ -438,17 +448,22 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 IntraRedIndexPair newpair;
                 newpair.redundancy = redRate;
                 newpair.curCtxt = curCtxt;
-                newpair.indexes = maxList;                            
+                newpair.indexes = maxList; 
+                newpair.spatialRedInd = spatialRedIndex;                           
                 RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
             }   
         }else if(accessLen == 8){
             unordered_map<uint64_t,list<uint32_t>> valuesMap1;
             unordered_map<uint64_t,list<uint32_t>>::iterator it1;
+            list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
+            uint64_t valueLast;
             while(address < endaddr){
             
                 uint64_t value1 = *static_cast<uint64_t *>((void *)address);
+                if(valueLast == value1)
+                   spatialRedIndex.push_back(index);
                 it1 = valuesMap1.find(value1);
                 if(it1 == valuesMap1.end()){
                     list<uint32_t> newlist;
@@ -459,6 +474,7 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 }
                 address += 8;
                 index++;
+                valueLast = value1;
             }
             uint32_t numUniqueValue = valuesMap1.size();
             double redRate = (double)(index - numUniqueValue)/index;
@@ -473,10 +489,11 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
                 newpair.redundancy = redRate;
                 newpair.curCtxt = curCtxt;
                 newpair.indexes = maxList;                            
+                newpair.spatialRedInd = spatialRedIndex;
                 RecordIntraArrayRedundancy(nameORpath, lastWctxt, newpair,threadId,type);
             }
         }else{
-            printf("\nHaven't thought about how to handle this case\n"); 
+            ;//printf("\nHaven't thought about how to handle this case\n"); 
         }
 }
 
@@ -899,15 +916,22 @@ static void PrintRedundancyPairs(THREADID threadId) {
         uint32_t dataObj = keyhash >> 32;
         uint32_t contxt = keyhash & 0xffffffff;
         char *symName = GetStringFromStringPool(dataObj);
-        fprintf(gTraceFile,"Variable %s redudancy at %d\n",symName,contxt);
+        fprintf(gTraceFile,"\nVariable %s at \n",symName);
         PrintFullCallingContext(contxt);
-        list<IntraRedIndexPair>::iterator listit;
-        fprintf(gTraceFile,"\n");
+        list<IntraRedIndexPair>::iterator listit,listit2;
         for(listit = itIntra->second.begin(); listit != itIntra->second.end(); ++listit){
-            fprintf(gTraceFile,"Red:%.2f, unique Indexes:",(*listit).redundancy);
-            string indexlist = ConvertListToString((*listit).indexes);
-            fprintf(gTraceFile,"%s\n",indexlist.c_str());
-            PrintFullCallingContext((*listit).curCtxt);
+            for(listit2 = itIntra->second.begin();listit2 != listit;++listit2){
+               if(IsSameSourceLine((*listit).curCtxt,(*listit2).curCtxt))
+                  break;
+            }
+            if(listit2 == listit){
+               fprintf(gTraceFile,"\nRed:%.2f, unique Indexes:",(*listit).redundancy);
+               string indexlist = ConvertListToString((*listit).indexes);
+               fprintf(gTraceFile,"%s\n",indexlist.c_str());
+               indexlist = ConvertListToString((*listit).spatialRedInd);
+               fprintf(gTraceFile,"redundant spatial indexes:%s\n",indexlist.c_str());
+               PrintFullCallingContext((*listit).curCtxt);
+            }
         }
         fprintf(gTraceFile,"\n----------------------------");
         staticAccount++;
@@ -919,15 +943,25 @@ static void PrintRedundancyPairs(THREADID threadId) {
         uint64_t keyhash = itIntra->first;
         uint32_t dataObj = keyhash >> 32;
         uint32_t contxt = keyhash & 0xffffffff;        
+        fprintf(gTraceFile,"\ndynamic malloc:\n");
         PrintFullCallingContext(dataObj);
-        fprintf(gTraceFile,"\n--- redundancy at:\n");
+        fprintf(gTraceFile,"\n ~~ at ~~:\n");
         PrintFullCallingContext(contxt);
-        list<IntraRedIndexPair>::iterator listit;
-        fprintf(gTraceFile,"\n");
+        list<IntraRedIndexPair>::iterator listit,listit2;
+        
         for(listit = itIntra->second.begin(); listit != itIntra->second.end(); ++listit){
-            fprintf(gTraceFile,"Red:%.2f,at indexes:",(*listit).redundancy);
-            string indexlist = ConvertListToString((*listit).indexes);
-            fprintf(gTraceFile,"%s",indexlist.c_str());
+            for(listit2 = itIntra->second.begin();listit2 != listit;++listit2){
+               if(IsSameSourceLine((*listit).curCtxt,(*listit2).curCtxt))
+                  break;
+            }
+            if(listit2 == listit){
+               fprintf(gTraceFile,"\nRed:%.2f, unique Indexes:",(*listit).redundancy);
+               string indexlist = ConvertListToString((*listit).indexes);
+               fprintf(gTraceFile,"%s\n",indexlist.c_str());
+               indexlist = ConvertListToString((*listit).spatialRedInd);
+               fprintf(gTraceFile,"redundant spatial indexes:%s\n",indexlist.c_str());               
+               PrintFullCallingContext((*listit).curCtxt);
+            }
         }
         fprintf(gTraceFile,"\n----------------------------");
     }
@@ -961,6 +995,8 @@ static VOID ThreadFiniFunc(THREADID threadId, const CONTEXT *ctxt, INT32 code, V
     for( it = tData->dynamicDataObjects.begin(); it != tData->dynamicDataObjects.end();++it){
         if(it->second.secondWrite == 0){
             DataHandle_t dataHandle = GetDataObjectHandle((void*)(it->second.startAddr),threadId); 
+            if((dataHandle.end_addr - dataHandle.beg_addr)/it->second.accessLen <= 1)
+               continue;
             CheckAndRecordIntraArrayRedundancy(it->first, it->second.lastWCtxt, it->second.lastWCtxt, it->second.accessLen, dataHandle.beg_addr, dataHandle.end_addr, threadId, 0);           
         }
     }
