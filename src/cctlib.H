@@ -197,7 +197,7 @@ namespace PinCCTLib {
 #endif
 
     // write the output into hpcviewer's format
-    int init_hpcrun_format(int argc, char *argv[]);
+    int init_hpcrun_format(int argc, char *argv[], bool skip=false);
     int newCCT_hpcrun_write(THREADID threadid);
 }
 
