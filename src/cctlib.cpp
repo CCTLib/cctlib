@@ -3855,7 +3855,8 @@ void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount) {
   void* n = cur->metric;
   if (m && n) {
 //    *m += *n;
-    GLOBAL_STATE.mergeFunc(m, n);
+    if (GLOBAL_STATE.mergeFunc)
+      GLOBAL_STATE.mergeFunc(m, n);
   } else if (!m && n) {
     prev->metric = n;
   }
