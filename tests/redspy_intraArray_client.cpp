@@ -338,7 +338,7 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
             list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
-            uint8_t valueLast;
+            uint8_t valueLast = 0;
             while(address < endaddr){
             
                 uint8_t value1 = *static_cast<uint8_t *>((void *)address);
@@ -378,7 +378,7 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
             list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
-            uint16_t valueLast;
+            uint16_t valueLast = 0;
             while(address < endaddr){
             
                 uint16_t value1 = *static_cast<uint16_t *>((void *)address);
@@ -418,7 +418,7 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
             list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
-            uint32_t valueLast;
+            uint32_t valueLast = 0;
             while(address < endaddr){
             
                  uint32_t value1 = *static_cast<uint32_t *>((void *)address);
@@ -458,7 +458,7 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
             list<uint32_t> spatialRedIndex;
             address = begaddr;
             index = 0;
-            uint64_t valueLast;
+            uint64_t valueLast = 0;
             while(address < endaddr){
             
                 uint64_t value1 = *static_cast<uint64_t *>((void *)address);
@@ -574,7 +574,7 @@ struct RedSpyAnalysis{
     
     static inline VOID RecordNByteValueBeforeWrite(void* addr, uint32_t opaqueHandle, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
-        AddrValPair * avPair = & tData->buffer[bufferOffset];
+        /*AddrValPair * avPair = & tData->buffer[bufferOffset];
 //printf("\n B: %lx %lu %d %d %lx", (uint64_t)addr, tData->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
 //fflush(stdout);
         avPair->address = addr;
@@ -584,7 +584,7 @@ struct RedSpyAnalysis{
             case 4: *((uint32_t*)(&avPair->value)) = *(static_cast<uint32_t*>(addr)); break;
             case 8: *((uint64_t*)(&avPair->value)) = *(static_cast<uint64_t*>(addr)); break;
             default:memcpy(&avPair->value, addr, AccessLen);
-        } 
+        } */
 
         CheckIntraArrayElements(addr,AccessLen,threadId,opaqueHandle);
     }
@@ -661,8 +661,8 @@ struct RedSpyAnalysis{
 
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
-    tData->buffer[bufferOffset].address = addr; 
+    //memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
+    //tData->buffer[bufferOffset].address = addr; 
     CheckIntraArrayElements(addr, accessLen,threadId,opaqueHandle);
 }
 
@@ -725,8 +725,9 @@ static void InstrumentTrace(TRACE trace, void* f) {
 }
 
 #define HANDLE_CASE(NUM, BUFFER_INDEX) \
-case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);\
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);}break
+
+//INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
 
 static int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
@@ -755,7 +756,7 @@ struct RedSpyInstrument{
                 
             default: {
                 INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
+                //INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
             }
         }
     }
@@ -859,7 +860,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
     vector<RedundacyData>::iterator tmpIt;
 
     uint64_t grandTotalRedundantBytes = 0;
-    fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
+  /*  fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
     for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         ContextHandle_t dead = DECODE_DEAD((*it).first);
         ContextHandle_t kill = DECODE_KILL((*it).first);
@@ -906,7 +907,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
         }
         cntxtNum++;
     }
-
+*/
     fprintf(gTraceFile,"\n*************** Intra Array Redundancy of Thread %d ***************\n",threadId);
     unordered_map<uint64_t,list<IntraRedIndexPair>>::iterator itIntra;
     uint8_t staticAccount = 0;
