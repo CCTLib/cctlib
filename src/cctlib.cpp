@@ -342,6 +342,7 @@ namespace PinCCTLib {
     struct CCT_LIB_GLOBAL_STATE {
         // record the IP of the first instruction in main
         bool skip; // whether we want to skip all the frames above main; default is false
+        void (*mergeFunc)(void *des, void *src); // merge metrics in nodes
         ADDRINT mainIP;
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
@@ -3850,10 +3851,11 @@ NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
 // Merging the children of two nodes 
 void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount) {
 #ifdef HAVE_METRIC_PER_IPNODE
-  uint64_t* m = (uint64_t*) prev->metric;
-  uint64_t* n = (uint64_t*) cur->metric;
+  void* m = prev->metric;
+  void* n = cur->metric;
   if (m && n) {
-    *m += *n;
+//    *m += *n;
+    GLOBAL_STATE.mergeFunc(m, n);
   } else if (!m && n) {
     prev->metric = n;
   }
@@ -3947,7 +3949,7 @@ static void findMain(IPNode* curIPNode, TraceSplay* childIPs, IPNode **mainNode)
  * (called by the clients)
  * TODO: initialize metric table, provide custom metric merge functions
  */
-int init_hpcrun_format(int argc, char *argv[], bool skip)
+int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src), bool skip)
 {
   // Extract executable name
   int i;
@@ -3963,6 +3965,7 @@ int init_hpcrun_format(int argc, char *argv[], bool skip)
 
   if (skip) GLOBAL_STATE.skip = true;
  
+  GLOBAL_STATE.mergeFunc = mergeFunc;
   return 0;
 }
   

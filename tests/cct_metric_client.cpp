@@ -94,6 +94,12 @@ VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
     newCCT_hpcrun_write(threadid);
 }
 
+void mergeFunc(void *des, void *src)
+{
+    uint64_t *m = (uint64_t *)des;
+    uint64_t *n = (uint64_t *)src;
+    *m += *n;
+}
 
 VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
@@ -128,7 +134,7 @@ int main(int argc, char* argv[]) {
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
     // Init hpcrun format output
-    init_hpcrun_format(argc, argv, true);
+    init_hpcrun_format(argc, argv, mergeFunc, true);
     
     // Collete data for visualization
     PIN_AddThreadStartFunction(ThreadStartFunc, 0);
