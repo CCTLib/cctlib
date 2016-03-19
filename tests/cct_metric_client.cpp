@@ -102,6 +102,14 @@ void mergeFunc(void *des, void *src)
     *m += *n;
 }
 
+// user-defined function for metric computation
+// hpcviewer can only show the numbers for the metric
+uint64_t computeMetricVal(void *metric)
+{
+    if (!metric) return 0;
+    return (uint64_t)*((uint64_t *)metric);
+}
+
 // user needs to define the metrics and the method to accumulate the metrics in each node
 VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
@@ -136,7 +144,7 @@ int main(int argc, char* argv[]) {
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
     // Init hpcrun format output
-    init_hpcrun_format(argc, argv, mergeFunc, true);
+    init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
     
     // Collete data for visualization
     PIN_AddThreadStartFunction(ThreadStartFunc, 0);

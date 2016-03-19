@@ -343,6 +343,7 @@ namespace PinCCTLib {
         // record the IP of the first instruction in main
         bool skip; // whether we want to skip all the frames above main; default is false
         void (*mergeFunc)(void *des, void *src); // merge metrics in nodes
+        uint64_t (*computeMetricVal)(void *metric); // convert the metric pointer to a value
         ADDRINT mainIP;
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
@@ -3854,7 +3855,6 @@ void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount) {
   void* m = prev->metric;
   void* n = cur->metric;
   if (m && n) {
-//    *m += *n;
     if (GLOBAL_STATE.mergeFunc)
       GLOBAL_STATE.mergeFunc(m, n);
   } else if (!m && n) {
@@ -3891,13 +3891,8 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
 
   uint64_t metricVal = 0;
 #ifdef HAVE_METRIC_PER_IPNODE 
-  uint64_t* metricPtr = (uint64_t*) node->metric;
-  // dereference the pointer 
-  if (NULL == node->metric){
-    metricVal = 0;
-  } else {
-    metricVal = (uint64_t)*(metricPtr);
-  }
+  if (GLOBAL_STATE.computeMetricVal)
+    metricVal = GLOBAL_STATE.computeMetricVal(node->metric);
 #endif
   hpcfmt_int8_fwrite(metricVal, fs);
   return;
@@ -3950,7 +3945,7 @@ static void findMain(IPNode* curIPNode, TraceSplay* childIPs, IPNode **mainNode)
  * (called by the clients)
  * TODO: initialize metric table, provide custom metric merge functions
  */
-int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src), bool skip)
+int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src), uint64_t (*computeMetricVal)(void *metric), bool skip)
 {
   // Extract executable name
   int i;
@@ -3967,6 +3962,7 @@ int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void
   if (skip) GLOBAL_STATE.skip = true;
  
   GLOBAL_STATE.mergeFunc = mergeFunc;
+  GLOBAL_STATE.computeMetricVal = computeMetricVal;
   return 0;
 }
   
