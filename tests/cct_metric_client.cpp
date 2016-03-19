@@ -94,6 +94,7 @@ VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
     newCCT_hpcrun_write(threadid);
 }
 
+// user-defined function for metric merging
 void mergeFunc(void *des, void *src)
 {
     uint64_t *m = (uint64_t *)des;
@@ -101,6 +102,7 @@ void mergeFunc(void *des, void *src)
     *m += *n;
 }
 
+// user needs to define the metrics and the method to accumulate the metrics in each node
 VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
     void **c_m = GetIPNodeMetric(id, slot);
