@@ -105,7 +105,8 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
-
+#define WINDOW_ENABLE 1000000
+#define WINDOW_DISABLE 1000000000
 
 
 #define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
@@ -113,6 +114,10 @@ using namespace PinCCTLib;
 
 
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
+
+__thread long long NUM_INS = 0;
+__thread bool Sample_flag = true;
+
 
 struct AddrValPair{
     void * address;
@@ -137,7 +142,7 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 
 template<int start, int end, int incr>
 struct UnrolledLoop{
-    static inline void Body(function<void (const int)> func){
+    static __attribute__((always_inline)) void Body(function<void (const int)> func){
         func(start); // Real loop body
         UnrolledLoop<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
@@ -145,21 +150,21 @@ struct UnrolledLoop{
 
 template<int end,  int incr>
 struct UnrolledLoop<end , end , incr>{
-    static inline void Body(function<void (const int)> func){
+    static __attribute__((always_inline)) void Body(function<void (const int)> func){
         // empty body
     }
 };
 
 template<int start, int end, int incr>
 struct UnrolledConjunction{
-    static inline bool Body(function<bool (const int)> func){
+    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
 };
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
-    static inline bool Body(function<void (const int)> func){
+    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
         return true;
     }
 };
@@ -240,7 +245,7 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
 
 template<uint16_t AccessLen, uint32_t bufferOffset>
 struct RedSpyAnalysis{
-    static inline bool IsWriteRedundant(void * &addr, THREADID threadId){
+    static __attribute__((always_inline)) bool IsWriteRedundant(void * &addr, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         AddrValPair * avPair = & tData->buffer[bufferOffset];
         addr = avPair->address;
@@ -253,8 +258,25 @@ struct RedSpyAnalysis{
         }
     }
     
-    static inline VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
+    static __attribute__((always_inline)) VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
+        if(Sample_flag){
+            NUM_INS++;
+            if(NUM_INS > WINDOW_ENABLE){
+                Sample_flag = false;
+                NUM_INS = 0;
+                //EmptyCtxt(threadId);
+                return;
+            }
+        }else{
+            NUM_INS++;
+            if(NUM_INS > WINDOW_DISABLE){
+                Sample_flag = true;
+                NUM_INS = 0;
+            }else
+                return;
+        }
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        tData->bytesWritten += AccessLen;
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 //printf("\n B: %lx %lu %d %d %lx", (uint64_t)addr, tData->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
 //fflush(stdout);
@@ -268,7 +290,9 @@ struct RedSpyAnalysis{
         }
     }
     
-    static inline VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
+    static __attribute__((always_inline)) VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
+        if(!Sample_flag)
+           return;
         void * addr;
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
 //printf("\t A: %lx %lu %d %d %lx", (uint64_t)addr, ClientGetTLS(threadId)->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
@@ -339,12 +363,33 @@ struct RedSpyAnalysis{
 
 
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
+    if(Sample_flag){
+        NUM_INS++;
+        if(NUM_INS > WINDOW_ENABLE){
+            Sample_flag = false;
+            NUM_INS = 0;
+            //EmptyCtxt(threadId);
+            return;
+        }
+    }else{
+        NUM_INS++;
+        if(NUM_INS > WINDOW_DISABLE){
+            Sample_flag = true;
+            NUM_INS = 0;
+        }else
+            return;
+    }
+
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->bytesWritten += accessLen;
     memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
     tData->buffer[bufferOffset].address = addr;
 }
 
 static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
+
+    if(!Sample_flag)
+        return;
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     void * addr = tData->buffer[bufferOffset].address;
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
@@ -374,14 +419,15 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
 
 
 
-
+/*
 inline VOID BytesWrittenInBBL(uint32_t count, THREADID threadId) {
     ClientGetTLS(threadId)->bytesWritten += count;
 }
-
+*/
 
 
 // Instrument a trace, take the first instruction in the first BBL and insert the analysis function before that
+/*
 static void InstrumentTrace(TRACE trace, void* f) {
     // Insert counting code
     for(BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
@@ -398,7 +444,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
         if(totalBytesWrittenInBBL)
             BBL_InsertCall(bbl, IPOINT_ANYWHERE, (AFUNPTR) BytesWrittenInBBL, IARG_UINT32, totalBytesWrittenInBBL, IARG_THREAD_ID, IARG_END);
     }
-}
+}*/
 
 #define HANDLE_CASE(NUM, BUFFER_INDEX) \
 case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
@@ -419,7 +465,7 @@ static int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
 
 template<uint32_t readBufferSlotIndex>
 struct RedSpyInstrument{
-    static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, UINT32 memOp, uint32_t opaqueHandle){
+    static __attribute__((always_inline)) void InstrumentReadValueBeforeAndAfterWriting(INS ins, UINT32 memOp, uint32_t opaqueHandle){
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
         switch(refSize) {
                 HANDLE_CASE(1, readBufferSlotIndex);
@@ -505,14 +551,36 @@ static inline bool RedundacyCompare(const struct RedundacyData &first, const str
 
 static void PrintRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
+    vector<RedundacyData>::iterator tmpIt;
+
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
     for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
-        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
-        tmpList.push_back(tmp);
-        grandTotalRedundantBytes += tmp.frequency;
-    }
-    
+        ContextHandle_t dead = DECODE_DEAD((*it).first);
+        ContextHandle_t kill = DECODE_KILL((*it).first);
+
+        for(tmpIt = tmpList.begin();tmpIt != tmpList.end(); ++tmpIt){
+             bool ct1 = false;
+             if(dead == 0 || ((*tmpIt).dead) == 0){
+                  if(dead == 0 && ((*tmpIt).dead) == 0)
+                       ct1 = true;
+             }else{
+                  ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
+             }
+             bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
+             if(ct1 && ct2){
+                  (*tmpIt).frequency += (*it).second;
+                  grandTotalRedundantBytes += (*it).second;
+                  break;
+             }
+        }
+        if(tmpIt == tmpList.end()){
+             RedundacyData tmp = { dead, kill, (*it).second};
+             tmpList.push_back(tmp);
+             grandTotalRedundantBytes += tmp.frequency;
+        }
+    }  
+        
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
@@ -592,7 +660,7 @@ int main(int argc, char* argv[]) {
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
-    TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+    //TRACE_AddInstrumentFunction(InstrumentTrace, 0);
     
     
     // Register ImageUnload to be called when an image is unloaded
