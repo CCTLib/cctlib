@@ -128,14 +128,16 @@ struct AddrValPair{
 struct RedSpyThreadData{
     AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
     uint32_t regCtxt[REG_LAST];
-    UINT8 regValue[REG_LAST][MAX_WRITE_OP_LENGTH];
+    UINT8 rectxt[REG_LAST][MAX_WRITE_OP_LENGTH];
     uint64_t bytesWritten;
 };
 
 struct RegInfo{
     UINT8 count;
     REG regs[MAX_WRITE_OPS_IN_INS];
+    bool alian[MAX_WRITE_OPS_IN_INS];
 };
+
 
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY client_tls_key;
@@ -227,6 +229,200 @@ static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
 }
 
 
+inline void UpdateAliaRegs(uint32_t reg, ADDRINT regV, uint32_t ctxt, THREADID threadId) {
+  
+    RedSpyThreadData* const td = ClientGetTLS(threadId);
+   
+   //     *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
+    ADDRINT tmp,tmp2;
+      
+    switch (reg) {
+        case REG_GAX:
+        case REG_EAX:
+            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = ctxt;
+            *(ADDRINT *)(&td->rectxt[REG_GAX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = regV;
+            td->regCtxt[REG_AX] = td->regCtxt[REG_AL] = td->regCtxt[REG_AH] = ctxt;
+            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = regV & 0xffff;
+            *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regV & 0xff00;
+            break;
+        case REG_AX:
+            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = td->regCtxt[REG_AX] = ctxt;
+            td->regCtxt[REG_AL] = td->regCtxt[REG_AH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_GAX][0]);
+            tmp = (tmp & 0xffff0000) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_GAX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regV & 0xff00; 
+            break;
+        case REG_AH:
+            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = td->regCtxt[REG_AX] = td->regCtxt[REG_AH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_AX][0]);
+            tmp = (tmp & 0xff) | (regV << 8);
+            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GAX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regV;  
+            break;
+        case REG_AL:
+            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = td->regCtxt[REG_AX] = td->regCtxt[REG_AL] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_AX][0]);
+            tmp = (tmp & 0xff00) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GAX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regV;  
+ 
+            break;
+            
+            
+        case REG_GBX:
+        case REG_EBX:
+            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = ctxt;
+            td->regCtxt[REG_BX] = td->regCtxt[REG_BL] = td->regCtxt[REG_BH] = ctxt;
+            *(ADDRINT *)(&td->rectxt[REG_GBX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = regV & 0xffff;
+            *(ADDRINT *)(&td->rectxt[REG_BL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_BH][0]) = regV & 0xff00;
+            break;
+        case REG_BX:
+            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = td->regCtxt[REG_BX] = ctxt;
+            td->regCtxt[REG_BL] = td->regCtxt[REG_BH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_GBX][0]);
+            tmp = (tmp & 0xffff0000) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_GBX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_BL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_BH][0]) = regV & 0xff00; 
+            break;
+        case REG_BH:
+            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = td->regCtxt[REG_BX] = td->regCtxt[REG_BH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_BX][0]);
+            tmp = (tmp & 0xff) | (regV << 8);
+            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GBX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_BH][0]) = regV;  
+           break;
+        case REG_BL:
+            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = td->regCtxt[REG_BX] = td->regCtxt[REG_BL] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_BX][0]);
+            tmp = (tmp & 0xff00) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GBX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_BL][0]) = regV;  
+            break;
+            
+        case REG_GCX:
+        case REG_ECX:
+            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = ctxt;
+            td->regCtxt[REG_CX] = td->regCtxt[REG_CL] = td->regCtxt[REG_CH] = ctxt;
+            *(ADDRINT *)(&td->rectxt[REG_GCX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = regV & 0xffff;
+            *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regV & 0xff00;
+            break;
+        case REG_CX:
+            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = td->regCtxt[REG_CX] = ctxt;
+            td->regCtxt[REG_CL] = td->regCtxt[REG_CH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_GCX][0]);
+            tmp = (tmp & 0xffff0000) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_GCX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regV & 0xff00; 
+            break;
+        case REG_CH:
+            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = td->regCtxt[REG_CX] = td->regCtxt[REG_CH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_CX][0]);
+            tmp = (tmp & 0xff) | (regV << 8);
+            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GCX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regV;  
+           break;
+        case REG_CL:
+            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = td->regCtxt[REG_CX] = td->regCtxt[REG_CL] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_CX][0]);
+            tmp = (tmp & 0xff00) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GCX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regV;  
+            break;
+            
+        case REG_GDX:
+        case REG_EDX:
+            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = ctxt;
+            td->regCtxt[REG_DX] = td->regCtxt[REG_DL] = td->regCtxt[REG_DH] = ctxt;
+            *(ADDRINT *)(&td->rectxt[REG_GDX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = regV & 0xffff;
+            *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regV & 0xff00;
+            break;
+        case REG_DX:
+            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = td->regCtxt[REG_DX] = ctxt;
+            td->regCtxt[REG_DL] = td->regCtxt[REG_DH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_GDX][0]);
+            tmp = (tmp & 0xffff0000) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_GDX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = tmp;
+            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = regV;
+            *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regV & 0xff;
+            *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regV & 0xff00; 
+            break;
+        case REG_DH:
+            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = td->regCtxt[REG_DX] = td->regCtxt[REG_DH] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_DX][0]);
+            tmp = (tmp & 0xff) | (regV << 8);
+            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GDX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regV;  
+           break;
+        case REG_DL:
+            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = td->regCtxt[REG_DX] = td->regCtxt[REG_DL] = ctxt;
+            tmp = *(ADDRINT *)(&td->rectxt[REG_DX][0]);
+            tmp = (tmp & 0xff00) | regV;
+            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp;
+            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GDX][0]);
+            tmp2 = (tmp2 & 0xffff0000) | tmp;
+            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp2;
+            *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regV;  
+ 
+            break;
+            
+        default:
+            td->regCtxt[reg] = ctxt;
+            *(ADDRINT *)(&td->rectxt[reg][0]) = regV;  
+    }
+}
+
+
 
 static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_READ_ACTION, /*2 byte */ TWO_BYTE_READ_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_READ_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_READ_ACTION};
 static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
@@ -306,7 +502,7 @@ static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threa
     for (i = 0; i < regCount; i++) {
         REG reg = wRegs->regs[i];
         ADDRINT regV = va_arg(ap, ADDRINT);
-        ADDRINT regBefore = *(ADDRINT *)(&tData->regValue[reg][0]);
+        ADDRINT regBefore = *(ADDRINT *)(&tData->rectxt[reg][0]);
         
         bool isRedundantWrite = (regBefore == regV);
         
@@ -314,7 +510,13 @@ static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threa
             AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),REG_Size(reg),threadId);
         }
         tData->regCtxt[reg] = curCtxtHandle;
-        *(ADDRINT *)(&tData->regValue[reg][0]) = regV;
+        *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
+        if(wRegs->alian[i])
+           UpdateAliaRegs(reg,regV,curCtxtHandle,threadId); 
+        else{
+           tData->regCtxt[reg] = curCtxtHandle;
+           *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
+        }
     }
     tData->bytesWritten += regBytes;
 }
@@ -345,9 +547,9 @@ static inline  VOID CheckLargeValueAfterWrite(PIN_REGISTER* regRef, REG reg, uin
     int i;
     bool isRedundantWrite = true;
     for(i = 0; i < 16; ++i){
-        if(tData->regValue[reg][i] != regRef->byte[i])
+        if(tData->rectxt[reg][i] != regRef->byte[i])
             isRedundantWrite = false;
-        tData->regValue[reg][i] = regRef->byte[i];
+        tData->rectxt[reg][i] = regRef->byte[i];
     }
     
     if(isRedundantWrite && tData->regCtxt[reg]!=0) {
@@ -358,6 +560,19 @@ static inline  VOID CheckLargeValueAfterWrite(PIN_REGISTER* regRef, REG reg, uin
     
 }
 
+inline bool IsAliaReg(REG reg){
+    if(reg == REG_EAX || reg == REG_EBX || reg == REG_ECX || reg == REG_EDX)
+       return true; 
+    else if(reg == REG_GAX || reg == REG_GBX || reg == REG_GCX || reg == REG_GDX)
+       return true;
+    else if(reg == REG_AX || reg == REG_BX || reg == REG_CX || reg == REG_DX)
+       return true;
+    else if(reg == REG_AL || reg == REG_BH || reg == REG_CH || reg == REG_DH)
+       return true;
+    else if(reg == REG_AL || reg == REG_BL || reg == REG_CL || reg == REG_DL)
+       return true;
+    else return false;
+}
 
 static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
     
@@ -370,6 +585,10 @@ static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, struct RegI
         if (regSize > 8) {
             flag = false;
         }
+        if(IsAliaReg(wRegs->regs[i]))
+           wRegs->alian[i] = 1;
+        else
+           wRegs->alian[i] = 0;
         totBytes += regSize;
     }
     
@@ -644,6 +863,8 @@ static inline bool REG_IsIgnorable(REG reg){
         return true;
     else if(reg == REG_MXCSR)
         return true;
+    else if(reg == REG_GFLAGS || reg == REG_FLAGS)
+        return true;
     return false;
 }
 
@@ -652,7 +873,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     if (INS_IsIgnorable(ins))return;
     if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
     
-    if (INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins)){
+ //   if (INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins)){
 
       //Instrument memory writes to find redundancy
       // Special case, if we have only one write operand
@@ -700,7 +921,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         readBufferSlotIndex++;
       }
 
-    }else{  
+ //   }else{  
 
       //Instrument register writes to find redundancy
       struct RegInfo * wRegs = new struct RegInfo;
@@ -730,7 +951,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
       }
       if(regCount > 0)
         InstrumentReadValueBeforeAndAfterWriting(ins, wRegs, opaqueHandle);
-    }
+   // }
 }
 
 

@@ -64,7 +64,7 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OPS_IN_INS (8)
 
 #define WINDOW_ENABLE   1000000
-#define WINDOW_DISABLE  1000000000
+#define WINDOW_DISABLE  1000
 #define WINDOW_CLEAN 10
 
 #define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
