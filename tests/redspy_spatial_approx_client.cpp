@@ -556,7 +556,6 @@ static void PrintRedundancyPairs(THREADID threadId) {
 
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
-printf("ssssssssssssss\n");
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");    
     THREADID  threadid =  PIN_ThreadId();
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
@@ -572,7 +571,6 @@ printf("ssssssssssssss\n");
 }
 
 static VOID ThreadFiniFunc(THREADID threadId, const CONTEXT *ctxt, INT32 code, VOID *v) {
-printf("bbbbbbbbbbbbbbbb: %d\n",threadId);
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     unordered_map<uint32_t,DataObjectStatus>::iterator it;
     for( it = tData->staticDataObjects.begin(); it != tData->staticDataObjects.end();++it){
@@ -589,7 +587,6 @@ printf("bbbbbbbbbbbbbbbb: %d\n",threadId);
             CheckAndRecordIntraArrayRedundancy(it->first, it->second.lastWCtxt, it->second.lastWCtxt, it->second.accessLen, dataHandle.beg_addr, dataHandle.end_addr, threadId, 0);           
         }
     }
-printf("eeeeeeeeeeeeeeee:  %d\n",threadId);
 }
 
 static VOID FiniFunc(INT32 code, VOID *v) {

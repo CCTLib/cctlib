@@ -105,7 +105,8 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
-
+#define WINDOW_ENABLE 1000000
+#define WINDOW_DISABLE 1000000000
 
 #define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
 #define DECODE_KILL(data) (static_cast<ContextHandle_t>( (data)  & 0x00000000ffffffff))
@@ -115,6 +116,9 @@ using namespace PinCCTLib;
 
 #define delta 0.01
 
+__thread long long NUM_INS = 0;
+__thread bool Sample_flag = true;
+__thread long long NUM_winds = 0;
 
 struct AddrValPair{
     void * address;
@@ -178,7 +182,7 @@ static uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 // Initialized the needed data structures before launching the target program
 static void ClientInit(int argc, char* argv[]) {
     // Create output file
-    char name[MAX_FILE_PATH] = "redspy_aprox.out.";
+    char name[MAX_FILE_PATH] = "redspy_temporal_approx.out.";
     char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
     
     if(envPath) {
@@ -262,7 +266,22 @@ struct RedSpyAnalysis{
     }
     
     static inline VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
-        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+       if(Sample_flag){
+        NUM_INS++;
+        if(NUM_INS > WINDOW_ENABLE){
+            Sample_flag = false;
+            NUM_INS = 0;
+            return;
+        }
+       }else{
+        NUM_INS++;
+        if(NUM_INS > WINDOW_DISABLE){
+            Sample_flag = true;
+            NUM_INS = 0;
+        }else
+            return;
+       }
+       RedSpyThreadData* const tData = ClientGetTLS(threadId);
         AddrValPair * avPair = & tData->buffer[bufferOffset];
         avPair->address = addr;
         switch(AccessLen){
@@ -275,6 +294,9 @@ struct RedSpyAnalysis{
     }
     
     static inline VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
+        if(!Sample_flag)
+           return;
+
         void * addr;
         int isRedundantWrite = IsWriteRedundant(addr, threadId);
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
