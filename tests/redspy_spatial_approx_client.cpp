@@ -129,7 +129,7 @@ uint32_t lastStatic;
 // Initialized the needed data structures before launching the target program
 static void ClientInit(int argc, char* argv[]) {
     // Create output file
-    char name[MAX_FILE_PATH] = "redspyIntraArray_approx.out.";
+    char name[MAX_FILE_PATH] = "redspy_spatial_approx.out.";
     char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
     
     if(envPath) {
