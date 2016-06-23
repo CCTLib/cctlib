@@ -473,6 +473,46 @@ static inline VOID EmptyCtxt(THREADID threadId){
     }*/
 }
 
+static inline VOID CheckOneRegValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, uint32_t reg, uint32_t regBytes, ADDRINT regValue, bool regAlia){
+    if(Sample_flag){
+        NUM_INS++;
+        if(NUM_INS > WINDOW_ENABLE){
+            Sample_flag = false;
+            NUM_INS = 0;
+            EmptyCtxt(threadId);
+            return;
+        }
+    }else{
+        NUM_INS++;
+        if(NUM_INS > WINDOW_DISABLE){
+            Sample_flag = true;
+            NUM_INS = 0;
+        }else
+            return;
+    }
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+    
+
+    ADDRINT regBefore = *(ADDRINT *)(&tData->rectxt[reg][0]);
+        
+    bool isRedundantWrite = (regBefore == regValue);
+        
+    if(isRedundantWrite && tData->regCtxt[reg] != 0) {
+        AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regBytes,threadId);
+    }
+
+    if(regAlia)
+        UpdateAliaRegs(reg,regValue,curCtxtHandle,threadId); 
+    else{
+        tData->regCtxt[reg] = curCtxtHandle;
+        *(ADDRINT *)(&tData->rectxt[reg][0]) = regValue;
+    }
+
+    tData->bytesWritten += regBytes;
+}
+
 static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, void * regs, uint32_t regBytes, uint32_t regCount, ...){
     if(Sample_flag){
         NUM_INS++;
@@ -574,7 +614,7 @@ inline bool IsAliaReg(REG reg){
     else return false;
 }
 
-static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
+static inline void InstrumentReadValueBeforeAndAfterWritingRegs(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
     
     UINT8 i;
     uint32_t totBytes = 0;
@@ -612,13 +652,8 @@ static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, struct RegI
                 break;
         }
         
-    }else{
-        if(wRegs->count == 1){
-            if(wRegs->regs[0] == REG_ST0)
-                return;
-            INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,wRegs->regs[0], IARG_UINT32, wRegs->regs[0], IARG_UINT32, totBytes, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END);
-        }else
-            printf("Writing multiple registers with large size\n");
+    }else{ 
+        printf("Writing multiple registers with large size\n");
     }
 }
 
@@ -949,8 +984,18 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
             wRegs->count = regCount;
         }
       }
-      if(regCount > 0)
-        InstrumentReadValueBeforeAndAfterWriting(ins, wRegs, opaqueHandle);
+      if(regCount == 1){
+        REG reg = wRegs->regs[0];
+        uint32_t regSize = REG_Size(reg);
+        if(regSize > 8){
+            if(wRegs->regs[0] == REG_ST0)
+                return;
+            INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END);
+        }else
+            INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckOneRegValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_UINT32,reg,IARG_UINT32, REG_Size(reg),IARG_REG_VALUE,reg,IARG_BOOL,IsAliaReg(reg),IARG_END);
+
+      }else if(regCount > 1)
+        InstrumentReadValueBeforeAndAfterWritingRegs(ins, wRegs, opaqueHandle);
    // }
 }
 
