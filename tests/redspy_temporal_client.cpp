@@ -47,6 +47,7 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <list>
 #include "pin.H"
 #include "cctlib.H"
 using namespace std;
@@ -105,19 +106,18 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
+#ifdef ENABLE_SAMPLING
+
 #define WINDOW_ENABLE 1000000
 #define WINDOW_DISABLE 1000000000
 #define WINDOW_CLEAN 10
+#endif
 
 #define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
 #define DECODE_KILL(data) (static_cast<ContextHandle_t>( (data)  & 0x00000000ffffffff))
 
 
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
-
-__thread long long NUM_INS = 0;
-__thread bool Sample_flag = true;
-__thread long long NUM_winds = 0;
 
 
 struct AddrValPair{
@@ -130,6 +130,10 @@ struct RedSpyThreadData{
     uint32_t regCtxt[REG_LAST];
     UINT8 rectxt[REG_LAST][MAX_WRITE_OP_LENGTH];
     uint64_t bytesWritten;
+    
+    long long NUM_INS;
+    bool Sample_flag;
+    long long NUM_winds;
 };
 
 struct RegInfo{
@@ -141,12 +145,17 @@ struct RegInfo{
 
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY client_tls_key;
+static RedSpyThreadData* gSingleThreadedTData;
 
 // function to access thread-specific data
 inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
+#ifdef MULTI_THREADED
     RedSpyThreadData* tdata =
     static_cast<RedSpyThreadData*>(PIN_GetThreadData(client_tls_key, threadId));
     return tdata;
+#else
+    return gSingleThreadedTData;
+#endif
 }
 
 
@@ -229,11 +238,8 @@ static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
 }
 
 
-inline void UpdateAliaRegs(uint32_t reg, ADDRINT regV, uint32_t ctxt, THREADID threadId) {
-  
-    RedSpyThreadData* const td = ClientGetTLS(threadId);
+inline void UpdateAliaRegs(uint32_t reg, ADDRINT regV, uint32_t ctxt, RedSpyThreadData* td) {
    
-   //     *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
     ADDRINT tmp,tmp2;
       
     switch (reg) {
@@ -444,16 +450,15 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
 #endif
 }
 
-static inline VOID EmptyCtxt(THREADID threadId){
-    
-    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+static inline VOID EmptyCtxt(RedSpyThreadData* tData){
+
     int i;
     for( i = 0; i< REG_LAST; ++i){
         tData->regCtxt[i] = 0;
     }
-    NUM_winds++;
-   /* 
-    if(NUM_winds > WINDOW_CLEAN){
+    /*
+    tData->NUM_winds++;
+    if(tData->NUM_winds > WINDOW_CLEAN){
         long count = tData->bytesWritten;
         long delNum = 0;
         //printf("size of the map %lu, total reg written %lu\n",count,tData->numRegWritten);
@@ -468,30 +473,129 @@ static inline VOID EmptyCtxt(THREADID threadId){
             }else
                 it++;
         }
-        NUM_winds=0;
+        tData->NUM_winds=0;
         tData->bytesWritten -= delNum;
     }*/
 }
 
-static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, void * regs, uint32_t regBytes, uint32_t regCount, ...){
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            EmptyCtxt(threadId);
-            return;
-        }
-    }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
-        }else
-            return;
+#ifdef ENABLE_SAMPLING
+
+static ADDRINT IfEnableSample(THREADID threadId){
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        return 1;
+    }
+    return 0;
+}
+#endif
+
+static inline VOID CheckEAXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
+    
+    RedSpyThreadData* const td = ClientGetTLS(threadId);
+    
+    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+    
+    
+    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[REG_EAX][0]);
+    
+    bool isRedundantWrite = (regBefore == regValue);
+    
+    if(isRedundantWrite && td->regCtxt[REG_EAX] != 0) {
+        AddToRedTable(MAKE_CONTEXT_PAIR(td->regCtxt[REG_EAX],curCtxtHandle),4,threadId);
     }
     
+    td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[REG_GAX][0]) = regValue;
+    *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = regValue;
+    td->regCtxt[REG_AX] = td->regCtxt[REG_AL] = td->regCtxt[REG_AH] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[REG_AX][0]) = regValue & 0xffff;
+    *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regValue & 0xff;
+    *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regValue & 0xff00;
+    
+    td->bytesWritten += 4;
+}
+
+static inline VOID CheckECXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
+    
+    RedSpyThreadData* const td = ClientGetTLS(threadId);
+    
+    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+    
+    
+    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[REG_ECX][0]);
+    
+    bool isRedundantWrite = (regBefore == regValue);
+    
+    if(isRedundantWrite && td->regCtxt[REG_ECX] != 0) {
+        AddToRedTable(MAKE_CONTEXT_PAIR(td->regCtxt[REG_ECX],curCtxtHandle),4,threadId);
+    }
+    
+    td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[REG_GCX][0]) = regValue;
+    *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = regValue;
+    td->regCtxt[REG_CX] = td->regCtxt[REG_CL] = td->regCtxt[REG_CH] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[REG_CX][0]) = regValue & 0xffff;
+    *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regValue & 0xff;
+    *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regValue & 0xff00;
+    
+    td->bytesWritten += 4;
+}
+
+static inline VOID CheckEDXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
+    
+    RedSpyThreadData* const td = ClientGetTLS(threadId);
+    
+    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+    
+    
+    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[REG_EDX][0]);
+    
+    bool isRedundantWrite = (regBefore == regValue);
+    
+    if(isRedundantWrite && td->regCtxt[REG_EDX] != 0) {
+        AddToRedTable(MAKE_CONTEXT_PAIR(td->regCtxt[REG_EDX],curCtxtHandle),4,threadId);
+    }
+    
+    td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[REG_GDX][0]) = regValue;
+    *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = regValue;
+    td->regCtxt[REG_DX] = td->regCtxt[REG_DL] = td->regCtxt[REG_DH] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[REG_DX][0]) = regValue & 0xffff;
+    *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regValue & 0xff;
+    *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regValue & 0xff00;
+    
+    td->bytesWritten += 4;
+}
+
+static inline VOID CheckOneRegValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, uint32_t reg, uint32_t regBytes, ADDRINT regValue, bool regAlia){
+    
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    
+    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+    
+
+    ADDRINT regBefore = *(ADDRINT *)(&tData->rectxt[reg][0]);
+        
+    bool isRedundantWrite = (regBefore == regValue);
+        
+    if(isRedundantWrite && tData->regCtxt[reg] != 0) {
+        AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regBytes,threadId);
+    }
+
+    if(regAlia)
+        UpdateAliaRegs(reg,regValue,curCtxtHandle,tData);
+    else{
+        tData->regCtxt[reg] = curCtxtHandle;
+        *(ADDRINT *)(&tData->rectxt[reg][0]) = regValue;
+    }
+
+    tData->bytesWritten += regBytes;
+}
+
+static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, void * regs, uint32_t regBytes, uint32_t regCount, ...){
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     struct RegInfo * wRegs = (struct RegInfo *)regs;
     
@@ -512,7 +616,7 @@ static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threa
         tData->regCtxt[reg] = curCtxtHandle;
         *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
         if(wRegs->alian[i])
-           UpdateAliaRegs(reg,regV,curCtxtHandle,threadId); 
+           UpdateAliaRegs(reg,regV,curCtxtHandle,tData);
         else{
            tData->regCtxt[reg] = curCtxtHandle;
            *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
@@ -523,24 +627,8 @@ static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threa
 
 static inline  VOID CheckLargeValueAfterWrite(PIN_REGISTER* regRef, REG reg, uint32_t regSize, uint32_t opaqueHandle, THREADID threadId){
     
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            EmptyCtxt(threadId);
-            return;
-        }
-    }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
-        }else
-            return;
-    }
-    
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     
     //struct RegInfo * wRegs = (struct RegInfo *)regs;
@@ -574,7 +662,34 @@ inline bool IsAliaReg(REG reg){
     else return false;
 }
 
-static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
+#ifdef ENABLE_SAMPLING
+
+#define HANDLE_2REGS() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_END);break
+
+#define HANDLE_3REGS() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_REG_VALUE, wRegs->regs[2], IARG_END);break
+
+#define HANDLE_4REGS() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_REG_VALUE, wRegs->regs[2], IARG_REG_VALUE, wRegs->regs[3], IARG_END); break
+
+#else
+
+#define HANDLE_2REGS() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_END);break
+
+#define HANDLE_3REGS() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_REG_VALUE, wRegs->regs[2], IARG_END); break
+
+#define HANDLE_4REGS() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_REG_VALUE, wRegs->regs[2], IARG_REG_VALUE, wRegs->regs[3], IARG_END); break
+
+#endif
+
+static inline void InstrumentReadValueAfterWritingRegs(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
     
     UINT8 i;
     uint32_t totBytes = 0;
@@ -594,31 +709,16 @@ static inline void InstrumentReadValueBeforeAndAfterWriting(INS ins, struct RegI
     
     if(flag){
         switch (wRegs->count) {
-            case 1:
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_PTR,wRegs,IARG_UINT32, totBytes,IARG_UINT32,wRegs->count,IARG_REG_VALUE,wRegs->regs[0],IARG_END);
-                break;
-            case 2:
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_END);
-                break;
-            case 3:
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_REG_VALUE, wRegs->regs[2], IARG_END);
-                break;
-            case 4:
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,  IARG_PTR, wRegs,IARG_UINT32, totBytes, IARG_UINT32,wRegs->count, IARG_REG_VALUE, wRegs->regs[0], IARG_REG_VALUE, wRegs->regs[1], IARG_REG_VALUE, wRegs->regs[2], IARG_REG_VALUE, wRegs->regs[3], IARG_END);
-                break;
-                
+            case 2: HANDLE_2REGS();
+            case 3: HANDLE_3REGS();
+            case 4: HANDLE_4REGS();
             default:
                 assert(0 && "NYI");
                 break;
         }
         
-    }else{
-        if(wRegs->count == 1){
-            if(wRegs->regs[0] == REG_ST0)
-                return;
-            INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,wRegs->regs[0], IARG_UINT32, wRegs->regs[0], IARG_UINT32, totBytes, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END);
-        }else
-            printf("Writing multiple registers with large size\n");
+    }else{ 
+        printf("Writing multiple registers with large size\n");
     }
 }
 
@@ -640,27 +740,12 @@ struct RedSpyAnalysis{
     }
     
     static __attribute__((always_inline)) VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
-        if(Sample_flag){
-            NUM_INS++;
-            if(NUM_INS > WINDOW_ENABLE){
-                Sample_flag = false;
-                NUM_INS = 0;
-                //EmptyCtxt(threadId);
-                return;
-            }
-        }else{
-            NUM_INS++;
-            if(NUM_INS > WINDOW_DISABLE){
-                Sample_flag = true;
-                NUM_INS = 0;
-            }else
-                return;
-        }
+        
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        
         tData->bytesWritten += AccessLen;
         AddrValPair * avPair = & tData->buffer[bufferOffset];
-//printf("\n B: %lx %lu %d %d %lx", (uint64_t)addr, tData->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
-//fflush(stdout);
+
         avPair->address = addr;
         switch(AccessLen){
             case 1: *((uint8_t*)(&avPair->value)) = *(static_cast<uint8_t*>(addr)); break;
@@ -672,12 +757,10 @@ struct RedSpyAnalysis{
     }
     
     static __attribute__((always_inline)) VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
-        if(!Sample_flag)
-           return;
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
         void * addr;
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
-//printf("\t A: %lx %lu %d %d %lx", (uint64_t)addr, ClientGetTLS(threadId)->bytesWritten, AccessLen, bufferOffset, (uint64_t)ip);
-//fflush(stdout);
+
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
         uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
@@ -744,24 +827,9 @@ struct RedSpyAnalysis{
 
 
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            //EmptyCtxt(threadId);
-            return;
-        }
-    }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
-        }else
-            return;
-    }
-
+    
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+
     tData->bytesWritten += accessLen;
     memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
     tData->buffer[bufferOffset].address = addr;
@@ -769,8 +837,6 @@ static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  ui
 
 static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset, uint32_t opaqueHandle, THREADID threadId){
 
-    if(!Sample_flag)
-        return;
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     void * addr = tData->buffer[bufferOffset].address;
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
@@ -798,9 +864,31 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
     }
 }
 
+#ifdef ENABLE_SAMPLING
+
+#define HANDLE_CASE(NUM, BUFFER_INDEX) \
+case (NUM):{INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+
+#define HANDLE_LARGE() \
+INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);\
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+
+#else
+
 #define HANDLE_CASE(NUM, BUFFER_INDEX) \
 case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+
+#define HANDLE_LARGE() \
+INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);\
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+
+#endif
 
 
 static int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
@@ -828,21 +916,52 @@ struct RedSpyInstrument{
                 HANDLE_CASE(16, readBufferSlotIndex);
                 
             default: {
-                INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);
-                INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
+                HANDLE_LARGE();
             }
         }
     }
 };
-/*
-static inline bool INS_IsIgnorable(INS ins){
-    
-    if(INS_IsFarJump(ins))
-        return true;
-    else if(INS_IsRet(ins))
-        return true;
-    return false;
-}*/
+
+#ifdef ENABLE_SAMPLING
+
+#define HANDLE_LARGEREG() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+
+#define HANDLE_EAX() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEAXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+
+#define HANDLE_ECX() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckECXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+
+#define HANDLE_EDX() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEDXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+
+#define HANDLE_ONEREG() \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckOneRegValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_UINT32,reg,IARG_UINT32, REG_Size(reg),IARG_REG_VALUE,reg,IARG_BOOL,IsAliaReg(reg),IARG_END)
+
+#else
+
+#define HANDLE_LARGEREG() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+
+#define HANDLE_EAX() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEAXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+
+#define HANDLE_ECX() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckECXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+
+#define HANDLE_EDX() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEDXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+
+#define HANDLE_ONEREG() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckOneRegValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_UINT32,reg,IARG_UINT32, REG_Size(reg),IARG_REG_VALUE,reg,IARG_BOOL,IsAliaReg(reg),IARG_END)
+
+#endif
 
 static inline bool INS_IsIgnorable(INS ins){
     if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins) || INS_IsMaskedJump(ins))
@@ -872,56 +991,51 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     if (!INS_HasFallThrough(ins)) return;
     if (INS_IsIgnorable(ins))return;
     if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
-    
- //   if (INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins)){
 
       //Instrument memory writes to find redundancy
       // Special case, if we have only one write operand
       UINT32 whichOp = 0;
       if(GetNumWriteOperandsInIns(ins, whichOp) == 1){
         // Read the value at location before and after the instruction
-        RedSpyInstrument<0>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
-        return;
+          RedSpyInstrument<0>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
+      }else{
+          UINT32 memOperands = INS_MemoryOperandCount(ins);
+          int readBufferSlotIndex=0;
+          for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
+              
+              if(!INS_MemoryOperandIsWritten(ins, memOp))
+                  continue;
+              
+              switch (readBufferSlotIndex) {
+                  case 0:
+                      // Read the value at location before and after the instruction
+                      RedSpyInstrument<0>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
+                      break;
+                  case 1:
+                      // Read the value at location before and after the instruction
+                      RedSpyInstrument<1>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
+                      break;
+                  case 2:
+                      // Read the value at location before and after the instruction
+                      RedSpyInstrument<2>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
+                      break;
+                  case 3:
+                      // Read the value at location before and after the instruction
+                      RedSpyInstrument<3>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
+                      break;
+                  case 4:
+                      // Read the value at location before and after the instruction
+                      RedSpyInstrument<4>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
+                      break;
+                  default:
+                      assert(0 && "NYI");
+                      break;
+              }
+              
+              // use next slot for the next write operand
+              readBufferSlotIndex++;
+          }
       }
-    
-      UINT32 memOperands = INS_MemoryOperandCount(ins);
-      int readBufferSlotIndex=0;
-      for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
-        
-        if(!INS_MemoryOperandIsWritten(ins, memOp))
-            continue;
-        
-        switch (readBufferSlotIndex) {
-            case 0:
-                // Read the value at location before and after the instruction
-                RedSpyInstrument<0>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
-                break;
-            case 1:
-                // Read the value at location before and after the instruction
-                RedSpyInstrument<1>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
-                break;
-            case 2:
-                // Read the value at location before and after the instruction
-                RedSpyInstrument<2>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
-                break;
-            case 3:
-                // Read the value at location before and after the instruction
-                RedSpyInstrument<3>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
-                break;
-            case 4:
-                // Read the value at location before and after the instruction
-                RedSpyInstrument<4>::InstrumentReadValueBeforeAndAfterWriting(ins, whichOp, opaqueHandle);
-                break;
-            default:
-                assert(0 && "NYI");
-                break;
-        }
-        
-        // use next slot for the next write operand
-        readBufferSlotIndex++;
-      }
-
- //   }else{  
 
       //Instrument register writes to find redundancy
       struct RegInfo * wRegs = new struct RegInfo;
@@ -949,11 +1063,125 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
             wRegs->count = regCount;
         }
       }
-      if(regCount > 0)
-        InstrumentReadValueBeforeAndAfterWriting(ins, wRegs, opaqueHandle);
-   // }
+      if(regCount == 1){
+        REG reg = wRegs->regs[0];
+        uint32_t regSize = REG_Size(reg);
+        if(regSize > 8){
+            if(wRegs->regs[0] == REG_ST0)
+                return;
+            HANDLE_LARGEREG();
+        }else{
+            switch (reg) {
+                case REG_EAX: HANDLE_EAX(); break;
+                case REG_ECX: HANDLE_ECX(); break;
+                case REG_EDX: HANDLE_EDX(); break;
+                default: HANDLE_ONEREG();
+                    break;
+            }
+        }
+
+      }else if(regCount > 1)
+        InstrumentReadValueAfterWritingRegs(ins, wRegs, opaqueHandle);
 }
 
+#ifdef ENABLE_SAMPLING
+
+inline VOID InsInTrace(uint32_t count, THREADID threadId) {
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+            EmptyCtxt(tData);
+        }
+    }else{
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
+        }
+    }
+}
+
+//instrument the trace, count the number of ins in the trace, decide to instrument or not
+static void InstrumentTrace(TRACE trace, void* f) {
+    
+    uint32_t TotInsInTrace = 0;
+    unordered_map<ADDRINT,BBL> headers;
+    unordered_map<ADDRINT,BBL>::iterator headIter;
+    unordered_map<ADDRINT,double> BBLweight;
+    unordered_map<ADDRINT,double>::iterator weightIter;
+    list<BBL> bblsToCheck;
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        headers[INS_Address(BBL_InsHead(bbl))]=bbl;
+    }
+    
+    BBL curbbl = TRACE_BblHead(trace);
+    BBLweight[BBL_Address(curbbl)] = 1.0;
+    bblsToCheck.push_back(curbbl);
+    
+    while (!bblsToCheck.empty()) {
+        curbbl = bblsToCheck.front();
+        double curweight = BBLweight[BBL_Address(curbbl)];
+        INS curTail = BBL_InsTail(curbbl);
+        if( INS_IsDirectBranchOrCall(curTail)){
+            curweight /= 2;
+            ADDRINT next = INS_DirectBranchOrCallTargetAddress(curTail);
+            headIter = headers.find(next);
+            if (headIter != headers.end()) {
+                BBL bbl = headIter->second;
+                ADDRINT bblAddr = BBL_Address(bbl);
+                weightIter = BBLweight.find(bblAddr);
+                if (weightIter == BBLweight.end()) {
+                    BBLweight[bblAddr] = 0.5;
+                }else{
+                    weightIter->second += 0.5;
+                }
+                bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                if(!found) bblsToCheck.push_back(bbl);
+            }
+            if( INS_HasFallThrough(curTail)){
+                next = INS_Address(INS_Next(curTail));
+                headIter = headers.find(next);
+                if (headIter != headers.end()) {
+                    BBL bbl = headIter->second;
+                    ADDRINT bblAddr = BBL_Address(bbl);
+                    weightIter = BBLweight.find(bblAddr);
+                    if (weightIter == BBLweight.end()) {
+                        BBLweight[bblAddr] = 0.5;
+                    }else{
+                        weightIter->second += 0.5;
+                    }
+                    bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                    if(!found) bblsToCheck.push_back(bbl);
+                }
+            }
+        }else{
+            curbbl = BBL_Next(curbbl);
+            if(BBL_Valid(curbbl))
+                bblsToCheck.push_back(curbbl);
+        }
+        bblsToCheck.pop_front();
+    }
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        weightIter = BBLweight.find(BBL_Address(bbl));
+        if (weightIter != BBLweight.end()) {
+            TotInsInTrace += (uint32_t)(weightIter->second * BBL_NumIns(bbl));
+        } else {
+            TotInsInTrace += BBL_NumIns(bbl);
+        }
+    }
+    
+    if(TotInsInTrace)
+        TRACE_InsertCall(trace,IPOINT_BEFORE, (AFUNPTR)InsInTrace, IARG_UINT32, TotInsInTrace, IARG_THREAD_ID, IARG_END);
+}
+#endif
 
 struct RedundacyData {
     ContextHandle_t dead;
@@ -1046,13 +1274,20 @@ static VOID FiniFunc(INT32 code, VOID *v) {
 
 static void InitThreadData(RedSpyThreadData* tdata){
     tdata->bytesWritten = 0;
+    tdata->Sample_flag = true;
+    tdata->NUM_INS = 0;
+    tdata->NUM_winds = 0;
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
     RedSpyThreadData* tdata = new RedSpyThreadData();
     InitThreadData(tdata);
     //    __sync_fetch_and_add(&gClientNumThreads, 1);
+#ifdef MULTI_THREADED
     PIN_SetThreadData(client_tls_key, tdata, threadid);
+#else
+    gSingleThreadedTData = tdata;
+#endif
 }
 
 
@@ -1079,8 +1314,10 @@ int main(int argc, char* argv[]) {
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
-    //TRACE_AddInstrumentFunction(InstrumentTrace, 0);
     
+#ifdef ENABLE_SAMPLING
+    TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+#endif
     
     // Register ImageUnload to be called when an image is unloaded
     IMG_AddUnloadFunction(ImageUnload, 0);

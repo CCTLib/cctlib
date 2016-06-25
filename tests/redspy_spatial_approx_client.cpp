@@ -211,7 +211,7 @@ VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t lastW, IntraRed
 /* update the reading access pattern */
 VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
         /////////////////////////////////////////
-    /*
+    
     if(Sample_flag){
         NUM_INS++;
         if(NUM_INS > WINDOW_ENABLE){
@@ -228,7 +228,7 @@ VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
         }else
             return;
     }
-    */
+    
  /*       if((uint64_t)addr & 0x7f0000000000)
             return;
 */
@@ -315,7 +315,7 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
 //check whether there are same elements inside the data objects
 VOID CheckIntraArrayElements(void *addr, uint16_t AccessLen, THREADID threadId, const uint32_t opHandle){
 
-/*    if(Sample_flag){
+    if(Sample_flag){
         NUM_INS++;
         if(NUM_INS > WINDOW_ENABLE){
             Sample_flag = false;
@@ -331,7 +331,7 @@ VOID CheckIntraArrayElements(void *addr, uint16_t AccessLen, THREADID threadId, 
         }else
             return;
     }
-  */  
+    
 /*    if((uint64_t)addr & 0x7f0000000000)
         return;
 */
