@@ -487,8 +487,8 @@ static ADDRINT IfEnableSample(THREADID threadId){
     }
     return 0;
 }
-#endif
 
+#endif
 static inline VOID CheckEAXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
     
     RedSpyThreadData* const td = ClientGetTLS(threadId);
@@ -595,7 +595,7 @@ static inline VOID CheckOneRegValueAfterWrite(uint32_t opaqueHandle, THREADID th
 static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, void * regs, uint32_t regBytes, uint32_t regCount, ...){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    
+   
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     struct RegInfo * wRegs = (struct RegInfo *)regs;
     
@@ -690,7 +690,7 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, I
 #endif
 
 static inline void InstrumentReadValueAfterWritingRegs(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
-    
+   
     UINT8 i;
     uint32_t totBytes = 0;
     uint32_t regSize;
@@ -742,7 +742,7 @@ struct RedSpyAnalysis{
     static __attribute__((always_inline)) VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
-        
+       
         tData->bytesWritten += AccessLen;
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 
@@ -829,7 +829,6 @@ struct RedSpyAnalysis{
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-
     tData->bytesWritten += accessLen;
     memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
     tData->buffer[bufferOffset].address = addr;
@@ -1189,9 +1188,6 @@ struct RedundacyData {
     uint64_t frequency;
 };
 
-
-
-
 static inline bool RedundacyCompare(const struct RedundacyData &first, const struct RedundacyData &second) {
     return first.frequency > second.frequency ? true : false;
 }
@@ -1314,7 +1310,7 @@ int main(int argc, char* argv[]) {
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
-    
+   
 #ifdef ENABLE_SAMPLING
     TRACE_AddInstrumentFunction(InstrumentTrace, 0);
 #endif
