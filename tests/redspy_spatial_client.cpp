@@ -75,8 +75,6 @@ using namespace PinCCTLib;
 
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
 
-__thread long long NUM_INS = 0;
-__thread bool Sample_flag = true;
 
 typedef struct dataObjectStatus{
     uint32_t numOfReads; //num of reads
@@ -96,6 +94,8 @@ typedef struct intraRedIndexPair{
 struct RedSpyThreadData{
     unordered_map<uint32_t,DataObjectStatus> dynamicDataObjects;
     unordered_map<uint32_t,DataObjectStatus> staticDataObjects;
+    long long NUM_INS;
+    bool Sample_flag;
 };
 
 //helper struct used to 
@@ -157,9 +157,16 @@ int inline FindRedPair(list<IntraRedIndexPair> redlist,IntraRedIndexPair redpair
     return 0;
 }
 
-static inline VOID EmptyCtxt(THREADID threadId){
-    
+static ADDRINT IfEnableSample(THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        return 1;
+    }
+    return 0;
+}
+
+static inline VOID EmptyCtxt(RedSpyThreadData* tData){
+    
     unordered_map<uint32_t,DataObjectStatus>::iterator it;
     
     for( it = tData->dynamicDataObjects.begin(); it != tData->dynamicDataObjects.end(); ++it){
@@ -169,6 +176,7 @@ static inline VOID EmptyCtxt(THREADID threadId){
         it->second.numOfReads = 0;
     }
 }
+
 
 //type:0 means dynamic data object while 1 means static
 VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t lastW, IntraRedIndexPair redPair,THREADID threadId,uint8_t type){
@@ -203,43 +211,39 @@ VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t lastW, IntraRed
 
 /* update the reading access pattern */
 VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
-        /////////////////////////////////////////
     
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            EmptyCtxt(threadId);
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    
+    if(tData->Sample_flag){
+        tData->NUM_INS++;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+            EmptyCtxt(tData);
             return;
         }
     }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
+        tData->NUM_INS++;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
         }else
             return;
     }
-    
-        if((uint64_t)addr & 0x7f0000000000)
-            return;
-        RedSpyThreadData* const tData = ClientGetTLS(threadId);
- 
-        DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
-        if(dataHandle.objectType == DYNAMIC_OBJECT){
-            unordered_map<uint32_t,DataObjectStatus>::iterator it;
-            it = tData->dynamicDataObjects.find(dataHandle.pathHandle);
-            if(it != tData->dynamicDataObjects.end()){
-                it->second.numOfReads += 1;
-            }
-        }else if(dataHandle.objectType == STATIC_OBJECT){
-            unordered_map<uint32_t,DataObjectStatus>::iterator it;
-            it = tData->staticDataObjects.find(dataHandle.symName);
-            if(it != tData->staticDataObjects.end()){
-                it->second.numOfReads += 1;
-            }
+    DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
+    if(dataHandle.objectType == DYNAMIC_OBJECT){
+        unordered_map<uint32_t,DataObjectStatus>::iterator it;
+        it = tData->dynamicDataObjects.find(dataHandle.pathHandle);
+        if(it != tData->dynamicDataObjects.end()){
+            it->second.numOfReads += 1;
         }
+    }else if(dataHandle.objectType == STATIC_OBJECT){
+        unordered_map<uint32_t,DataObjectStatus>::iterator it;
+        it = tData->staticDataObjects.find(dataHandle.symName);
+        if(it != tData->staticDataObjects.end()){
+            it->second.numOfReads += 1;
+        }
+    }
 }
 
 inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t lastWctxt, uint32_t curCtxt, uint16_t accessLen, uint64_t begaddr, uint64_t endaddr,THREADID threadId, uint8_t type ){
@@ -412,28 +416,26 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
 
 //check whether there are same elements inside the data objects
 VOID CheckIntraArrayElements(void *addr, uint16_t AccessLen, THREADID threadId, const uint32_t opHandle){
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
 
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            EmptyCtxt(threadId);
+    if(tData->Sample_flag){
+        tData->NUM_INS++;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+            EmptyCtxt(tData);
             return;
         }
     }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
+        tData->NUM_INS++;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
         }else
             return;
     }
     
-    if((uint64_t)addr & 0x7f0000000000)
-        return;
-
-    RedSpyThreadData* const tData = ClientGetTLS(threadId);
     DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
     uint32_t curCtxt = GetContextHandle(threadId, opHandle);
 
@@ -511,10 +513,12 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         // Read the value at location before and after the instruction
         for(UINT32 memop = 0; memop < memOperands; memop++){
            if(INS_MemoryOperandIsRead(ins,memop) && !INS_MemoryOperandIsWritten(ins,memop)){
-               INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
+               INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
+               INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);
            }else if(INS_MemoryOperandIsWritten(ins,memop)){
                UINT32 refSize = INS_MemoryOperandSize(ins, memop);
-               INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
+               INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
+               INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
            }
         }
         return;
@@ -522,14 +526,16 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     
     for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
         if(INS_MemoryOperandIsRead(ins,memOp) && !INS_MemoryOperandIsWritten(ins,memOp)){
-            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
+            INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
+            INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);
         }       
  
         if(!INS_MemoryOperandIsWritten(ins, memOp))
             continue;
         
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memOp, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
+        INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
+        INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memOp, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
     }
 }
 
@@ -675,7 +681,8 @@ static VOID FiniFunc(INT32 code, VOID *v) {
 
 
 static void InitThreadData(RedSpyThreadData* tdata){
-    ;
+    tdata->Sample_flag = true;
+    tdata->NUM_INS = 0;
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
