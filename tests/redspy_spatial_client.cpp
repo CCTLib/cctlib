@@ -65,8 +65,12 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
+#ifdef ENABLE_SAMPLING
+
 #define WINDOW_ENABLE 1000000
 #define WINDOW_DISABLE 1000000000
+
+#endif
 
 #define SAME_RATE (0.1)
 #define SAME_RECORD_LIMIT (0)
@@ -157,6 +161,8 @@ int inline FindRedPair(list<IntraRedIndexPair> redlist,IntraRedIndexPair redpair
     return 0;
 }
 
+#ifdef ENABLE_SAMPLING
+
 static ADDRINT IfEnableSample(THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     if(tData->Sample_flag){
@@ -176,6 +182,8 @@ static inline VOID EmptyCtxt(RedSpyThreadData* tData){
         it->second.numOfReads = 0;
     }
 }
+
+#endif
 
 
 //type:0 means dynamic data object while 1 means static
@@ -214,22 +222,6 @@ VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     
-    if(tData->Sample_flag){
-        tData->NUM_INS++;
-        if(tData->NUM_INS > WINDOW_ENABLE){
-            tData->Sample_flag = false;
-            tData->NUM_INS = 0;
-            EmptyCtxt(tData);
-            return;
-        }
-    }else{
-        tData->NUM_INS++;
-        if(tData->NUM_INS > WINDOW_DISABLE){
-            tData->Sample_flag = true;
-            tData->NUM_INS = 0;
-        }else
-            return;
-    }
     DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
     if(dataHandle.objectType == DYNAMIC_OBJECT){
         unordered_map<uint32_t,DataObjectStatus>::iterator it;
@@ -418,23 +410,6 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
 VOID CheckIntraArrayElements(void *addr, uint16_t AccessLen, THREADID threadId, const uint32_t opHandle){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-
-    if(tData->Sample_flag){
-        tData->NUM_INS++;
-        if(tData->NUM_INS > WINDOW_ENABLE){
-            tData->Sample_flag = false;
-            tData->NUM_INS = 0;
-            EmptyCtxt(tData);
-            return;
-        }
-    }else{
-        tData->NUM_INS++;
-        if(tData->NUM_INS > WINDOW_DISABLE){
-            tData->Sample_flag = true;
-            tData->NUM_INS = 0;
-        }else
-            return;
-    }
     
     DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
     uint32_t curCtxt = GetContextHandle(threadId, opHandle);
@@ -500,6 +475,27 @@ static inline int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
     return numWriteOps;
 }
 
+#ifdef ENABLE_SAMPLING
+
+#define HANDLE_READ() \
+INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END)
+
+#define HANDLE_WRITE() \
+INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END)
+
+#else
+
+#define HANDLE_READ() \
+INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END)
+
+#define HANDLE_WRITE() \
+INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END)
+
+#endif
+
+
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
    // if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
@@ -513,31 +509,125 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         // Read the value at location before and after the instruction
         for(UINT32 memop = 0; memop < memOperands; memop++){
            if(INS_MemoryOperandIsRead(ins,memop) && !INS_MemoryOperandIsWritten(ins,memop)){
-               INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
-               INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);
+               HANDLE_READ();
            }else if(INS_MemoryOperandIsWritten(ins,memop)){
                UINT32 refSize = INS_MemoryOperandSize(ins, memop);
-               INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
-               INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
+               HANDLE_WRITE();
            }
         }
         return;
     }
     
-    for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
-        if(INS_MemoryOperandIsRead(ins,memOp) && !INS_MemoryOperandIsWritten(ins,memOp)){
-            INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
-            INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);
+    for(UINT32 memop = 0; memop < memOperands; memop++) {
+        if(INS_MemoryOperandIsRead(ins,memop) && !INS_MemoryOperandIsWritten(ins,memop)){
+            HANDLE_READ();
         }       
  
-        if(!INS_MemoryOperandIsWritten(ins, memOp))
+        if(!INS_MemoryOperandIsWritten(ins, memop))
             continue;
         
-        UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
-        INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);
-        INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memOp, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
+        UINT32 refSize = INS_MemoryOperandSize(ins, memop);
+        HANDLE_WRITE();
     }
 }
+
+#ifdef ENABLE_SAMPLING
+
+inline VOID InsInTrace(uint32_t count, THREADID threadId) {
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+            EmptyCtxt(tData);
+        }
+    }else{
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
+        }
+    }
+}
+
+//instrument the trace, count the number of ins in the trace, decide to instrument or not
+static void InstrumentTrace(TRACE trace, void* f) {
+    uint32_t TotInsInTrace = 0;
+    unordered_map<ADDRINT,BBL> headers;
+    unordered_map<ADDRINT,BBL>::iterator headIter;
+    unordered_map<ADDRINT,double> BBLweight;
+    unordered_map<ADDRINT,double>::iterator weightIter;
+    list<BBL> bblsToCheck;
+    list<BBL> bblsChecked;
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        headers[INS_Address(BBL_InsHead(bbl))]=bbl;
+    }
+    
+    BBL curbbl = TRACE_BblHead(trace);
+    BBLweight[BBL_Address(curbbl)] = 1.0;
+    bblsToCheck.push_back(curbbl);
+    
+    while (!bblsToCheck.empty()) {
+        curbbl = bblsToCheck.front();
+        double curweight = BBLweight[BBL_Address(curbbl)];
+        INS curTail = BBL_InsTail(curbbl);
+        if( INS_IsDirectBranchOrCall(curTail)){
+            curweight /= 2;
+            ADDRINT next = INS_DirectBranchOrCallTargetAddress(curTail);
+            headIter = headers.find(next);
+            if (headIter != headers.end()) {
+                BBL bbl = headIter->second;
+                ADDRINT bblAddr = BBL_Address(bbl);
+                weightIter = BBLweight.find(bblAddr);
+                if (weightIter == BBLweight.end()) {
+                    BBLweight[bblAddr] = curweight;
+                }else{
+                    weightIter->second += curweight;
+                }
+                bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+            }
+            if( INS_HasFallThrough(curTail)){
+                next = INS_Address(INS_Next(curTail));
+                headIter = headers.find(next);
+                if (headIter != headers.end()) {
+                    BBL bbl = headIter->second;
+                    ADDRINT bblAddr = BBL_Address(bbl);
+                    weightIter = BBLweight.find(bblAddr);
+                    if (weightIter == BBLweight.end()) {
+                        BBLweight[bblAddr] = curweight;
+                    }else{
+                        weightIter->second += curweight;
+                    }
+                    bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                    bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                    if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+                }
+            }
+        }
+        bblsToCheck.pop_front();
+        bblsChecked.push_back(curbbl);
+    }
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        weightIter = BBLweight.find(BBL_Address(bbl));
+        if (weightIter != BBLweight.end()) {
+            TotInsInTrace += (uint32_t)(weightIter->second * BBL_NumIns(bbl));
+        } else {
+            TotInsInTrace += BBL_NumIns(bbl);
+        }
+    }
+    
+    if(TotInsInTrace)
+        TRACE_InsertCall(trace,IPOINT_BEFORE, (AFUNPTR)InsInTrace, IARG_UINT32, TotInsInTrace, IARG_THREAD_ID, IARG_END);
+}
+#endif
 
 
 struct RedundacyData {
@@ -716,7 +806,10 @@ int main(int argc, char* argv[]) {
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
-    
+
+#ifdef ENABLE_SAMPLING
+    TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+#endif
     
     // Register ImageUnload to be called when an image is unloaded
     IMG_AddUnloadFunction(ImageUnload, 0);
