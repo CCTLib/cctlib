@@ -1081,6 +1081,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
 
       }else if(regCount > 1)
         InstrumentReadValueAfterWritingRegs(ins, wRegs, opaqueHandle);
+
 }
 
 #ifdef ENABLE_SAMPLING
@@ -1106,14 +1107,14 @@ inline VOID InsInTrace(uint32_t count, THREADID threadId) {
 
 //instrument the trace, count the number of ins in the trace, decide to instrument or not
 static void InstrumentTrace(TRACE trace, void* f) {
-    
     uint32_t TotInsInTrace = 0;
     unordered_map<ADDRINT,BBL> headers;
     unordered_map<ADDRINT,BBL>::iterator headIter;
     unordered_map<ADDRINT,double> BBLweight;
     unordered_map<ADDRINT,double>::iterator weightIter;
     list<BBL> bblsToCheck;
-    
+    list<BBL> bblsChecked;
+
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
     {
         headers[INS_Address(BBL_InsHead(bbl))]=bbl;
@@ -1136,12 +1137,13 @@ static void InstrumentTrace(TRACE trace, void* f) {
                 ADDRINT bblAddr = BBL_Address(bbl);
                 weightIter = BBLweight.find(bblAddr);
                 if (weightIter == BBLweight.end()) {
-                    BBLweight[bblAddr] = 0.5;
+                    BBLweight[bblAddr] = curweight;
                 }else{
-                    weightIter->second += 0.5;
+                    weightIter->second += curweight;
                 }
                 bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
-                if(!found) bblsToCheck.push_back(bbl);
+                bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                if(!found && !foundChecked) bblsToCheck.push_back(bbl);
             }
             if( INS_HasFallThrough(curTail)){
                 next = INS_Address(INS_Next(curTail));
@@ -1151,20 +1153,18 @@ static void InstrumentTrace(TRACE trace, void* f) {
                     ADDRINT bblAddr = BBL_Address(bbl);
                     weightIter = BBLweight.find(bblAddr);
                     if (weightIter == BBLweight.end()) {
-                        BBLweight[bblAddr] = 0.5;
+                        BBLweight[bblAddr] = curweight;
                     }else{
-                        weightIter->second += 0.5;
+                        weightIter->second += curweight;
                     }
                     bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
-                    if(!found) bblsToCheck.push_back(bbl);
+                    bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                    if(!found && !foundChecked) bblsToCheck.push_back(bbl);
                 }
             }
-        }else{
-            curbbl = BBL_Next(curbbl);
-            if(BBL_Valid(curbbl))
-                bblsToCheck.push_back(curbbl);
         }
         bblsToCheck.pop_front();
+        bblsChecked.push_back(curbbl);
     }
     
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
