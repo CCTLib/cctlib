@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <string.h>
+#include <list>
 #include <sys/mman.h>
 #include <sstream>
 #include <functional>
@@ -49,6 +50,11 @@
 #include <algorithm>
 #include "pin.H"
 #include "cctlib.H"
+extern "C" {
+#include "xed-interface.h"
+#include "xed-common-hdrs.h"
+}
+
 using namespace std;
 using namespace PinCCTLib;
 
@@ -105,8 +111,12 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
+#ifdef ENABLE_SAMPLING
+
 #define WINDOW_ENABLE 1000000
 #define WINDOW_DISABLE 1000000000
+
+#endif
 
 #define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
 #define DECODE_KILL(data) (static_cast<ContextHandle_t>( (data)  & 0x00000000ffffffff))
@@ -116,10 +126,6 @@ using namespace PinCCTLib;
 
 #define delta 0.01
 
-__thread long long NUM_INS = 0;
-__thread bool Sample_flag = true;
-__thread long long NUM_winds = 0;
-
 struct AddrValPair{
     void * address;
     uint8_t value[MAX_WRITE_OP_LENGTH];
@@ -128,18 +134,37 @@ struct AddrValPair{
 struct RedSpyThreadData{
     AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
     uint64_t bytesWritten;
+    long NUM_INS;
+    bool Sample_flag;
 };
 
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY client_tls_key;
 
+static RedSpyThreadData* gSingleThreadedTData;
 // function to access thread-specific data
 inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
+#ifdef MULTI_THREADED
     RedSpyThreadData* tdata =
     static_cast<RedSpyThreadData*>(PIN_GetThreadData(client_tls_key, threadId));
     return tdata;
+#else
+    return gSingleThreadedTData;
+#endif
+
 }
 
+#ifdef ENABLE_SAMPLING
+
+static ADDRINT IfEnableSample(THREADID threadId){
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        return 1;
+    }
+    return 0;
+}
+
+#endif
 
 template<int start, int end, int incr>
 struct UnrolledLoop{
@@ -266,22 +291,12 @@ struct RedSpyAnalysis{
     }
     
     static inline VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
-       if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            return;
-        }
-       }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
-        }else
-            return;
-       }
-       RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        
+#ifdef ENABLE_SAMPLING
+        tData->bytesWritten += AccessLen;
+#endif
         AddrValPair * avPair = & tData->buffer[bufferOffset];
         avPair->address = addr;
         switch(AccessLen){
@@ -294,8 +309,6 @@ struct RedSpyAnalysis{
     }
     
     static inline VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
-        if(!Sample_flag)
-           return;
 
         void * addr;
         int isRedundantWrite = IsWriteRedundant(addr, threadId);
@@ -363,11 +376,106 @@ struct RedSpyAnalysis{
     }
 };
 
+#ifdef ENABLE_SAMPLING
+
+inline VOID InsInTrace(uint32_t count, THREADID threadId) {
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+        }
+    }else{
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
+        }
+    }
+}
+
+//instrument the trace, count the number of ins in the trace, decide to instrument or not
+static void InstrumentTrace(TRACE trace, void* f) {
+    uint32_t TotInsInTrace = 0;
+    unordered_map<ADDRINT,BBL> headers;
+    unordered_map<ADDRINT,BBL>::iterator headIter;
+    unordered_map<ADDRINT,double> BBLweight;
+    unordered_map<ADDRINT,double>::iterator weightIter;
+    list<BBL> bblsToCheck;
+    list<BBL> bblsChecked;
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        headers[INS_Address(BBL_InsHead(bbl))]=bbl;
+    }
+    
+    BBL curbbl = TRACE_BblHead(trace);
+    BBLweight[BBL_Address(curbbl)] = 1.0;
+    bblsToCheck.push_back(curbbl);
+    
+    while (!bblsToCheck.empty()) {
+        curbbl = bblsToCheck.front();
+        double curweight = BBLweight[BBL_Address(curbbl)];
+        INS curTail = BBL_InsTail(curbbl);
+        if( INS_IsDirectBranchOrCall(curTail)){
+            curweight /= 2;
+            ADDRINT next = INS_DirectBranchOrCallTargetAddress(curTail);
+            headIter = headers.find(next);
+            if (headIter != headers.end()) {
+                BBL bbl = headIter->second;
+                ADDRINT bblAddr = BBL_Address(bbl);
+                weightIter = BBLweight.find(bblAddr);
+                if (weightIter == BBLweight.end()) {
+                    BBLweight[bblAddr] = curweight;
+                }else{
+                    weightIter->second += curweight;
+                }
+                bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+            }
+            if( INS_HasFallThrough(curTail)){
+                next = INS_Address(INS_Next(curTail));
+                headIter = headers.find(next);
+                if (headIter != headers.end()) {
+                    BBL bbl = headIter->second;
+                    ADDRINT bblAddr = BBL_Address(bbl);
+                    weightIter = BBLweight.find(bblAddr);
+                    if (weightIter == BBLweight.end()) {
+                        BBLweight[bblAddr] = curweight;
+                    }else{
+                        weightIter->second += curweight;
+                    }
+                    bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                    bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                    if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+                }
+            }
+        }
+        bblsToCheck.pop_front();
+        bblsChecked.push_back(curbbl);
+    }
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        weightIter = BBLweight.find(BBL_Address(bbl));
+        if (weightIter != BBLweight.end()) {
+            TotInsInTrace += (uint32_t)(weightIter->second * BBL_NumIns(bbl));
+        } else {
+            TotInsInTrace += BBL_NumIns(bbl);
+        }
+    }
+    
+    if(TotInsInTrace)
+        TRACE_InsertCall(trace,IPOINT_BEFORE, (AFUNPTR)InsInTrace, IARG_UINT32, TotInsInTrace, IARG_THREAD_ID, IARG_END);
+}
+#else
+
 inline VOID BytesWrittenInBBL(uint32_t count, THREADID threadId) {
     ClientGetTLS(threadId)->bytesWritten += count;
 }
-
-
 
 // Instrument a trace, take the first instruction in the first BBL and insert the analysis function before that
 static void InstrumentTrace(TRACE trace, void* f) {
@@ -388,10 +496,24 @@ static void InstrumentTrace(TRACE trace, void* f) {
     }
 }
 
+#endif
+
+
+#ifdef ENABLE_SAMPLING
+
+#define HANDLE_CASE(NUM, BUFFER_INDEX) \
+case (NUM):{INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+
+#else
+
 #define HANDLE_CASE(NUM, BUFFER_INDEX) \
 case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
+#endif
 
 static int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
     int numWriteOps = 0;
@@ -424,11 +546,32 @@ struct RedSpyInstrument{
     }
 };
 
+static inline bool IsFloatInstruction(ADDRINT ip) {
+    xed_decoded_inst_t  xedd;
+    xed_state_t  xed_state;
+    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    
+    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
+        unsigned int NumOperands = xed_decoded_inst_noperands(&xedd);
+        for(unsigned int i = 0; i < NumOperands; ++i){
+            xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,i);
+            if(TypeOperand == XED_OPERAND_ELEMENT_TYPE_SINGLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_DOUBLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_FLOAT16 || TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE)
+                return true;
+        }
+        return false;
+    } else {
+        assert(0 && "failed to disassemble instruction");
+        return false;
+    }
+}
+
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
     // if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
     if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
    
+    if(!IsFloatInstruction(INS_Address(ins)))
+        return;
    
     // Special case, if we have only one write operand
     UINT32 whichOp = 0;
@@ -567,13 +710,19 @@ static VOID FiniFunc(INT32 code, VOID *v) {
 
 static void InitThreadData(RedSpyThreadData* tdata){
     tdata->bytesWritten = 0;
+    tdata->NUM_INS = 0;
+    tdata->Sample_flag = true;
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
     RedSpyThreadData* tdata = new RedSpyThreadData();
     InitThreadData(tdata);
     //    __sync_fetch_and_add(&gClientNumThreads, 1);
+#ifdef MULTI_THREADED
     PIN_SetThreadData(client_tls_key, tdata, threadid);
+#else
+    gSingleThreadedTData = tdata;
+#endif
 }
 
 
