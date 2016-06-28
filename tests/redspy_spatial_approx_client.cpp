@@ -49,6 +49,10 @@
 #include <unordered_map>
 #include <algorithm>
 #include "pin.H"
+extern "C" {
+#include "xed-interface.h"
+#include "xed-common-hdrs.h"
+}
 
 //enable Data-centric
 #define USE_TREE_BASED_FOR_DATA_CENTRIC
@@ -65,18 +69,20 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 
+#ifdef ENABLE_SAMPLING
+
 #define WINDOW_ENABLE 1000000
-#define WINDOW_DISABLE 0
+#define WINDOW_DISABLE 1000000000
+
+#endif
 
 #define SAME_RATE (0.1)
 #define SAME_RECORD_LIMIT (0)
 #define RED_RATE (0.9)
 
+#define delta 0.01
 
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
-
-__thread long long NUM_INS = 0;
-__thread bool Sample_flag = true;
 
 typedef struct indexRange{
     uint32_t start;
@@ -103,6 +109,8 @@ typedef struct intraRedIndexPair{
 struct RedSpyThreadData{
     unordered_map<uint32_t,DataObjectStatus> dynamicDataObjects;
     unordered_map<uint32_t,DataObjectStatus> staticDataObjects;
+    long NUM_INS;
+    bool Sample_flag;
 };
 
 //helper struct used to 
@@ -164,9 +172,18 @@ int inline FindRedPair(list<IntraRedIndexPair> redlist,IntraRedIndexPair redpair
     return 0;
 }
 
-static inline VOID EmptyCtxt(THREADID threadId){
-    
+#ifdef ENABLE_SAMPLING
+
+static ADDRINT IfEnableSample(THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        return 1;
+    }
+    return 0;
+}
+
+static inline VOID EmptyCtxt(RedSpyThreadData* tData){
+    
     unordered_map<uint32_t,DataObjectStatus>::iterator it;
     
     for( it = tData->dynamicDataObjects.begin(); it != tData->dynamicDataObjects.end(); ++it){
@@ -176,6 +193,8 @@ static inline VOID EmptyCtxt(THREADID threadId){
         it->second.numOfReads = 0;
     }
 }
+
+#endif
 
 //type:0 means dynamic data object while 1 means static
 VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t lastW, IntraRedIndexPair redPair,THREADID threadId,uint8_t type){
@@ -210,28 +229,7 @@ VOID inline RecordIntraArrayRedundancy(uint32_t dataObj,uint32_t lastW, IntraRed
 
 /* update the reading access pattern */
 VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
-        /////////////////////////////////////////
-    
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            EmptyCtxt(threadId);
-            return;
-        }
-    }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
-        }else
-            return;
-    }
-    
- /*       if((uint64_t)addr & 0x7f0000000000)
-            return;
-*/
+
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
  
         DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
@@ -251,6 +249,7 @@ VOID UpdateReadAccess(void *addr, THREADID threadId, const uint32_t opHandle){
 }
 
 inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t lastWctxt, uint32_t curCtxt, uint16_t accessLen, uint64_t begaddr, uint64_t endaddr,THREADID threadId, uint8_t type ){
+    
         uint64_t address;
         uint32_t index;
         if(accessLen >= 4){
@@ -271,10 +270,10 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
             
                 double value1 = *static_cast<double *>((void *)address);
                 double diffR = (value1-valueLast)/valueLast;
-                if(diffR < 0.01 && diffR > -0.01)
+                if(diffR < delta && diffR > -delta)
                     spatialRedIndex.push_back(index);
                 diffR = (value1-value)/value;
-                if(diffR < 0.01 && diffR > -0.01){
+                if(diffR < delta && diffR > -delta){
                     it1 = valuesMap1.find(value);
                     if(it1 == valuesMap1.end()){
                        IndexRange nlist;
@@ -315,26 +314,6 @@ inline VOID CheckAndRecordIntraArrayRedundancy(uint32_t nameORpath, uint32_t las
 //check whether there are same elements inside the data objects
 VOID CheckIntraArrayElements(void *addr, uint16_t AccessLen, THREADID threadId, const uint32_t opHandle){
 
-    if(Sample_flag){
-        NUM_INS++;
-        if(NUM_INS > WINDOW_ENABLE){
-            Sample_flag = false;
-            NUM_INS = 0;
-            EmptyCtxt(threadId);
-            return;
-        }
-    }else{
-        NUM_INS++;
-        if(NUM_INS > WINDOW_DISABLE){
-            Sample_flag = true;
-            NUM_INS = 0;
-        }else
-            return;
-    }
-    
-/*    if((uint64_t)addr & 0x7f0000000000)
-        return;
-*/
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
     uint32_t curCtxt = GetContextHandle(threadId, opHandle);
@@ -400,10 +379,52 @@ static inline int GetNumWriteOperandsInIns(INS ins, UINT32 & whichOp){
     return numWriteOps;
 }
 
+static inline bool IsFloatInstruction(ADDRINT ip) {
+    xed_decoded_inst_t  xedd;
+    xed_state_t  xed_state;
+    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    
+    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
+        unsigned int NumOperands = xed_decoded_inst_noperands(&xedd);
+        for(unsigned int i = 0; i < NumOperands; ++i){
+            xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,i);
+            if(TypeOperand == XED_OPERAND_ELEMENT_TYPE_SINGLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_DOUBLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_FLOAT16 || TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE)
+                return true;
+        }
+        return false;
+    } else {
+        assert(0 && "failed to disassemble instruction");
+        return false;
+    }
+}
+
+#ifdef ENABLE_SAMPLING
+
+#define HANDLE_READ() \
+INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END)
+
+#define HANDLE_WRITE() \
+INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END)
+
+#else
+
+#define HANDLE_READ() \
+INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END)
+
+#define HANDLE_WRITE() \
+INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END)
+
+#endif
+
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
    // if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
     if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    
+    if(!IsFloatInstruction(INS_Address(ins)))
+        return;
     
     UINT32 memOperands = INS_MemoryOperandCount(ins);
    
@@ -413,28 +434,125 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         // Read the value at location before and after the instruction
         for(UINT32 memop = 0; memop < memOperands; memop++){
            if(INS_MemoryOperandIsRead(ins,memop) && !INS_MemoryOperandIsWritten(ins,memop)){
-               INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memop, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
+               HANDLE_READ();
            }else if(INS_MemoryOperandIsWritten(ins,memop)){
                UINT32 refSize = INS_MemoryOperandSize(ins, memop);
-               INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memop, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
+               HANDLE_WRITE();
            }
         }
         return;
     }
     
-    for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
-        if(INS_MemoryOperandIsRead(ins,memOp) && !INS_MemoryOperandIsWritten(ins,memOp)){
-            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) UpdateReadAccess, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_UINT32,opaqueHandle, IARG_END);    
+    for(UINT32 memop = 0; memop < memOperands; memop++) {
+        if(INS_MemoryOperandIsRead(ins,memop) && !INS_MemoryOperandIsWritten(ins,memop)){
+            HANDLE_READ();
         }       
  
-        if(!INS_MemoryOperandIsWritten(ins, memOp))
+        if(!INS_MemoryOperandIsWritten(ins, memop))
             continue;
         
-        UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckIntraArrayElements, IARG_MEMORYOP_EA, memOp, IARG_UINT32, refSize, IARG_THREAD_ID, IARG_UINT32, opaqueHandle, IARG_END);
+        UINT32 refSize = INS_MemoryOperandSize(ins, memop);
+        HANDLE_WRITE();
     }
 }
 
+#ifdef ENABLE_SAMPLING
+
+inline VOID InsInTrace(uint32_t count, THREADID threadId) {
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    if(tData->Sample_flag){
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+            EmptyCtxt(tData);
+        }
+    }else{
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
+        }
+    }
+}
+
+//instrument the trace, count the number of ins in the trace, decide to instrument or not
+static void InstrumentTrace(TRACE trace, void* f) {
+    uint32_t TotInsInTrace = 0;
+    unordered_map<ADDRINT,BBL> headers;
+    unordered_map<ADDRINT,BBL>::iterator headIter;
+    unordered_map<ADDRINT,double> BBLweight;
+    unordered_map<ADDRINT,double>::iterator weightIter;
+    list<BBL> bblsToCheck;
+    list<BBL> bblsChecked;
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        headers[INS_Address(BBL_InsHead(bbl))]=bbl;
+    }
+    
+    BBL curbbl = TRACE_BblHead(trace);
+    BBLweight[BBL_Address(curbbl)] = 1.0;
+    bblsToCheck.push_back(curbbl);
+    
+    while (!bblsToCheck.empty()) {
+        curbbl = bblsToCheck.front();
+        double curweight = BBLweight[BBL_Address(curbbl)];
+        INS curTail = BBL_InsTail(curbbl);
+        if( INS_IsDirectBranchOrCall(curTail)){
+            curweight /= 2;
+            ADDRINT next = INS_DirectBranchOrCallTargetAddress(curTail);
+            headIter = headers.find(next);
+            if (headIter != headers.end()) {
+                BBL bbl = headIter->second;
+                ADDRINT bblAddr = BBL_Address(bbl);
+                weightIter = BBLweight.find(bblAddr);
+                if (weightIter == BBLweight.end()) {
+                    BBLweight[bblAddr] = curweight;
+                }else{
+                    weightIter->second += curweight;
+                }
+                bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+            }
+            if( INS_HasFallThrough(curTail)){
+                next = INS_Address(INS_Next(curTail));
+                headIter = headers.find(next);
+                if (headIter != headers.end()) {
+                    BBL bbl = headIter->second;
+                    ADDRINT bblAddr = BBL_Address(bbl);
+                    weightIter = BBLweight.find(bblAddr);
+                    if (weightIter == BBLweight.end()) {
+                        BBLweight[bblAddr] = curweight;
+                    }else{
+                        weightIter->second += curweight;
+                    }
+                    bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
+                    bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
+                    if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+                }
+            }
+        }
+        bblsToCheck.pop_front();
+        bblsChecked.push_back(curbbl);
+    }
+    
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        weightIter = BBLweight.find(BBL_Address(bbl));
+        if (weightIter != BBLweight.end()) {
+            TotInsInTrace += (uint32_t)(weightIter->second * BBL_NumIns(bbl));
+        } else {
+            TotInsInTrace += BBL_NumIns(bbl);
+        }
+    }
+    
+    if(TotInsInTrace)
+        TRACE_InsertCall(trace,IPOINT_BEFORE, (AFUNPTR)InsInTrace, IARG_UINT32, TotInsInTrace, IARG_THREAD_ID, IARG_END);
+}
+#endif
 
 struct RedundacyData {
     ContextHandle_t dead;
@@ -494,11 +612,11 @@ static void PrintRedundancyPairs(THREADID threadId) {
                string indexlist = "[";
                list<IndexRange>::iterator IndIt=(*listit).indexes.begin();
                float frac = (float)((*IndIt).end-(*IndIt).start)*100/(*listit).len;
-               indexlist += to_string((*IndIt).start) + "," + to_string((*IndIt).end) + to_string(frac)+ "%]";
+               indexlist += to_string((*IndIt).start) + "," + to_string((*IndIt).end) + "," +  to_string(frac)+ "%]";
                IndIt++;
                while(IndIt != (*listit).indexes.end()){
                   frac = (float)((*IndIt).end-(*IndIt).start)*100/(*listit).len;
-                  indexlist += ",[" + to_string((*IndIt).start) + "," + to_string((*IndIt).end) + to_string(frac) + "%]";
+                  indexlist += ",[" + to_string((*IndIt).start) + "," + to_string((*IndIt).end) + "," + to_string(frac) + "%]";
                   IndIt++;
                }
                fprintf(gTraceFile,"%s\n",indexlist.c_str());
@@ -534,11 +652,11 @@ static void PrintRedundancyPairs(THREADID threadId) {
                string indexlist = "[";
                list<IndexRange>::iterator IndIt=(*listit).indexes.begin();
                float frac = (float)((*IndIt).end-(*IndIt).start)*100/(*listit).len;
-               indexlist += to_string((*IndIt).start) + "," + to_string((*IndIt).end) + to_string(frac)+ "%]";
+               indexlist += to_string((*IndIt).start) + "," + to_string((*IndIt).end) + "," +  to_string(frac)+ "%]";
                IndIt++;
                while(IndIt != (*listit).indexes.end()){
                   frac = (float)((*IndIt).end-(*IndIt).start)*100/(*listit).len;
-                  indexlist += ",[" + to_string((*IndIt).start) + "," + to_string((*IndIt).end) + to_string(frac) + "%]";
+                  indexlist += ",[" + to_string((*IndIt).start) + "," + to_string((*IndIt).end) + "," +  to_string(frac) + "%]";
                   IndIt++;
                }
                fprintf(gTraceFile,"%s\n",indexlist.c_str());
@@ -595,7 +713,8 @@ static VOID FiniFunc(INT32 code, VOID *v) {
 
 
 static void InitThreadData(RedSpyThreadData* tdata){
-    ;
+    tdata->NUM_INS = 0;
+    tdata->Sample_flag = true;
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
@@ -630,6 +749,9 @@ int main(int argc, char* argv[]) {
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
     
+#ifdef ENABLE_SAMPLING
+    TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+#endif
     
     // Register ImageUnload to be called when an image is unloaded
     IMG_AddUnloadFunction(ImageUnload, 0);

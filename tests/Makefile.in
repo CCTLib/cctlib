@@ -472,7 +472,7 @@ $(OBJDIR)redspy_spatial_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_spatial_client$
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 $(OBJDIR)redspy_spatial_approx_client$(OBJ_SUFFIX): redspy_spatial_approx_client.cpp ../src/cctlib.H
-	$(CXX)  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+	$(CXX) -DENABLE_SAMPLING $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)redspy_spatial_approx_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_spatial_approx_client$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
