@@ -42,7 +42,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sstream>
-#include <functional>
+//#include <functional>
 #include <unordered_set>
 #include <vector>
 #include <unordered_map>
@@ -158,35 +158,6 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 #endif
 }
 
-
-template<int start, int end, int incr>
-struct UnrolledLoop{
-    static __attribute__((always_inline)) void Body(function<void (const int)> func){
-        func(start); // Real loop body
-        UnrolledLoop<start+incr, end, incr>:: Body(func);   // unroll next iteration
-    }
-};
-
-template<int end,  int incr>
-struct UnrolledLoop<end , end , incr>{
-    static __attribute__((always_inline)) void Body(function<void (const int)> func){
-        // empty body
-    }
-};
-
-template<int start, int end, int incr>
-struct UnrolledConjunction{
-    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
-        return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
-    }
-};
-
-template<int end,  int incr>
-struct UnrolledConjunction<end , end , incr>{
-    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
-        return true;
-    }
-};
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -724,6 +695,62 @@ static inline void InstrumentReadValueAfterWritingRegs(INS ins, struct RegInfo *
 
 
 /*********************** memory temporal redundancy functions **************************/
+template<int start, int end, int incr, bool conditional>
+struct UnrolledLoop{
+    static __attribute__((always_inline)) void Body(function<void (const int)> func){
+        func(start); // Real loop body
+        UnrolledLoop<start+incr, end, incr, conditional>:: Body(func);   // unroll next iteration
+    }
+    static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){
+        if(conditional) {
+            // report in RedTable
+            AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[start], handle), 1, threadId);
+        }
+        // Update context
+        prevIP[start] = handle;
+        UnrolledLoop<start+incr, end, incr, conditional>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
+    }
+    static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){
+        uint8_t * status = GetOrCreateShadowBaseAddress((uint64_t)addr + start);
+        ContextHandle_t * prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + start)) * sizeof(ContextHandle_t));
+        if (conditional) {
+            // report in RedTable
+            AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], handle), 1, threadId);
+        }
+        // Update context
+        prevIP[0] = handle;
+        UnrolledLoop<start+incr, end, incr, conditional>:: BodyStraddlePage(addr, handle, threadId);   // unroll next iteration
+    }
+};
+
+template<int end,  int incr, bool conditional>
+struct UnrolledLoop<end , end , incr, conditional>{
+    static __attribute__((always_inline)) void Body(function<void (const int)> func){}
+    static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){}
+    static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){}
+};
+
+template<int start, int end, int incr>
+struct UnrolledConjunction{
+    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
+        return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
+    }
+    static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
+        return (prevIP[0] == prevIP[start]) && UnrolledConjunction<start+incr, end, incr>:: BodyContextCheck(prevIP);   // unroll next iteration
+    }
+};
+
+template<int end,  int incr>
+struct UnrolledConjunction<end , end , incr>{
+    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
+        return true;
+    }
+    static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
+        return true;
+    }
+};
+
+
 template<uint16_t AccessLen, uint32_t bufferOffset>
 struct RedSpyAnalysis{
     static __attribute__((always_inline)) bool IsWriteRedundant(void * &addr, THREADID threadId){
@@ -770,22 +797,14 @@ struct RedSpyAnalysis{
             // detected redundancy
             if(isAccessWithinPageBoundary) {
                 // All from same ctxt?
-                if (UnrolledConjunction<0, AccessLen, 1>::Body( [&] (int index) -> bool { return (prevIP[index] == prevIP[0]); })) {
+                if (UnrolledConjunction<0, AccessLen, 1>::BodyContextCheck(prevIP)) {
                     // report in RedTable
                     AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), AccessLen, threadId);
                     // Update context
-                    UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                        // Update context
-                        prevIP[index] = curCtxtHandle;
-                    });
+                    UnrolledLoop<0, AccessLen, 1, false /* redundancy is updated outside*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
                 } else {
                     // different contexts
-                    UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                        // report in RedTable
-                        AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[index], curCtxtHandle), 1,threadId);
-                        // Update context
-                        prevIP[index] = curCtxtHandle;
-                    });
+                    UnrolledLoop<0, AccessLen, 1, true /* redundancy is updated inside*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
                 }
             } else {
                 // Write across a 64-K page boundary
@@ -795,31 +814,22 @@ struct RedSpyAnalysis{
                 prevIP[0] = curCtxtHandle;
                 
                 // Remaining bytes [1..AccessLen] somewhere will across a 64-K page boundary
-                UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
-                    prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
-                    // report in RedTable
-                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), 1, threadId);
-                    // Update context
-                    prevIP[0] = curCtxtHandle;
-                } );
+                UnrolledLoop<1, AccessLen, 1, true /* update redundancy */>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
             }
         } else {
             // No redundancy.
             // Just update contexts
             if(isAccessWithinPageBoundary) {
-                UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    // Update context
-                    prevIP[index] = curCtxtHandle;
-                });
+                // Update context
+                UnrolledLoop<0, AccessLen, 1, false /* not redundant*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
             } else {
                 // Write across a 64-K page boundary
-                UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
-                    prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
-                    // Update context
-                    prevIP[0] = curCtxtHandle;
-                } );
+                // Update context
+                prevIP[0] = curCtxtHandle;
+                
+                // Remaining bytes [1..AccessLen] somewhere will across a 64-K page boundary
+                UnrolledLoop<1, AccessLen, 1, false /* dont update redundancy */>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
+
             }
         }
     }
