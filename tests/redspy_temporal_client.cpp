@@ -546,7 +546,7 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckGenValueAfterWrite, I
 
 #endif
 
-static inline void InstrumentReadValueAfterWritingRegs(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle){
+static inline void InstrumentReadValueAfterWritingRegs(INS ins, struct RegInfo * wRegs, uint32_t opaqueHandle) {
    
     UINT8 i;
     uint32_t totBytes = 0;
