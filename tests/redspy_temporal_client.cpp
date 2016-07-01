@@ -158,6 +158,30 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 #endif
 }
 
+//const map to handle the register aliases
+static unordered_map<uint32_t,list<uint32_t>> RegAliasMap = {
+    {REG_EAX,{REG_GAX,REG_AX,REG_AH,REG_AL}},
+    {REG_EBX,{REG_GBX,REG_BX,REG_BH,REG_BL}},
+    {REG_ECX,{REG_GCX,REG_CX,REG_CH,REG_CL}},
+    {REG_EDX,{REG_GDX,REG_DX,REG_DH,REG_DL}},
+    {REG_GAX,{REG_EAX,REG_AX,REG_AH,REG_AL}},
+    {REG_GBX,{REG_EBX,REG_BX,REG_BH,REG_BL}},
+    {REG_GCX,{REG_ECX,REG_CX,REG_CH,REG_CL}},
+    {REG_GDX,{REG_EDX,REG_DX,REG_DH,REG_DL}},
+    {REG_AX,{REG_GAX,REG_EAX,REG_AH,REG_AL}},
+    {REG_BX,{REG_GBX,REG_EBX,REG_BH,REG_BL}},
+    {REG_CX,{REG_GCX,REG_ECX,REG_CH,REG_CL}},
+    {REG_DX,{REG_GDX,REG_EDX,REG_DH,REG_DL}},
+    {REG_AH,{REG_GAX,REG_EAX,REG_AX}},
+    {REG_BH,{REG_GBX,REG_EBX,REG_BX}},
+    {REG_CH,{REG_GCX,REG_ECX,REG_CX}},
+    {REG_DH,{REG_GDX,REG_EDX,REG_DX}},
+    {REG_AL,{REG_GAX,REG_EAX,REG_AX}},
+    {REG_BL,{REG_GBX,REG_EBX,REG_BX}},
+    {REG_CL,{REG_GCX,REG_ECX,REG_CX}},
+    {REG_DL,{REG_GDX,REG_EDX,REG_DX}},
+};
+
 
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
@@ -208,194 +232,93 @@ static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     return shadowPage;
 }
 
-
-inline void UpdateAliaRegs(uint32_t reg, ADDRINT regV, uint32_t ctxt, RedSpyThreadData* td) {
+static inline void UpdateAliaRegs(REG reg, ADDRINT regValue, uint32_t curCtxtHandle, RedSpyThreadData* td) {
    
-    ADDRINT tmp,tmp2;
+    ADDRINT regBefore;
+    list<uint32_t>::iterator it = RegAliasMap[reg].begin();
       
-    switch (reg) {
-        case REG_GAX:
-        case REG_EAX:
-            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = ctxt;
-            *(ADDRINT *)(&td->rectxt[REG_GAX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = regV;
-            td->regCtxt[REG_AX] = td->regCtxt[REG_AL] = td->regCtxt[REG_AH] = ctxt;
-            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = regV & 0xffff;
-            *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regV & 0xff00;
-            break;
-        case REG_AX:
-            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = td->regCtxt[REG_AX] = ctxt;
-            td->regCtxt[REG_AL] = td->regCtxt[REG_AH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_GAX][0]);
-            tmp = (tmp & 0xffff0000) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_GAX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regV & 0xff00; 
-            break;
-        case REG_AH:
-            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = td->regCtxt[REG_AX] = td->regCtxt[REG_AH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_AX][0]);
-            tmp = (tmp & 0xff) | (regV << 8);
-            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GAX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regV;  
-            break;
-        case REG_AL:
-            td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = td->regCtxt[REG_AX] = td->regCtxt[REG_AL] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_AX][0]);
-            tmp = (tmp & 0xff00) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GAX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_AX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regV;  
- 
-            break;
+    switch (REG_Size(reg)) {
+        case 8:
+            //handling E*X register
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xffffffff;
             
+            //handling *X register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xffff;
             
-        case REG_GBX:
-        case REG_EBX:
-            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = ctxt;
-            td->regCtxt[REG_BX] = td->regCtxt[REG_BL] = td->regCtxt[REG_BH] = ctxt;
-            *(ADDRINT *)(&td->rectxt[REG_GBX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = regV & 0xffff;
-            *(ADDRINT *)(&td->rectxt[REG_BL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_BH][0]) = regV & 0xff00;
-            break;
-        case REG_BX:
-            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = td->regCtxt[REG_BX] = ctxt;
-            td->regCtxt[REG_BL] = td->regCtxt[REG_BH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_GBX][0]);
-            tmp = (tmp & 0xffff0000) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_GBX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_BL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_BH][0]) = regV & 0xff00; 
-            break;
-        case REG_BH:
-            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = td->regCtxt[REG_BX] = td->regCtxt[REG_BH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_BX][0]);
-            tmp = (tmp & 0xff) | (regV << 8);
-            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GBX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_BH][0]) = regV;  
-           break;
-        case REG_BL:
-            td->regCtxt[REG_GBX] = td->regCtxt[REG_EBX] = td->regCtxt[REG_BX] = td->regCtxt[REG_BL] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_BX][0]);
-            tmp = (tmp & 0xff00) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GBX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EBX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_BX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_BL][0]) = regV;  
-            break;
+            //handling *H register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = (regValue & 0xff00) >> 8;
             
-        case REG_GCX:
-        case REG_ECX:
-            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = ctxt;
-            td->regCtxt[REG_CX] = td->regCtxt[REG_CL] = td->regCtxt[REG_CH] = ctxt;
-            *(ADDRINT *)(&td->rectxt[REG_GCX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = regV & 0xffff;
-            *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regV & 0xff00;
+            //handling *L register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xff;
             break;
-        case REG_CX:
-            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = td->regCtxt[REG_CX] = ctxt;
-            td->regCtxt[REG_CL] = td->regCtxt[REG_CH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_GCX][0]);
-            tmp = (tmp & 0xffff0000) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_GCX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regV & 0xff00; 
-            break;
-        case REG_CH:
-            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = td->regCtxt[REG_CX] = td->regCtxt[REG_CH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_CX][0]);
-            tmp = (tmp & 0xff) | (regV << 8);
-            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GCX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regV;  
-           break;
-        case REG_CL:
-            td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = td->regCtxt[REG_CX] = td->regCtxt[REG_CL] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_CX][0]);
-            tmp = (tmp & 0xff00) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GCX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_CX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regV;  
-            break;
+        case 4:
+            //handling R*X(G*X) register
+            td->regCtxt[*it] = curCtxtHandle;
+            regBefore = *(ADDRINT *)(&td->rectxt[*it][0]);
+            *(ADDRINT *)(&td->rectxt[*it][0]) = (regBefore & 0xffffffff00000000) | regValue;
             
-        case REG_GDX:
-        case REG_EDX:
-            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = ctxt;
-            td->regCtxt[REG_DX] = td->regCtxt[REG_DL] = td->regCtxt[REG_DH] = ctxt;
-            *(ADDRINT *)(&td->rectxt[REG_GDX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = regV & 0xffff;
-            *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regV & 0xff00;
-            break;
-        case REG_DX:
-            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = td->regCtxt[REG_DX] = ctxt;
-            td->regCtxt[REG_DL] = td->regCtxt[REG_DH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_GDX][0]);
-            tmp = (tmp & 0xffff0000) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_GDX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = tmp;
-            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = regV;
-            *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regV & 0xff;
-            *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regV & 0xff00; 
-            break;
-        case REG_DH:
-            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = td->regCtxt[REG_DX] = td->regCtxt[REG_DH] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_DX][0]);
-            tmp = (tmp & 0xff) | (regV << 8);
-            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GDX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regV;  
-           break;
-        case REG_DL:
-            td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = td->regCtxt[REG_DX] = td->regCtxt[REG_DL] = ctxt;
-            tmp = *(ADDRINT *)(&td->rectxt[REG_DX][0]);
-            tmp = (tmp & 0xff00) | regV;
-            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp;
-            tmp2 = *(ADDRINT *)(&td->rectxt[REG_GDX][0]);
-            tmp2 = (tmp2 & 0xffff0000) | tmp;
-            *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_DX][0]) = tmp2;
-            *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regV;  
- 
-            break;
+            //handling *X register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xffff;
             
+            //handling *H register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = (regValue & 0xff00) >> 8;
+            
+            //handling *L register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xff;
+            break;
+        case 2:
+            //handling R*X(G*X) register
+            td->regCtxt[*it] = curCtxtHandle;
+            regBefore = *(ADDRINT *)(&td->rectxt[*it][0]);
+            *(ADDRINT *)(&td->rectxt[*it][0]) = (regBefore & 0xffffffffffff0000) | regValue;
+            
+            //handling *X register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            regBefore = *(ADDRINT *)(&td->rectxt[*it][0]);
+            *(ADDRINT *)(&td->rectxt[*it][0]) = (regBefore & 0xffffffffffff0000) & regValue;
+            
+            //handling *H register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue >> 8;
+            
+            //handling *L register
+            it++;
+            td->regCtxt[*it] = curCtxtHandle;
+            *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xff;
+            break;
+        case 1:
+            if (reg == REG_AL || reg == REG_BL || reg == REG_CL || reg == REG_DL) {
+                for(; it != RegAliasMap[reg].end(); ++it){
+                    td->regCtxt[*it] = curCtxtHandle;
+                    regBefore = *(ADDRINT *)(&td->rectxt[*it][0]);
+                    *(ADDRINT *)(&td->rectxt[*it][0]) = ((regBefore >> 8)<< 8) & regValue;
+                }
+            } else {
+                regValue = (regValue << 8);
+                for(; it != RegAliasMap[reg].end(); ++it){
+                    td->regCtxt[*it] = curCtxtHandle;
+                    regBefore = *(ADDRINT *)(&td->rectxt[*it][0]);
+                    *(ADDRINT *)(&td->rectxt[*it][0]) = (regBefore & 0xffffffffffff00ff) | regValue;
+                }
+            }
+            break;
         default:
-            td->regCtxt[reg] = ctxt;
-            *(ADDRINT *)(&td->rectxt[reg][0]) = regV;  
+            break;
     }
 }
 
@@ -420,6 +343,8 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
     UNLOCK_RED_MAP();
 #endif
 }
+
+#ifdef ENABLE_SAMPLING
 
 static inline VOID EmptyCtxt(RedSpyThreadData* tData){
 
@@ -449,8 +374,6 @@ static inline VOID EmptyCtxt(RedSpyThreadData* tData){
     }*/
 }
 
-#ifdef ENABLE_SAMPLING
-
 static ADDRINT IfEnableSample(THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     if(tData->Sample_flag){
@@ -460,90 +383,50 @@ static ADDRINT IfEnableSample(THREADID threadId){
 }
 
 #endif
-static inline VOID CheckEAXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
+
+static inline VOID CheckSpecialRegAfterWrite(uint32_t reg, ADDRINT regValue, uint32_t opaqueHandle, THREADID threadId){
     
     RedSpyThreadData* const td = ClientGetTLS(threadId);
-    
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     
-    
-    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[REG_EAX][0]);
+    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[reg][0]);
     
     bool isRedundantWrite = (regBefore == regValue);
     
-    if(isRedundantWrite && td->regCtxt[REG_EAX] != 0) {
+    if(isRedundantWrite && td->regCtxt[reg] != 0) {
         AddToRedTable(MAKE_CONTEXT_PAIR(td->regCtxt[REG_EAX],curCtxtHandle),4,threadId);
+    }else{
+        *(ADDRINT *)(&td->rectxt[reg][0]) = regValue;
     }
+    td->regCtxt[reg] = curCtxtHandle;
+    list<uint32_t>::iterator it = RegAliasMap[reg].begin();
+
+    //handling R*X(G*X) register
+    td->regCtxt[*it] = curCtxtHandle;
+    regBefore = *(ADDRINT *)(&td->rectxt[*it][0]);
+    *(ADDRINT *)(&td->rectxt[*it][0]) = (regBefore & 0xffffffff00000000) | regValue;
     
-    td->regCtxt[REG_GAX] = td->regCtxt[REG_EAX] = curCtxtHandle;
-    *(ADDRINT *)(&td->rectxt[REG_GAX][0]) = regValue;
-    *(ADDRINT *)(&td->rectxt[REG_EAX][0]) = regValue;
-    td->regCtxt[REG_AX] = td->regCtxt[REG_AL] = td->regCtxt[REG_AH] = curCtxtHandle;
-    *(ADDRINT *)(&td->rectxt[REG_AX][0]) = regValue & 0xffff;
-    *(ADDRINT *)(&td->rectxt[REG_AL][0]) = regValue & 0xff;
-    *(ADDRINT *)(&td->rectxt[REG_AH][0]) = regValue & 0xff00;
+    //handling *X register
+    it++;
+    td->regCtxt[*it] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xffff;
     
-    td->bytesWritten += 4;
+    //handling *H register
+    it++;
+    td->regCtxt[*it] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[*it][0]) = (regValue & 0xff00) >> 8;
+    
+    //handling *L register
+    it++;
+    td->regCtxt[*it] = curCtxtHandle;
+    *(ADDRINT *)(&td->rectxt[*it][0]) = regValue & 0xff;
 }
 
-static inline VOID CheckECXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
-    
-    RedSpyThreadData* const td = ClientGetTLS(threadId);
-    
-    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-    
-    
-    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[REG_ECX][0]);
-    
-    bool isRedundantWrite = (regBefore == regValue);
-    
-    if(isRedundantWrite && td->regCtxt[REG_ECX] != 0) {
-        AddToRedTable(MAKE_CONTEXT_PAIR(td->regCtxt[REG_ECX],curCtxtHandle),4,threadId);
-    }
-    
-    td->regCtxt[REG_GCX] = td->regCtxt[REG_ECX] = curCtxtHandle;
-    *(ADDRINT *)(&td->rectxt[REG_GCX][0]) = regValue;
-    *(ADDRINT *)(&td->rectxt[REG_ECX][0]) = regValue;
-    td->regCtxt[REG_CX] = td->regCtxt[REG_CL] = td->regCtxt[REG_CH] = curCtxtHandle;
-    *(ADDRINT *)(&td->rectxt[REG_CX][0]) = regValue & 0xffff;
-    *(ADDRINT *)(&td->rectxt[REG_CL][0]) = regValue & 0xff;
-    *(ADDRINT *)(&td->rectxt[REG_CH][0]) = regValue & 0xff00;
-    
-    td->bytesWritten += 4;
-}
-
-static inline VOID CheckEDXValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, ADDRINT regValue){
-    
-    RedSpyThreadData* const td = ClientGetTLS(threadId);
-    
-    ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-    
-    
-    ADDRINT regBefore = *(ADDRINT *)(&td->rectxt[REG_EDX][0]);
-    
-    bool isRedundantWrite = (regBefore == regValue);
-    
-    if(isRedundantWrite && td->regCtxt[REG_EDX] != 0) {
-        AddToRedTable(MAKE_CONTEXT_PAIR(td->regCtxt[REG_EDX],curCtxtHandle),4,threadId);
-    }
-    
-    td->regCtxt[REG_GDX] = td->regCtxt[REG_EDX] = curCtxtHandle;
-    *(ADDRINT *)(&td->rectxt[REG_GDX][0]) = regValue;
-    *(ADDRINT *)(&td->rectxt[REG_EDX][0]) = regValue;
-    td->regCtxt[REG_DX] = td->regCtxt[REG_DL] = td->regCtxt[REG_DH] = curCtxtHandle;
-    *(ADDRINT *)(&td->rectxt[REG_DX][0]) = regValue & 0xffff;
-    *(ADDRINT *)(&td->rectxt[REG_DL][0]) = regValue & 0xff;
-    *(ADDRINT *)(&td->rectxt[REG_DH][0]) = regValue & 0xff00;
-    
-    td->bytesWritten += 4;
-}
-
-static inline VOID CheckOneRegValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, uint32_t reg, uint32_t regBytes, ADDRINT regValue, bool regAlia){
+static inline VOID CheckOneRegValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, REG reg, uint32_t regBytes, ADDRINT regValue, bool regAlia){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-    
 
     ADDRINT regBefore = *(ADDRINT *)(&tData->rectxt[reg][0]);
         
@@ -551,16 +434,12 @@ static inline VOID CheckOneRegValueAfterWrite(uint32_t opaqueHandle, THREADID th
         
     if(isRedundantWrite && tData->regCtxt[reg] != 0) {
         AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regBytes,threadId);
-    }
-
-    if(regAlia)
-        UpdateAliaRegs(reg,regValue,curCtxtHandle,tData);
-    else{
-        tData->regCtxt[reg] = curCtxtHandle;
+    }else{
         *(ADDRINT *)(&tData->rectxt[reg][0]) = regValue;
     }
-
-    tData->bytesWritten += regBytes;
+    tData->regCtxt[reg] = curCtxtHandle;
+    if(regAlia)
+        UpdateAliaRegs(reg,regValue,curCtxtHandle,tData);
 }
 
 static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threadId, void * regs, uint32_t regBytes, uint32_t regCount, ...){
@@ -583,20 +462,16 @@ static inline VOID CheckGenValueAfterWrite(uint32_t opaqueHandle, THREADID threa
         
         if(isRedundantWrite && tData->regCtxt[reg] != 0) {
             AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),REG_Size(reg),threadId);
+        }else{
+            *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
         }
         tData->regCtxt[reg] = curCtxtHandle;
-        *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
         if(wRegs->alian[i])
            UpdateAliaRegs(reg,regV,curCtxtHandle,tData);
-        else{
-           tData->regCtxt[reg] = curCtxtHandle;
-           *(ADDRINT *)(&tData->rectxt[reg][0]) = regV;
-        }
     }
-    tData->bytesWritten += regBytes;
 }
 
-static inline  VOID CheckLargeValueAfterWrite(PIN_REGISTER* regRef, REG reg, uint32_t regSize, uint32_t opaqueHandle, THREADID threadId){
+static inline  VOID CheckLargeRegAfterWrite(PIN_REGISTER* regRef, REG reg, uint32_t regSize, uint32_t opaqueHandle, THREADID threadId){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     
@@ -615,22 +490,33 @@ static inline  VOID CheckLargeValueAfterWrite(PIN_REGISTER* regRef, REG reg, uin
         AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regSize,threadId);
     }
     tData->regCtxt[reg] = curCtxtHandle;
-    tData->bytesWritten += regSize;
-    
 }
 
 inline bool IsAliaReg(REG reg){
-    if(reg == REG_EAX || reg == REG_EBX || reg == REG_ECX || reg == REG_EDX)
-       return true; 
-    else if(reg == REG_GAX || reg == REG_GBX || reg == REG_GCX || reg == REG_GDX)
-       return true;
-    else if(reg == REG_AX || reg == REG_BX || reg == REG_CX || reg == REG_DX)
-       return true;
-    else if(reg == REG_AL || reg == REG_BH || reg == REG_CH || reg == REG_DH)
-       return true;
-    else if(reg == REG_AL || reg == REG_BL || reg == REG_CL || reg == REG_DL)
-       return true;
-    else return false;
+    switch(reg){
+        case REG_EAX:
+        case REG_EBX:
+        case REG_ECX:
+        case REG_EDX:
+        case REG_GAX:
+        case REG_GBX:
+        case REG_GCX:
+        case REG_GDX:
+        case REG_AX:
+        case REG_BX:
+        case REG_CX:
+        case REG_DX:
+        case REG_AH:
+        case REG_BH:
+        case REG_CH:
+        case REG_DH:
+        case REG_AL:
+        case REG_BL:
+        case REG_CL:
+        case REG_DL:
+            return true;
+        default: return false;
+    }
 }
 
 #ifdef ENABLE_SAMPLING
@@ -770,7 +656,6 @@ struct RedSpyAnalysis{
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
        
-        tData->bytesWritten += AccessLen;
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 
         avPair->address = addr;
@@ -839,7 +724,6 @@ struct RedSpyAnalysis{
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    tData->bytesWritten += accessLen;
     memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);
     tData->buffer[bufferOffset].address = addr;
 }
@@ -931,23 +815,17 @@ struct RedSpyInstrument{
     }
 };
 
+/*********************  instrument analysis  ************************/
+
 #ifdef ENABLE_SAMPLING
 
 #define HANDLE_LARGEREG() \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeRegAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_EAX() \
+#define HANDLE_SPECIAL_REG() \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEAXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
-
-#define HANDLE_ECX() \
-INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckECXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
-
-#define HANDLE_EDX() \
-INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEDXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckSpecialRegAfterWrite,IARG_UINT32,reg,IARG_REG_VALUE,reg,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ONEREG() \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
@@ -956,16 +834,10 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckOneRegValueAfterW
 #else
 
 #define HANDLE_LARGEREG() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeValueAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeRegAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_EAX() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEAXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
-
-#define HANDLE_ECX() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckECXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
-
-#define HANDLE_EDX() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckEDXValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_REG_VALUE,reg,IARG_END)
+#define HANDLE_SPECIAL_REG() \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckSpecialRegAfterWrite,IARG_UINT32,reg,IARG_REG_VALUE,reg,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ONEREG() \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckOneRegValueAfterWrite,IARG_UINT32,opaqueHandle,IARG_THREAD_ID,IARG_UINT32,reg,IARG_UINT32, REG_Size(reg),IARG_REG_VALUE,reg,IARG_BOOL,IsAliaReg(reg),IARG_END)
@@ -992,6 +864,8 @@ static inline bool REG_IsIgnorable(REG reg){
     else if(reg == REG_MXCSR)
         return true;
     else if(reg == REG_GFLAGS || reg == REG_FLAGS)
+        return true;
+    else if(reg == REG_ST0)
         return true;
     return false;
 }
@@ -1040,7 +914,6 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
                       assert(0 && "NYI");
                       break;
               }
-              
               // use next slot for the next write operand
               readBufferSlotIndex++;
           }
@@ -1076,29 +949,26 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         REG reg = wRegs->regs[0];
         uint32_t regSize = REG_Size(reg);
         if(regSize > 8){
-            if(wRegs->regs[0] == REG_ST0)
-                return;
             HANDLE_LARGEREG();
         }else{
             switch (reg) {
-                case REG_EAX: HANDLE_EAX(); break;
-                case REG_ECX: HANDLE_ECX(); break;
-                case REG_EDX: HANDLE_EDX(); break;
-                default: HANDLE_ONEREG();
-                    break;
+                case REG_EAX:
+                case REG_EBX:
+                case REG_ECX:
+                case REG_EDX: HANDLE_SPECIAL_REG(); break;
+                default: HANDLE_ONEREG(); break;
             }
         }
-
       }else if(regCount > 1)
         InstrumentReadValueAfterWritingRegs(ins, wRegs, opaqueHandle);
-
 }
 
 #ifdef ENABLE_SAMPLING
 
-inline VOID InsInTrace(uint32_t count, THREADID threadId) {
+inline VOID UpdateAndCheck(uint32_t count, uint32_t bytes, THREADID threadId) {
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->bytesWritten += bytes;
     if(tData->Sample_flag){
         tData->NUM_INS += count;
         if(tData->NUM_INS > WINDOW_ENABLE){
@@ -1115,81 +985,85 @@ inline VOID InsInTrace(uint32_t count, THREADID threadId) {
     }
 }
 
+inline VOID Update(uint32_t count, uint32_t bytes, THREADID threadId){
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->NUM_INS += count;
+    tData->bytesWritten += bytes;
+}
+
 //instrument the trace, count the number of ins in the trace, decide to instrument or not
 static void InstrumentTrace(TRACE trace, void* f) {
-    uint32_t TotInsInTrace = 0;
-    unordered_map<ADDRINT,BBL> headers;
-    unordered_map<ADDRINT,BBL>::iterator headIter;
-    unordered_map<ADDRINT,double> BBLweight;
-    unordered_map<ADDRINT,double>::iterator weightIter;
-    list<BBL> bblsToCheck;
-    list<BBL> bblsChecked;
+    bool check = false;
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        uint32_t totInsInBbl = BBL_NumIns(bbl);
+        uint32_t totBytes = 0;
+        for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            if(INS_IsMemoryWrite(ins)) {
+                totBytes += INS_MemoryWriteSize(ins);
+            }
+            UINT32 numOperands = INS_OperandCount(ins);
+            
+            for(UINT32 Oper = 0; Oper < numOperands; Oper++) {
+                
+                if(!INS_OperandWritten(ins, Oper) || !INS_OperandIsReg(ins,Oper))
+                    continue;
+                
+                REG curReg = INS_OperandReg(ins,Oper);
+                
+                totBytes += REG_Size(curReg);
+            }
+        }
+        
+        if (BBL_InsTail(bbl) == BBL_InsHead(bbl)) {
+            BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32,totBytes, IARG_THREAD_ID,IARG_END);
+        }else if(INS_IsIndirectBranchOrCall(BBL_InsTail(bbl))){
+            BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32,totBytes, IARG_THREAD_ID,IARG_END);
+        }else{
+            if (check) {
+                BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32, totBytes, IARG_THREAD_ID,IARG_END);
+                check = false;
+            } else {
+                BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)Update,IARG_UINT32, totInsInBbl, IARG_UINT32, totBytes, IARG_THREAD_ID, IARG_END);
+                check = true;
+            }
+        }
+    }
+}
+
+#else
+
+inline VOID Update(uint32_t bytes, THREADID threadId){
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->bytesWritten += bytes;
+}
+
+//instrument the trace, count the number of ins in the trace, decide to instrument or not
+static void InstrumentTrace(TRACE trace, void* f) {
 
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
     {
-        headers[INS_Address(BBL_InsHead(bbl))]=bbl;
-    }
-    
-    BBL curbbl = TRACE_BblHead(trace);
-    BBLweight[BBL_Address(curbbl)] = 1.0;
-    bblsToCheck.push_back(curbbl);
-    
-    while (!bblsToCheck.empty()) {
-        curbbl = bblsToCheck.front();
-        double curweight = BBLweight[BBL_Address(curbbl)];
-        INS curTail = BBL_InsTail(curbbl);
-        if( INS_IsDirectBranchOrCall(curTail)){
-            curweight /= 2;
-            ADDRINT next = INS_DirectBranchOrCallTargetAddress(curTail);
-            headIter = headers.find(next);
-            if (headIter != headers.end()) {
-                BBL bbl = headIter->second;
-                ADDRINT bblAddr = BBL_Address(bbl);
-                weightIter = BBLweight.find(bblAddr);
-                if (weightIter == BBLweight.end()) {
-                    BBLweight[bblAddr] = curweight;
-                }else{
-                    weightIter->second += curweight;
-                }
-                bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
-                bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
-                if(!found && !foundChecked) bblsToCheck.push_back(bbl);
+        uint32_t totBytes = 0;
+        for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            if(INS_IsMemoryWrite(ins)) {
+                totBytes += INS_MemoryWriteSize(ins);
             }
-            if( INS_HasFallThrough(curTail)){
-                next = INS_Address(INS_Next(curTail));
-                headIter = headers.find(next);
-                if (headIter != headers.end()) {
-                    BBL bbl = headIter->second;
-                    ADDRINT bblAddr = BBL_Address(bbl);
-                    weightIter = BBLweight.find(bblAddr);
-                    if (weightIter == BBLweight.end()) {
-                        BBLweight[bblAddr] = curweight;
-                    }else{
-                        weightIter->second += curweight;
-                    }
-                    bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
-                    bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
-                    if(!found && !foundChecked) bblsToCheck.push_back(bbl);
-                }
+            UINT32 numOperands = INS_OperandCount(ins);
+            
+            for(UINT32 Oper = 0; Oper < numOperands; Oper++) {
+                
+                if(!INS_OperandWritten(ins, Oper) || !INS_OperandIsReg(ins,Oper))
+                    continue;
+                
+                REG curReg = INS_OperandReg(ins,Oper);
+                
+                totBytes += REG_Size(curReg);
             }
         }
-        bblsToCheck.pop_front();
-        bblsChecked.push_back(curbbl);
+        BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)Update, IARG_UINT32, totBytes, IARG_THREAD_ID, IARG_END);
     }
-    
-    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
-    {
-        weightIter = BBLweight.find(BBL_Address(bbl));
-        if (weightIter != BBLweight.end()) {
-            TotInsInTrace += (uint32_t)(weightIter->second * BBL_NumIns(bbl));
-        } else {
-            TotInsInTrace += BBL_NumIns(bbl);
-        }
-    }
-    
-    if(TotInsInTrace)
-        TRACE_InsertCall(trace,IPOINT_BEFORE, (AFUNPTR)InsInTrace, IARG_UINT32, TotInsInTrace, IARG_THREAD_ID, IARG_END);
 }
+
 #endif
 
 struct RedundacyData {
@@ -1277,7 +1151,6 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     // do whatever you want to the full CCT with footpirnt
 }
 
-
 static void InitThreadData(RedSpyThreadData* tdata){
     tdata->bytesWritten = 0;
     tdata->Sample_flag = true;
@@ -1320,10 +1193,8 @@ int main(int argc, char* argv[]) {
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     PIN_AddFiniFunction(FiniFunc, 0);
-   
-#ifdef ENABLE_SAMPLING
+
     TRACE_AddInstrumentFunction(InstrumentTrace, 0);
-#endif
     
     // Register ImageUnload to be called when an image is unloaded
     IMG_AddUnloadFunction(ImageUnload, 0);
