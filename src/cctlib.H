@@ -188,6 +188,12 @@ namespace PinCCTLib {
     void** GetIPNodeMetric(const THREADID threadId, const uint32_t opaqueHandle);
 #endif
 
+    /*
+       Description:
+           Given two CCT handles, returns true if the call path from root to leaves, except the leaves themselves are the same.
+    */
+    bool HaveSameCallerPrefix(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
+
     bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 //NOP
