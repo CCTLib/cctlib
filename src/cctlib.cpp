@@ -3061,6 +3061,14 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 #endif
 
+    bool HaveSameCallerPrefix(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
+         if (ctxt1 == ctxt2)
+             return true;
+         IPNode* t1 = GetPINCCTContextFrom32BitIndex(ctxt1)->parentTraceNode->callerIPNode;
+         IPNode* t2 = GetPINCCTContextFrom32BitIndex(ctxt2)->parentTraceNode->callerIPNode;
+         return t1 == t2;
+    }
+
     bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
          if (ctxt1 == ctxt2)
              return true;
