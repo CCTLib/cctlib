@@ -121,13 +121,11 @@ using namespace PinCCTLib;
 #define ALIAS_GENERIC (0) // RAX, EAX, or AX
 #define ALIAS_HIGH_BYTE (1) //AH
 #define ALIAS_LOW_BYTE (2) // AL
+#define ALIAS_HIGH_LOW (3)
 
 //alias begin bytes for different types
-#define ALIAS_BYTES_8 (0)
-#define ALIAS_BYTES_4 (0)
-#define ALIAS_BYTES_2 (0)
-#define ALIAS_BYTES_1_H (1)
-#define ALIAS_BYTES_1_L (0)
+#define ALIAS_BYTES_INDEX_0 (0)
+#define ALIAS_BYTES_INDEX_1 (0)
 
 #ifdef ENABLE_SAMPLING
 
@@ -320,7 +318,7 @@ struct HandleAliasRegisters{
         
         T * where = (T *)(&tData->aliasValue[reg_id][reg_byte]);
         
-        uint8_t otherHLslot = my_slot ^ 3;
+        uint8_t otherHLslot = my_slot ^ ALIAS_HIGH_LOW;
         
         if (*where == value) {
             if(tData->aliasCtxt[reg_id][ALIAS_GENERIC] == tData->aliasCtxt[reg_id][otherHLslot])
@@ -375,37 +373,48 @@ static inline  VOID CheckLargeRegAfterWrite(PIN_REGISTER* regRef, REG reg, uint3
     tData->regCtxt[reg] = curCtxtHandle;
 }
 
-inline uint8_t GetGenericSlot(REG reg){
+inline uint8_t GetRegIdSlot(REG reg){
     switch (reg) {
         case REG_RAX:
         case REG_EAX:
         case REG_AX:
-            return 0;
+        case REG_AH:
+        case REG_AL:
+            return ALIAS_REG_A;
         case REG_RBX:
         case REG_EBX:
         case REG_BX:
-            return 1;
+        case REG_BH:
+        case REG_BL:
+            return ALIAS_REG_B;
         case REG_RCX:
         case REG_ECX:
         case REG_CX:
-            return 2;
+        case REG_CH:
+        case REG_CL:
+            return ALIAS_REG_C;
         case REG_RDX:
         case REG_EDX:
         case REG_DX:
-            return 3;
+        case REG_DH:
+        case REG_DL:
+            return ALIAS_REG_D;
         default:assert(0 & "Not generic aliases, Should never reach here!");
-            break;
+            return 0;
     }
 }
 
-inline uint8_t GetLowbyteSlot(REG reg){
+inline bool RegAliasIsLow(REG reg){
     switch (reg) {
-        case REG_AL: return 0;
-        case REG_BL: return 1;
-        case REG_CL: return 2;
-        case REG_DL: return 3;
-        default: assert(0 & "Not *L aliases, Should never reach here!");
-            break;
+        case REG_AH:
+        case REG_BH:
+        case REG_CH:
+        case REG_DH: return false;
+        case REG_AL:
+        case REG_BL:
+        case REG_CL:
+        case REG_DL: return true;
+        default: assert(0 & "Not low or high aliases, Should never reach here!"); return false;
     }
 }
 
@@ -502,48 +511,17 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uin
 
 static inline void InstrumentAliasReg(INS ins, REG reg, uint32_t opaqueHandle){
     
+    uint8_t regId = GetRegIdSlot(reg);
     switch (REG_Size(reg)) {
-        case 8:
-            switch (reg) {
-                case REG_RAX: HANDLE_ALIAS_64(ALIAS_REG_A, ALIAS_BYTES_8); break;
-                case REG_RBX: HANDLE_ALIAS_64(ALIAS_REG_B, ALIAS_BYTES_8); break;
-                case REG_RCX: HANDLE_ALIAS_64(ALIAS_REG_C, ALIAS_BYTES_8); break;
-                case REG_RDX: HANDLE_ALIAS_64(ALIAS_REG_D, ALIAS_BYTES_8); break;
-                default: break;
-            }
-            break;
-        case 4:
-            switch (reg) {
-                case REG_EAX: HANDLE_ALIAS_32(ALIAS_REG_A, ALIAS_BYTES_4); break;
-                case REG_EBX: HANDLE_ALIAS_32(ALIAS_REG_B, ALIAS_BYTES_4); break;
-                case REG_ECX: HANDLE_ALIAS_32(ALIAS_REG_C, ALIAS_BYTES_4); break;
-                case REG_EDX: HANDLE_ALIAS_32(ALIAS_REG_D, ALIAS_BYTES_4); break;
-                default: break;
-            }
-            break;
-        case 2:
-            switch (reg) {
-                case REG_AX: HANDLE_ALIAS_16(ALIAS_REG_A, ALIAS_BYTES_2); break;
-                case REG_BX: HANDLE_ALIAS_16(ALIAS_REG_B, ALIAS_BYTES_2); break;
-                case REG_CX: HANDLE_ALIAS_16(ALIAS_REG_C, ALIAS_BYTES_2); break;
-                case REG_DX: HANDLE_ALIAS_16(ALIAS_REG_D, ALIAS_BYTES_2); break;
-                default: break;
-            }
-            break;
+        case 8: HANDLE_ALIAS_64(regId, ALIAS_BYTES_INDEX_0); break;
+        case 4: HANDLE_ALIAS_32(regId, ALIAS_BYTES_INDEX_0); break;
+        case 2: HANDLE_ALIAS_16(regId, ALIAS_BYTES_INDEX_0); break;
         case 1:
-            switch (reg) {
-                case REG_AH: HANDLE_ALIAS_8(ALIAS_REG_A, ALIAS_BYTES_1_H, ALIAS_HIGH_BYTE); break;
-                case REG_BH: HANDLE_ALIAS_8(ALIAS_REG_B, ALIAS_BYTES_1_H, ALIAS_HIGH_BYTE); break;
-                case REG_CH: HANDLE_ALIAS_8(ALIAS_REG_C, ALIAS_BYTES_1_H, ALIAS_HIGH_BYTE); break;
-                case REG_DH: HANDLE_ALIAS_8(ALIAS_REG_D, ALIAS_BYTES_1_H, ALIAS_HIGH_BYTE); break;
-                case REG_AL: HANDLE_ALIAS_8(ALIAS_REG_A, ALIAS_BYTES_1_L, ALIAS_LOW_BYTE); break;
-                case REG_BL: HANDLE_ALIAS_8(ALIAS_REG_B, ALIAS_BYTES_1_L, ALIAS_LOW_BYTE); break;
-                case REG_CL: HANDLE_ALIAS_8(ALIAS_REG_C, ALIAS_BYTES_1_L, ALIAS_LOW_BYTE); break;
-                case REG_DL: HANDLE_ALIAS_8(ALIAS_REG_D, ALIAS_BYTES_1_L, ALIAS_LOW_BYTE); break;
-                default: break;
+            if (RegAliasIsLow(reg)) {
+                HANDLE_ALIAS_8(regId, ALIAS_BYTES_INDEX_0, ALIAS_LOW_BYTE); break;
+            } else {
+                HANDLE_ALIAS_8(regId, ALIAS_BYTES_INDEX_1, ALIAS_HIGH_BYTE); break;
             }
-            break;
-            
         default: assert(0 & "Aliases more than 8 bytes, Should never reach here!");
             break;
     }
@@ -882,11 +860,11 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
             continue;
         
         switch (reg) {
-            case REG_RAX: HANDLE_ALIAS_64(ALIAS_REG_A, ALIAS_BYTES_8); break;
-            case REG_EAX: HANDLE_ALIAS_32(ALIAS_REG_A, ALIAS_BYTES_4); break;
-            case REG_EBX: HANDLE_ALIAS_32(ALIAS_REG_B, ALIAS_BYTES_4); break;
-            case REG_ECX: HANDLE_ALIAS_32(ALIAS_REG_C, ALIAS_BYTES_4); break;
-            case REG_EDX: HANDLE_ALIAS_32(ALIAS_REG_D, ALIAS_BYTES_4); break;
+            case REG_RAX: HANDLE_ALIAS_64(ALIAS_REG_A, ALIAS_BYTES_INDEX_0); break;
+            case REG_EAX: HANDLE_ALIAS_32(ALIAS_REG_A, ALIAS_BYTES_INDEX_0); break;
+            case REG_EBX: HANDLE_ALIAS_32(ALIAS_REG_B, ALIAS_BYTES_INDEX_0); break;
+            case REG_ECX: HANDLE_ALIAS_32(ALIAS_REG_C, ALIAS_BYTES_INDEX_0); break;
+            case REG_EDX: HANDLE_ALIAS_32(ALIAS_REG_D, ALIAS_BYTES_INDEX_0); break;
             default:
                 if (RegHasOtherAlias(reg)) {
                     InstrumentAliasReg(ins, reg, opaqueHandle);
