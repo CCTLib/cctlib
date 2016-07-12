@@ -166,35 +166,6 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 #endif
 
-template<int start, int end, int incr>
-struct UnrolledLoop{
-    static inline void Body(function<void (const int)> func){
-        func(start); // Real loop body
-        UnrolledLoop<start+incr, end, incr>:: Body(func);   // unroll next iteration
-    }
-};
-
-template<int end,  int incr>
-struct UnrolledLoop<end , end , incr>{
-    static inline void Body(function<void (const int)> func){
-        // empty body
-    }
-};
-
-template<int start, int end, int incr>
-struct UnrolledConjunction{
-    static inline bool Body(function<bool (const int)> func){
-        return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
-    }
-};
-
-template<int end,  int incr>
-struct UnrolledConjunction<end , end , incr>{
-    static inline bool Body(function<void (const int)> func){
-        return true;
-    }
-};
-
 INT32 Usage2() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
@@ -269,6 +240,60 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
       #endif
 }
 
+template<int start, int end, int incr, bool conditional>
+struct UnrolledLoop{
+    static __attribute__((always_inline)) void Body(function<void (const int)> func){
+        func(start); // Real loop body
+        UnrolledLoop<start+incr, end, incr, conditional>:: Body(func);   // unroll next iteration
+    }
+    static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){
+        if(conditional) {
+            // report in RedTable
+            AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[start], handle), 1, threadId);
+        }
+        // Update context
+        prevIP[start] = handle;
+        UnrolledLoop<start+incr, end, incr, conditional>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
+    }
+    static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){
+        uint8_t * status = GetOrCreateShadowBaseAddress((uint64_t)addr + start);
+        ContextHandle_t * prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + start)) * sizeof(ContextHandle_t));
+        if (conditional) {
+            // report in RedTable
+            AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], handle), 1, threadId);
+        }
+        // Update context
+        prevIP[0] = handle;
+        UnrolledLoop<start+incr, end, incr, conditional>:: BodyStraddlePage(addr, handle, threadId);   // unroll next iteration
+    }
+};
+
+template<int end,  int incr, bool conditional>
+struct UnrolledLoop<end , end , incr, conditional>{
+    static __attribute__((always_inline)) void Body(function<void (const int)> func){}
+    static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){}
+    static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){}
+};
+
+template<int start, int end, int incr>
+struct UnrolledConjunction{
+    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
+        return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
+    }
+    static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
+        return (prevIP[0] == prevIP[start]) && UnrolledConjunction<start+incr, end, incr>:: BodyContextCheck(prevIP);   // unroll next iteration
+    }
+};
+
+template<int end,  int incr>
+struct UnrolledConjunction<end , end , incr>{
+    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
+        return true;
+    }
+    static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
+        return true;
+    }
+};
 
 template<uint16_t AccessLen, uint32_t bufferOffset>
 struct RedSpyAnalysis{
@@ -293,10 +318,6 @@ struct RedSpyAnalysis{
     static inline VOID RecordNByteValueBeforeWrite(void* addr, THREADID threadId){
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
-        
-#ifdef ENABLE_SAMPLING
-        tData->bytesWritten += AccessLen;
-#endif
         AddrValPair * avPair = & tData->buffer[bufferOffset];
         avPair->address = addr;
         switch(AccessLen){
@@ -308,10 +329,11 @@ struct RedSpyAnalysis{
         }
     }
     
-    static inline VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
-
+    static __attribute__((always_inline)) VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
         void * addr;
-        int isRedundantWrite = IsWriteRedundant(addr, threadId);
+        bool isRedundantWrite = IsWriteRedundant(addr, threadId);
+        
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
         uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
@@ -321,22 +343,14 @@ struct RedSpyAnalysis{
             // detected redundancy
             if(isAccessWithinPageBoundary) {
                 // All from same ctxt?
-                if (UnrolledConjunction<0, AccessLen, 1>::Body( [&] (int index) -> bool { return (prevIP[index] == prevIP[0]); })) {
+                if (UnrolledConjunction<0, AccessLen, 1>::BodyContextCheck(prevIP)) {
                     // report in RedTable
                     AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), AccessLen, threadId);
                     // Update context
-                    UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                        // Update context
-                        prevIP[index] = curCtxtHandle;
-                    });
+                    UnrolledLoop<0, AccessLen, 1, false /* redundancy is updated outside*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
                 } else {
                     // different contexts
-                    UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                        // report in RedTable
-                        AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[index], curCtxtHandle), 1, threadId);
-                        // Update context
-                        prevIP[index] = curCtxtHandle;
-                    });
+                    UnrolledLoop<0, AccessLen, 1, true /* redundancy is updated inside*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
                 }
             } else {
                 // Write across a 64-K page boundary
@@ -346,158 +360,26 @@ struct RedSpyAnalysis{
                 prevIP[0] = curCtxtHandle;
                 
                 // Remaining bytes [1..AccessLen] somewhere will across a 64-K page boundary
-                UnrolledLoop<1, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
-                    prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
-                    // report in RedTable
-                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), 1, threadId);
-                    // Update context
-                    prevIP[0] = curCtxtHandle;
-                } );
+                UnrolledLoop<1, AccessLen, 1, true /* update redundancy */>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
             }
         } else {
             // No redundancy.
             // Just update contexts
             if(isAccessWithinPageBoundary) {
-                UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    // Update context
-                    prevIP[index] = curCtxtHandle;
-                });
+                // Update context
+                UnrolledLoop<0, AccessLen, 1, false /* not redundant*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
             } else {
                 // Write across a 64-K page boundary
-                UnrolledLoop<0, AccessLen, 1>::Body( [&] (int index) -> VOID {
-                    status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
-                    prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
-                    // Update context
-                    prevIP[0] = curCtxtHandle;
-                } );
+                // Update context
+                prevIP[0] = curCtxtHandle;
+                
+                // Remaining bytes [1..AccessLen] somewhere will across a 64-K page boundary
+                UnrolledLoop<1, AccessLen, 1, false /* dont update redundancy */>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
+                
             }
         }
     }
 };
-
-#ifdef ENABLE_SAMPLING
-
-inline VOID InsInTrace(uint32_t count, THREADID threadId) {
-    
-    RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    if(tData->Sample_flag){
-        tData->NUM_INS += count;
-        if(tData->NUM_INS > WINDOW_ENABLE){
-            tData->Sample_flag = false;
-            tData->NUM_INS = 0;
-        }
-    }else{
-        tData->NUM_INS += count;
-        if(tData->NUM_INS > WINDOW_DISABLE){
-            tData->Sample_flag = true;
-            tData->NUM_INS = 0;
-        }
-    }
-}
-
-//instrument the trace, count the number of ins in the trace, decide to instrument or not
-static void InstrumentTrace(TRACE trace, void* f) {
-    uint32_t TotInsInTrace = 0;
-    unordered_map<ADDRINT,BBL> headers;
-    unordered_map<ADDRINT,BBL>::iterator headIter;
-    unordered_map<ADDRINT,double> BBLweight;
-    unordered_map<ADDRINT,double>::iterator weightIter;
-    list<BBL> bblsToCheck;
-    list<BBL> bblsChecked;
-    
-    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
-    {
-        headers[INS_Address(BBL_InsHead(bbl))]=bbl;
-    }
-    
-    BBL curbbl = TRACE_BblHead(trace);
-    BBLweight[BBL_Address(curbbl)] = 1.0;
-    bblsToCheck.push_back(curbbl);
-    
-    while (!bblsToCheck.empty()) {
-        curbbl = bblsToCheck.front();
-        double curweight = BBLweight[BBL_Address(curbbl)];
-        INS curTail = BBL_InsTail(curbbl);
-        if( INS_IsDirectBranchOrCall(curTail)){
-            curweight /= 2;
-            ADDRINT next = INS_DirectBranchOrCallTargetAddress(curTail);
-            headIter = headers.find(next);
-            if (headIter != headers.end()) {
-                BBL bbl = headIter->second;
-                ADDRINT bblAddr = BBL_Address(bbl);
-                weightIter = BBLweight.find(bblAddr);
-                if (weightIter == BBLweight.end()) {
-                    BBLweight[bblAddr] = curweight;
-                }else{
-                    weightIter->second += curweight;
-                }
-                bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
-                bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
-                if(!found && !foundChecked) bblsToCheck.push_back(bbl);
-            }
-            if( INS_HasFallThrough(curTail)){
-                next = INS_Address(INS_Next(curTail));
-                headIter = headers.find(next);
-                if (headIter != headers.end()) {
-                    BBL bbl = headIter->second;
-                    ADDRINT bblAddr = BBL_Address(bbl);
-                    weightIter = BBLweight.find(bblAddr);
-                    if (weightIter == BBLweight.end()) {
-                        BBLweight[bblAddr] = curweight;
-                    }else{
-                        weightIter->second += curweight;
-                    }
-                    bool found = (std::find(bblsToCheck.begin(), bblsToCheck.end(), bbl) != bblsToCheck.end());
-                    bool foundChecked = (std::find(bblsChecked.begin(), bblsChecked.end(), bbl) != bblsChecked.end());
-                    if(!found && !foundChecked) bblsToCheck.push_back(bbl);
-                }
-            }
-        }
-        bblsToCheck.pop_front();
-        bblsChecked.push_back(curbbl);
-    }
-    
-    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
-    {
-        weightIter = BBLweight.find(BBL_Address(bbl));
-        if (weightIter != BBLweight.end()) {
-            TotInsInTrace += (uint32_t)(weightIter->second * BBL_NumIns(bbl));
-        } else {
-            TotInsInTrace += BBL_NumIns(bbl);
-        }
-    }
-    
-    if(TotInsInTrace)
-        TRACE_InsertCall(trace,IPOINT_BEFORE, (AFUNPTR)InsInTrace, IARG_UINT32, TotInsInTrace, IARG_THREAD_ID, IARG_END);
-}
-#else
-
-inline VOID BytesWrittenInBBL(uint32_t count, THREADID threadId) {
-    ClientGetTLS(threadId)->bytesWritten += count;
-}
-
-// Instrument a trace, take the first instruction in the first BBL and insert the analysis function before that
-static void InstrumentTrace(TRACE trace, void* f) {
-    // Insert counting code
-    for(BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
-        uint32_t totalBytesWrittenInBBL = 0;
-        for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
-            if(INS_IsMemoryWrite(ins)) {
-                totalBytesWrittenInBBL += INS_MemoryWriteSize(ins);
-            }
-        }
-        
-        // Insert a call to corresponding count routines before every bbl, passing the number of instructions
-        
-        // Increment Inst count by trace
-        if(totalBytesWrittenInBBL)
-            BBL_InsertCall(bbl, IPOINT_ANYWHERE, (AFUNPTR) BytesWrittenInBBL, IARG_UINT32, totalBytesWrittenInBBL, IARG_THREAD_ID, IARG_END);
-    }
-}
-
-#endif
-
 
 #ifdef ENABLE_SAMPLING
 
@@ -619,15 +501,101 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     }
 }
 
+#ifdef ENABLE_SAMPLING
+
+inline VOID UpdateAndCheck(uint32_t count, uint32_t bytes, THREADID threadId) {
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->bytesWritten += bytes;
+    if(tData->Sample_flag){
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_ENABLE){
+            tData->Sample_flag = false;
+            tData->NUM_INS = 0;
+            EmptyCtxt(tData);
+        }
+    }else{
+        tData->NUM_INS += count;
+        if(tData->NUM_INS > WINDOW_DISABLE){
+            tData->Sample_flag = true;
+            tData->NUM_INS = 0;
+        }
+    }
+}
+
+inline VOID Update(uint32_t count, uint32_t bytes, THREADID threadId){
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->NUM_INS += count;
+    tData->bytesWritten += bytes;
+}
+
+//instrument the trace, count the number of ins in the trace, decide to instrument or not
+static void InstrumentTrace(TRACE trace, void* f) {
+    bool check = false;
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
+    {
+        uint32_t totInsInBbl = BBL_NumIns(bbl);
+        uint32_t totBytes = 0;
+        for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            
+            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (!IsFloatInstruction(INS_Address(ins))) continue;
+            
+            if(INS_IsMemoryWrite(ins)) {
+                totBytes += INS_MemoryWriteSize(ins);
+            }
+        }
+        
+        if (BBL_InsTail(bbl) == BBL_InsHead(bbl)) {
+            BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32,totBytes, IARG_THREAD_ID,IARG_END);
+        }else if(INS_IsIndirectBranchOrCall(BBL_InsTail(bbl))){
+            BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32,totBytes, IARG_THREAD_ID,IARG_END);
+        }else{
+            if (check) {
+                BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32, totBytes, IARG_THREAD_ID,IARG_END);
+                check = false;
+            } else {
+                BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)Update,IARG_UINT32, totInsInBbl, IARG_UINT32, totBytes, IARG_THREAD_ID, IARG_END);
+                check = true;
+            }
+        }
+    }
+}
+#else
+
+inline VOID Update(uint32_t bytes, THREADID threadId){
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    tData->bytesWritten += bytes;
+}
+
+// Instrument a trace, take the first instruction in the first BBL and insert the analysis function before that
+static void InstrumentTrace(TRACE trace, void* f) {
+    // Insert counting code
+    for(BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
+        uint32_t totalBytesWrittenInBBL = 0;
+        for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            
+            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (!IsFloatInstruction(INS_Address(ins))) continue;
+            
+            if(INS_IsMemoryWrite(ins)) {
+                totalBytesWrittenInBBL += INS_MemoryWriteSize(ins);
+            }
+        }
+        
+        // Insert a call to corresponding count routines before every bbl, passing the number of instructions
+        if(totalBytesWrittenInBBL)
+            BBL_InsertCall(bbl, IPOINT_ANYWHERE, (AFUNPTR) Update, IARG_UINT32, totalBytesWrittenInBBL, IARG_THREAD_ID, IARG_END);
+    }
+}
+
+#endif
 
 struct RedundacyData {
     ContextHandle_t dead;
     ContextHandle_t kill;
     uint64_t frequency;
 };
-
-
-
 
 static inline bool RedundacyCompare(const struct RedundacyData &first, const struct RedundacyData &second) {
     return first.frequency > second.frequency ? true : false;
@@ -639,31 +607,44 @@ static void PrintRedundancyPairs(THREADID threadId) {
 
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data(delta=%.2f%%) from Thread %d ****************\n", delta*100,threadId);
+    
+#ifdef MERGING
     for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         ContextHandle_t dead = DECODE_DEAD((*it).first);
         ContextHandle_t kill = DECODE_KILL((*it).first);
 
         for(tmpIt = tmpList.begin();tmpIt != tmpList.end(); ++tmpIt){
-             bool ct1 = false;
-             if(dead == 0 || ((*tmpIt).dead) == 0){
-                  if(dead == 0 && ((*tmpIt).dead) == 0)
-                       ct1 = true;
-             }else{
-                  ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
-             }
-             bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
-             if(ct1 && ct2){
-                  (*tmpIt).frequency += (*it).second;
-                  grandTotalRedundantBytes += (*it).second;
-                  break;
-             }
+            if(dead == 0 || ((*tmpIt).dead) == 0){
+                continue;
+            }
+            if (!HaveSameCallerPrefix(dead,(*tmpIt).dead)) {
+                continue;
+            }
+            if (!HaveSameCallerPrefix(kill,(*tmpIt).kill)) {
+                continue;
+            }
+            bool ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
+            bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
+            if(ct1 && ct2){
+                (*tmpIt).frequency += (*it).second;
+                grandTotalRedundantBytes += (*it).second;
+                break;
+            }
         }
         if(tmpIt == tmpList.end()){
              RedundacyData tmp = { dead, kill, (*it).second};
              tmpList.push_back(tmp);
              grandTotalRedundantBytes += tmp.frequency;
         }
-    }   
+    }
+#else
+    for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+        grandTotalRedundantBytes += tmp.frequency;
+    }
+#endif
+    
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
