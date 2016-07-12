@@ -174,9 +174,9 @@ struct RedSpyThreadData{
     uint32_t aliasCtxt[MAX_ALIAS_REGS][MAX_ALIAS_TYPE];
     uint64_t bytesWritten;
     
-    long long NUM_INS;
-    bool Sample_flag;
-    long long NUM_winds;
+    long long numIns;
+    bool sampleFlag;
+    long long numWinds;
 };
 
 // key for accessing TLS storage in the threads. initialized once in main()
@@ -272,8 +272,8 @@ static inline VOID EmptyCtxt(RedSpyThreadData* tData){
         tData->regCtxt[i] = 0;
     }
     /*
-    tData->NUM_winds++;
-    if(tData->NUM_winds > WINDOW_CLEAN){
+    tData->numWinds++;
+    if(tData->numWinds > WINDOW_CLEAN){
         long count = tData->bytesWritten;
         long delNum = 0;
         //printf("size of the map %lu, total reg written %lu\n",count,tData->numRegWritten);
@@ -288,14 +288,14 @@ static inline VOID EmptyCtxt(RedSpyThreadData* tData){
             }else
                 it++;
         }
-        tData->NUM_winds=0;
+        tData->numWinds=0;
         tData->bytesWritten -= delNum;
     }*/
 }
 
 static ADDRINT IfEnableSample(THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    if(tData->Sample_flag){
+    if(tData->sampleFlag){
         return 1;
     }
     return 0;
@@ -310,34 +310,34 @@ static ADDRINT IfEnableSample(THREADID threadId){
 template<class T>
 struct HandleAliasRegisters{
 
-    static __attribute__((always_inline)) void CheckUpdateGenericAlias(uint8_t reg_id, uint8_t reg_byte, T value, uint32_t opaqueHandle, THREADID threadId) {
+    static __attribute__((always_inline)) void CheckUpdateGenericAlias(uint8_t regId, uint8_t byteOffset, T value, uint32_t opaqueHandle, THREADID threadId) {
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        T * where = (T *)(&tData->aliasValue[reg_id][reg_byte]);
+        T * where = (T *)(&tData->aliasValue[regId][byteOffset]);
         
         if (*where == value) {
-            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg_id][ALIAS_GENERIC],curCtxtHandle),sizeof(T),threadId);
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[regId][ALIAS_GENERIC],curCtxtHandle),sizeof(T),threadId);
         }else
             * where = value;
-        tData->aliasCtxt[reg_id][ALIAS_GENERIC] = curCtxtHandle;
-        tData->aliasCtxt[reg_id][ALIAS_HIGH_BYTE] = curCtxtHandle;
-        tData->aliasCtxt[reg_id][ALIAS_LOW_BYTE] = curCtxtHandle;
+        tData->aliasCtxt[regId][ALIAS_GENERIC] = curCtxtHandle;
+        tData->aliasCtxt[regId][ALIAS_HIGH_BYTE] = curCtxtHandle;
+        tData->aliasCtxt[regId][ALIAS_LOW_BYTE] = curCtxtHandle;
     }
-    static __attribute__((always_inline)) void CheckUpdateHighLowAlias(uint8_t reg_id, uint8_t reg_byte, uint8_t my_slot, T value, uint32_t opaqueHandle, THREADID threadId) {
+    static __attribute__((always_inline)) void CheckUpdateHighLowAlias(uint8_t regId, uint8_t byteOffset, uint8_t regType, T value, uint32_t opaqueHandle, THREADID threadId) {
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        T * where = (T *)(&tData->aliasValue[reg_id][reg_byte]);
+        T * where = (T *)(&tData->aliasValue[regId][byteOffset]);
         
         if (*where == value) {
-            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg_id][my_slot],curCtxtHandle),sizeof(T),threadId);
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[regId][regType],curCtxtHandle),sizeof(T),threadId);
         }else
             * where = value;
-        tData->aliasCtxt[reg_id][ALIAS_GENERIC] = curCtxtHandle;
-        tData->aliasCtxt[reg_id][my_slot] = curCtxtHandle;
+        tData->aliasCtxt[regId][ALIAS_GENERIC] = curCtxtHandle;
+        tData->aliasCtxt[regId][regType] = curCtxtHandle;
     }
 };
 
@@ -447,13 +447,13 @@ inline bool RegHasAlias(REG reg){
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
 INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeRegAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_ALIAS_GENERIC(T, i, j) \
+#define HANDLE_ALIAS_GENERIC(T, ID, OFFSET) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateGenericAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateGenericAlias, IARG_UINT32, ID, IARG_UINT32, OFFSET, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_ALIAS_HIGHLOW(i, j, t) \
+#define HANDLE_ALIAS_HIGHLOW(ID, OFFSET, TYPE) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t>::CheckUpdateHighLowAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_UINT32, t, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t>::CheckUpdateHighLowAlias, IARG_UINT32, ID, IARG_UINT32, OFFSET, IARG_UINT32, TYPE, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
 #define HANDLE_GENERAL(T) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
@@ -464,11 +464,11 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters
 #define HANDLE_LARGEREG() \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeRegAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_ALIAS_GENERIC(T, i, j) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateGenericAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_ALIAS_GENERIC(T, ID, OFFSET) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateGenericAlias, IARG_UINT32, ID, IARG_UINT32, OFFSET, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_ALIAS_HIGHLOW(i, j, t) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t>::CheckUpdateHighLowAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_UINT32, t, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_ALIAS_HIGHLOW(ID, OFFSET, TYPE) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t>::CheckUpdateHighLowAlias, IARG_UINT32, ID, IARG_UINT32, OFFSET, IARG_UINT32, TYPE, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
 #define HANDLE_GENERAL(T) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
@@ -478,16 +478,16 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>:
 static inline void InstrumentAliasReg(INS ins, REG reg, uint32_t opaqueHandle){
     
     uint32_t aliasIDs = GetAliasIDs(reg);
-    uint8_t group = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
-    uint8_t byteInd = static_cast<uint8_t>(((aliasIDs)  & 0x0000ffff) >> 8 );
+    uint8_t regId = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
+    uint8_t byteOffset = static_cast<uint8_t>(((aliasIDs)  & 0x0000ffff) >> 8 );
     uint8_t type;
     
     switch (REG_Size(reg)) {
-        case 8: HANDLE_ALIAS_GENERIC(uint64_t, group, byteInd); break;
-        case 4: HANDLE_ALIAS_GENERIC(uint32_t, group, byteInd); break;
-        case 2: HANDLE_ALIAS_GENERIC(uint16_t, group, byteInd); break;
+        case 8: HANDLE_ALIAS_GENERIC(uint64_t, regId, byteOffset); break;
+        case 4: HANDLE_ALIAS_GENERIC(uint32_t, regId, byteOffset); break;
+        case 2: HANDLE_ALIAS_GENERIC(uint16_t, regId, byteOffset); break;
         case 1: type = static_cast<uint8_t>((aliasIDs)  & 0x000000ff);
-            HANDLE_ALIAS_HIGHLOW(group, byteInd,type); break;
+            HANDLE_ALIAS_HIGHLOW(regId, byteOffset,type); break;
         default: break;
     }
 }
@@ -823,12 +823,12 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     //Instrument register writes to find redundancy
     UINT32 numOperands = INS_OperandCount(ins);
     
-    for(UINT32 Oper = 0; Oper < numOperands; Oper++) {
+    for(UINT32 oper = 0; oper < numOperands; oper++) {
         
-        if(!INS_OperandWritten(ins, Oper) || !INS_OperandIsReg(ins,Oper))
+        if(!INS_OperandWritten(ins, oper) || !INS_OperandIsReg(ins,oper))
             continue;
         
-        REG reg = INS_OperandReg(ins,Oper);
+        REG reg = INS_OperandReg(ins,oper);
         
         if(REG_IsIgnorable(reg))
             continue;
@@ -856,25 +856,25 @@ inline VOID UpdateAndCheck(uint32_t count, uint32_t bytes, THREADID threadId) {
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     tData->bytesWritten += bytes;
-    if(tData->Sample_flag){
-        tData->NUM_INS += count;
-        if(tData->NUM_INS > WINDOW_ENABLE){
-            tData->Sample_flag = false;
-            tData->NUM_INS = 0;
+    if(tData->sampleFlag){
+        tData->numIns += count;
+        if(tData->numIns > WINDOW_ENABLE){
+            tData->sampleFlag = false;
+            tData->numIns = 0;
             EmptyCtxt(tData);
         }
     }else{
-        tData->NUM_INS += count;
-        if(tData->NUM_INS > WINDOW_DISABLE){
-            tData->Sample_flag = true;
-            tData->NUM_INS = 0;
+        tData->numIns += count;
+        if(tData->numIns > WINDOW_DISABLE){
+            tData->sampleFlag = true;
+            tData->numIns = 0;
         }
     }
 }
 
 inline VOID Update(uint32_t count, uint32_t bytes, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    tData->NUM_INS += count;
+    tData->numIns += count;
     tData->bytesWritten += bytes;
 }
 
@@ -1068,9 +1068,9 @@ static VOID FiniFunc(INT32 code, VOID *v) {
 
 static void InitThreadData(RedSpyThreadData* tdata){
     tdata->bytesWritten = 0;
-    tdata->Sample_flag = true;
-    tdata->NUM_INS = 0;
-    tdata->NUM_winds = 0;
+    tdata->sampleFlag = true;
+    tdata->numIns = 0;
+    tdata->numWinds = 0;
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
