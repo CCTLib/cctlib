@@ -104,8 +104,48 @@ using namespace PinCCTLib;
 
 
 #define MAX_WRITE_OP_LENGTH (512)
-#define MAX_REG_LENGTH (64)
 #define MAX_WRITE_OPS_IN_INS (8)
+#define MAX_REG_LENGTH (64)
+
+#define MAX_ALIAS_REGS (4)  //EAX, EBX, ECX, EDX
+#define MAX_ALIAS_REG_SIZE (8) //RAX is 64bits
+#define MAX_ALIAS_TYPE (3) //(RAX, EAX, AX),(AH),(AL)
+
+//different register group
+#define ALIAS_REG_A (0) //RAX, EAX, AX, AH, or AL
+#define ALIAS_REG_B (1)
+#define ALIAS_REG_C (2)
+#define ALIAS_REG_D (3)
+
+//alias type, generic, high byte or low byte
+#define ALIAS_GENERIC (0) // RAX, EAX, or AX
+#define ALIAS_HIGH_BYTE (1) //AH
+#define ALIAS_LOW_BYTE (2) // AL
+#define ALIAS_HIGH_LOW (3)
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    //alias begin bytes for different types
+    #define ALIAS_BYTES_INDEX_64 (0)
+    #define ALIAS_BYTES_INDEX_32 (0)
+    #define ALIAS_BYTES_INDEX_16 (0)
+    #define ALIAS_BYTES_INDEX_8_L (0)
+    #define ALIAS_BYTES_INDEX_8_H (1)
+
+#elif __BYTE_ORDER == __BIG_ENDIAN
+
+    #define ALIAS_BYTES_INDEX_64 (0)
+    #define ALIAS_BYTES_INDEX_32 (4)
+    #define ALIAS_BYTES_INDEX_16 (6)
+    #define ALIAS_BYTES_INDEX_8_L (7)
+    #define ALIAS_BYTES_INDEX_8_H (6)
+
+#else
+
+#error "unknown endianness"
+
+#endif
+
+
 
 #ifdef ENABLE_SAMPLING
 
@@ -130,7 +170,8 @@ struct RedSpyThreadData{
     AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
     uint32_t regCtxt[REG_LAST];
     UINT8 regValue[REG_LAST][MAX_REG_LENGTH];
-    UINT8 aliasValue[4][8];
+    UINT8 aliasValue[MAX_ALIAS_REGS][MAX_ALIAS_REG_SIZE];
+    uint32_t aliasCtxt[MAX_ALIAS_REGS][MAX_ALIAS_TYPE];
     uint64_t bytesWritten;
     
     long long NUM_INS;
@@ -272,44 +313,72 @@ static ADDRINT IfEnableSample(THREADID threadId){
 /*                              register analysis                                */
 /*********************************************************************************/
 
-//const map to handle the register aliases
-static uint32_t RegAliasMap[12][6] = {
-    
-    {5,REG_GAX,REG_EAX,REG_AX,REG_AH,REG_AL},
-    {5,REG_GBX,REG_EBX,REG_BX,REG_BH,REG_BL},
-    {5,REG_GCX,REG_ECX,REG_CX,REG_CH,REG_CL},
-    {5,REG_GDX,REG_EDX,REG_DX,REG_DH,REG_DL},
-    {4,REG_AH,REG_GAX,REG_EAX,REG_AX},
-    {4,REG_BH,REG_GBX,REG_EBX,REG_BX},
-    {4,REG_CH,REG_GCX,REG_ECX,REG_CX},
-    {4,REG_DH,REG_GDX,REG_EDX,REG_DX},
-    {4,REG_AL,REG_GAX,REG_EAX,REG_AX},
-    {4,REG_BL,REG_GBX,REG_EBX,REG_BX},
-    {4,REG_CL,REG_GCX,REG_ECX,REG_CX},
-    {4,REG_DL,REG_GDX,REG_EDX,REG_DX},
-};
-
-template<class T,uint32_t regSize>
+template<class T>
 struct HandleAliasRegisters{
 
-    static __attribute__((always_inline)) void CheckUpdateAlias(uint32_t i, uint32_t j, T value, REG reg, uint32_t ind, uint32_t opaqueHandle, THREADID threadId) {
+    static __attribute__((always_inline)) void CheckUpdateGenericAlias(uint8_t reg_id, uint8_t reg_byte, T value, uint32_t opaqueHandle, THREADID threadId) {
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        T * where = (T *)(&tData->aliasValue[i][j]);
+        T * where = (T *)(&tData->aliasValue[reg_id][reg_byte]);
         
         if (*where == value) {
-            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regSize,threadId);
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg_id][ALIAS_GENERIC],curCtxtHandle),sizeof(T),threadId);
         }else
             * where = value;
+        tData->aliasCtxt[reg_id][ALIAS_GENERIC] = curCtxtHandle;
+        tData->aliasCtxt[reg_id][ALIAS_HIGH_BYTE] = curCtxtHandle;
+        tData->aliasCtxt[reg_id][ALIAS_LOW_BYTE] = curCtxtHandle;
+    }
+    static __attribute__((always_inline)) void CheckUpdateHighLowAlias(uint8_t reg_id, uint8_t reg_byte, uint8_t my_slot, T value, uint32_t opaqueHandle, THREADID threadId) {
         
-        for(uint32_t i = 0; i < RegAliasMap[ind][0]; i++)
-            tData->regCtxt[RegAliasMap[ind][i]] = curCtxtHandle;
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+        
+        T * where = (T *)(&tData->aliasValue[reg_id][reg_byte]);
+        
+        if (*where == value) {
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg_id][my_slot],curCtxtHandle),sizeof(T),threadId);
+        }else
+            * where = value;
+        tData->aliasCtxt[reg_id][ALIAS_GENERIC] = curCtxtHandle;
+        tData->aliasCtxt[reg_id][my_slot] = curCtxtHandle;
+    }
+    static __attribute__((always_inline)) void CheckUpdateTwoAlias(uint8_t reg_id_1, uint8_t reg_byte_1, uint8_t my_slot_1, T value1, uint8_t reg_id_2, uint8_t reg_byte_2, uint8_t my_slot_2, T value2, uint32_t opaqueHandle, THREADID threadId) {
+        
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+        
+        T * where = (T *)(&tData->aliasValue[reg_id_1][reg_byte_1]);
+        
+        if (*where == value1) {
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg_id_1][my_slot_1],curCtxtHandle),sizeof(T),threadId);
+        }else
+            * where = value1;
+        tData->aliasCtxt[reg_id_1][ALIAS_GENERIC] = curCtxtHandle;
+        if(my_slot_1 == ALIAS_GENERIC){
+            tData->aliasCtxt[reg_id_1][ALIAS_HIGH_BYTE] = curCtxtHandle;
+            tData->aliasCtxt[reg_id_1][ALIAS_LOW_BYTE] = curCtxtHandle;
+        }else
+            tData->aliasCtxt[reg_id_1][my_slot_1] = curCtxtHandle;
+        
+        where = (T *)(&tData->aliasValue[reg_id_2][reg_byte_2]);
+        
+        if (*where == value2) {
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg_id_2][my_slot_2],curCtxtHandle),sizeof(T),threadId);
+        }else
+            * where = value2;
+        tData->aliasCtxt[reg_id_2][ALIAS_GENERIC] = curCtxtHandle;
+        if(my_slot_2 == ALIAS_GENERIC){
+            tData->aliasCtxt[reg_id_2][ALIAS_HIGH_BYTE] = curCtxtHandle;
+            tData->aliasCtxt[reg_id_2][ALIAS_LOW_BYTE] = curCtxtHandle;
+        }else
+            tData->aliasCtxt[reg_id_2][my_slot_2] = curCtxtHandle;
     }
 };
 
-template<class T,uint32_t regSize>
+template<class T>
 struct HandleGeneralRegisters{
     
     static __attribute__((always_inline)) void CheckValues(T value, REG reg, uint32_t opaqueHandle, THREADID threadId) {
@@ -320,10 +389,31 @@ struct HandleGeneralRegisters{
         T * regBefore = (T *)(&tData->regValue[reg][0]);
         
         if (* regBefore == value && tData->regCtxt[reg]) {
-            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regSize,threadId);
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),sizeof(T),threadId);
         }else
             * regBefore = value;
         tData->regCtxt[reg] = curCtxtHandle;
+    }
+    static __attribute__((always_inline)) void CheckTwoValues(T value1, REG reg1, T value2, REG reg2, uint32_t opaqueHandle, THREADID threadId) {
+        
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+        
+        T * regBefore = (T *)(&tData->regValue[reg1][0]);
+        
+        if (* regBefore == value1 && tData->regCtxt[reg1]) {
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg1],curCtxtHandle),sizeof(T),threadId);
+        }else
+            * regBefore = value1;
+        tData->regCtxt[reg1] = curCtxtHandle;
+        
+        regBefore = (T *)(&tData->regValue[reg2][0]);
+        
+        if (* regBefore == value2 && tData->regCtxt[reg2]) {
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg2],curCtxtHandle),sizeof(T),threadId);
+        }else
+            * regBefore = value2;
+        tData->regCtxt[reg2] = curCtxtHandle;
     }
 };
 
@@ -349,11 +439,50 @@ static inline  VOID CheckLargeRegAfterWrite(PIN_REGISTER* regRef, REG reg, uint3
     tData->regCtxt[reg] = curCtxtHandle;
 }
 
-inline bool RegHasOtherAlias(REG reg){
+static inline uint32_t GetAliasIDs(REG reg){
+    uint8_t regGroup = 0;
+    uint8_t byteInd = 0;
+    uint8_t type = 0;
+    switch (reg) {
+        case REG_RAX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_EAX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_AX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_AH: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
+        case REG_AL: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
+            
+        case REG_RBX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_EBX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_BX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_BH: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
+        case REG_BL: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
+            
+        case REG_RCX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_ECX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_CX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_CH: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
+        case REG_CL: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
+            
+        case REG_RDX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_EDX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_DX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_DH: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
+        case REG_DL: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
+        default: assert(0 & "not alias registers! should not reach here!"); break;
+    }
+    uint32_t aliasGroupByteType = ((uint32_t)regGroup << 16) | ((uint32_t)byteInd << 8) | ((uint32_t)type);
+    return aliasGroupByteType;
+}
+
+inline bool RegHasAlias(REG reg){
     switch(reg){
-        case REG_GBX:
-        case REG_GCX:
-        case REG_GDX:
+        case REG_RAX:
+        case REG_RBX:
+        case REG_RCX:
+        case REG_RDX:
+        case REG_EAX:
+        case REG_EBX:
+        case REG_ECX:
+        case REG_EDX:
         case REG_AX:
         case REG_BX:
         case REG_CX:
@@ -377,127 +506,109 @@ inline bool RegHasOtherAlias(REG reg){
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
 INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeRegAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_Alias_64(i, j, t) \
+#define HANDLE_ALIAS_GENERIC(T, i, j) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint64_t,64>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateGenericAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Alias_32(i, j, t) \
+#define HANDLE_ALIAS_HIGHLOW(i, j, t) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint32_t,32>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t>::CheckUpdateHighLowAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_UINT32, t, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Alias_16(i, j, t) \
+#define HANDLE_ALIAS_TWO(T, i, j, t, ii, jj, tt) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint16_t,16>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateTwoAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_UINT32, t, IARG_REG_VALUE, reg1, IARG_UINT32, ii, IARG_UINT32, jj, IARG_UINT32, tt, IARG_REG_VALUE, reg2, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Alias_8(i, j, t) \
+#define HANDLE_GENERAL(T) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t,8>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Genaral_64() \
+#define HANDLE_GENERAL_TWO(T) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint64_t,64>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
-
-#define HANDLE_Genaral_32() \
-INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint32_t,32>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
-
-#define HANDLE_Genaral_16() \
-INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint16_t,16>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
-
-#define HANDLE_Genaral_8() \
-INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint8_t,8>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckTwoValues,IARG_REG_VALUE,reg1,IARG_UINT32, reg1, IARG_REG_VALUE,reg2,IARG_UINT32, reg2, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
 #else
 
 #define HANDLE_LARGEREG() \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckLargeRegAfterWrite, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_Alias_64(i, j, t) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint64_t,64>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_ALIAS_GENERIC(T, i, j) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateGenericAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Alias_32(i, j, t) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint32_t,32>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_ALIAS_HIGHLOW(i, j, t) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t>::CheckUpdateHighLowAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_UINT32, t, IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Alias_16(i, j, t) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint16_t,16>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_ALIAS_TWO(T, i, j, t, ii, jj, tt) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T>::CheckUpdateTwoAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_UINT32, t, IARG_REG_VALUE, reg1, IARG_UINT32, ii, IARG_UINT32, jj, IARG_UINT32, tt, IARG_REG_VALUE, reg2, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Alias_8(i, j, t) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<uint8_t,8>::CheckUpdateAlias, IARG_UINT32, i, IARG_UINT32, j, IARG_REG_VALUE, reg, IARG_UINT32, reg, IARG_UINT32, t, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_GENERAL(T) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
-#define HANDLE_Genaral_64() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint64_t,64>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
-
-#define HANDLE_Genaral_32() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint32_t,32>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
-
-#define HANDLE_Genaral_16() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint16_t,16>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
-
-#define HANDLE_Genaral_8() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint8_t,8>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+#define HANDLE_GENERAL_TWO(T) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckTwoValues,IARG_REG_VALUE,reg1,IARG_UINT32, reg1, IARG_REG_VALUE,reg2,IARG_UINT32, reg2, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
 #endif
 
 static inline void InstrumentAliasReg(INS ins, REG reg, uint32_t opaqueHandle){
     
+    uint32_t aliasIDs = GetAliasIDs(reg);
+    uint8_t group = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
+    uint8_t byteInd = static_cast<uint8_t>(((aliasIDs)  & 0x0000ffff) >> 8 );
+    uint8_t type;
+    
     switch (REG_Size(reg)) {
-        case 8:
-            switch (reg) {
-//                case REG_GAX: HANDLE_Alias_64(0, 0, 0); break;
-                case REG_GBX: HANDLE_Alias_64(1, 0, 1); break;
-                case REG_GCX: HANDLE_Alias_64(2, 0, 2); break;
-                case REG_GDX: HANDLE_Alias_64(3, 0, 3); break;
-                default: break;
-            }
-            break;
-/*        case 4:
-            switch (reg) {
-                case REG_EAX: HANDLE_Alias_32(0, 4, 0); break;
-                case REG_EBX: HANDLE_Alias_32(1, 4, 1); break;
-                case REG_ECX: HANDLE_Alias_32(2, 4, 2); break;
-                case REG_EDX: HANDLE_Alias_32(3, 4, 3); break;
-                default: break;
-            }
-            break;*/
-        case 2:
-            switch (reg) {
-                case REG_AX: HANDLE_Alias_16(0, 6, 0); break;
-                case REG_BX: HANDLE_Alias_16(1, 6, 1); break;
-                case REG_CX: HANDLE_Alias_16(2, 6, 2); break;
-                case REG_DX: HANDLE_Alias_16(3, 6, 3); break;
-                default: break;
-            }
-            break;
-        case 1:
-            switch (reg) {
-                case REG_AH: HANDLE_Alias_8(0, 6, 4); break;
-                case REG_BH: HANDLE_Alias_8(1, 6, 5); break;
-                case REG_CH: HANDLE_Alias_8(2, 6, 6); break;
-                case REG_DH: HANDLE_Alias_8(3, 6, 7); break;
-                case REG_AL: HANDLE_Alias_8(0, 7, 8); break;
-                case REG_BL: HANDLE_Alias_8(1, 7, 9); break;
-                case REG_CL: HANDLE_Alias_8(2, 7, 10); break;
-                case REG_DL: HANDLE_Alias_8(3, 7, 11); break;
-                default: break;
-            }
-            break;
-            
-        default: assert(0 & "Aliases more than 8 bytes, Should never reach here!");
-            break;
+        case 8: HANDLE_ALIAS_GENERIC(uint64_t, group, byteInd); break;
+        case 4: HANDLE_ALIAS_GENERIC(uint32_t, group, byteInd); break;
+        case 2: HANDLE_ALIAS_GENERIC(uint16_t, group, byteInd); break;
+        case 1: type = static_cast<uint8_t>((aliasIDs)  & 0x000000ff);
+            HANDLE_ALIAS_HIGHLOW(group, byteInd,type); break;
+        default: break;
     }
 }
 
-static inline void InstrumentAfterWriting(INS ins, REG reg, uint32_t regSize, uint32_t opaqueHandle){
+static inline void InstrumentTwoAliasRegs(INS ins, REG reg1, REG reg2, uint32_t opaqueHandle){
+    
+    uint32_t aliasIDs_1 = GetAliasIDs(reg1);
+    uint8_t group1 = static_cast<uint8_t>(((aliasIDs_1)  & 0x00ffffff) >> 16 );
+    uint8_t byteInd1 = static_cast<uint8_t>(((aliasIDs_1)  & 0x0000ffff) >> 8 );
+    uint8_t type1;
+    
+    uint32_t aliasIDs_2 = GetAliasIDs(reg2);
+    uint8_t group2 = static_cast<uint8_t>(((aliasIDs_2)  & 0x00ffffff) >> 16 );
+    uint8_t byteInd2 = static_cast<uint8_t>(((aliasIDs_2)  & 0x0000ffff) >> 8 );
+    uint8_t type2;
+    
+    switch (REG_Size(reg1)) {
+        case 8: HANDLE_ALIAS_TWO(uint64_t, group1, byteInd1, 0, group2, byteInd2, 0); break;
+        case 4: HANDLE_ALIAS_TWO(uint32_t, group1, byteInd1, 0, group2, byteInd2, 0); break;
+        case 2: HANDLE_ALIAS_TWO(uint16_t, group1, byteInd1, 0, group2, byteInd2, 0); break;
+        case 1: type1 = static_cast<uint8_t>((aliasIDs_1)  & 0x000000ff);
+            type2 = static_cast<uint8_t>((aliasIDs_2)  & 0x000000ff);
+            HANDLE_ALIAS_TWO(uint8_t, group1, byteInd1,type1, group2, byteInd2, byteInd2); break;
+        default: break;
+    }
+}
+
+static inline void InstrumentGeneralReg(INS ins, REG reg, uint32_t opaqueHandle){
+    uint32_t regSize = REG_Size(reg);
     switch(regSize) {
-        case 1: HANDLE_Genaral_8(); break;
-        case 2: HANDLE_Genaral_16(); break;
-        case 4: HANDLE_Genaral_32(); break;
-        case 8: HANDLE_Genaral_64(); break;
+        case 1: HANDLE_GENERAL(uint8_t); break;
+        case 2: HANDLE_GENERAL(uint16_t); break;
+        case 4: HANDLE_GENERAL(uint32_t); break;
+        case 8: HANDLE_GENERAL(uint64_t); break;
         default: {
-            HANDLE_LARGEREG();
+            HANDLE_LARGEREG(); break;
         }
+    }
+}
+
+static inline void InstrumentTwoGeneralRegs(INS ins, REG reg1, REG reg2, uint32_t opaqueHandle){
+    uint32_t regSize = REG_Size(reg1);
+    switch(regSize) {
+        case 1: HANDLE_GENERAL_TWO(uint8_t); break;
+        case 2: HANDLE_GENERAL_TWO(uint16_t); break;
+        case 4: HANDLE_GENERAL_TWO(uint32_t); break;
+        case 8: HANDLE_GENERAL_TWO(uint64_t); break;
+        default: assert(0 & "Writting two large regs!"); break;
     }
 }
 
@@ -818,10 +929,12 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     
     //Instrument register writes to find redundancy
     struct RegInfo * wRegs = new struct RegInfo;
+    struct RegInfo * aliasRegs = new struct RegInfo;
     
     UINT32 numOperands = INS_OperandCount(ins);
     
     int regCount = 0;
+    int aliaRegCount = 0;
     
     for(UINT32 Oper = 0; Oper < numOperands; Oper++) {
         
@@ -833,35 +946,56 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         if(REG_IsIgnorable(reg))
             continue;
         
-        switch (reg) {
-            case REG_GAX: HANDLE_Alias_64(0, 0, 0); break;
-            case REG_EAX: HANDLE_Alias_32(0, 4, 0); break;
-            case REG_EBX: HANDLE_Alias_32(1, 4, 1); break;
-            case REG_ECX: HANDLE_Alias_32(2, 4, 2); break;
-            case REG_EDX: HANDLE_Alias_32(3, 4, 3); break;
-            default:
-                if (RegHasOtherAlias(reg)) {
-                    InstrumentAliasReg(ins, reg, opaqueHandle);
-                }else{
-                    wRegs->regs[regCount] = reg;
-                    regCount++;
-                }
-                break;
+        if (RegHasAlias(reg)) {
+            aliasRegs->regs[aliaRegCount] = reg;
+            aliaRegCount++;
+        }else{
+            wRegs->regs[regCount] = reg;
+            regCount++;
         }
     }
-  
-    for (int i = 0; i < regCount; ++i) {
-        REG reg = wRegs->regs[i];
-        uint32_t regSize = REG_Size(reg);
-        switch(regSize) {
-            case 1: HANDLE_Genaral_8(); break;
-            case 2: HANDLE_Genaral_16(); break;
-            case 4: HANDLE_Genaral_32(); break;
-            case 8: HANDLE_Genaral_64(); break;
-            default: {
-                HANDLE_LARGEREG();
+    REG reg;
+    switch (aliaRegCount) {
+        case 1:
+            reg = aliasRegs->regs[0];
+            switch (reg) {
+                case REG_RAX: HANDLE_ALIAS_GENERIC(uint64_t, ALIAS_REG_A, ALIAS_BYTES_INDEX_64); break;
+                case REG_EAX: HANDLE_ALIAS_GENERIC(uint32_t, ALIAS_REG_A, ALIAS_BYTES_INDEX_32); break;
+                case REG_EBX: HANDLE_ALIAS_GENERIC(uint32_t, ALIAS_REG_B, ALIAS_BYTES_INDEX_32); break;
+                case REG_ECX: HANDLE_ALIAS_GENERIC(uint32_t, ALIAS_REG_C, ALIAS_BYTES_INDEX_32); break;
+                case REG_EDX: HANDLE_ALIAS_GENERIC(uint32_t, ALIAS_REG_D, ALIAS_BYTES_INDEX_32); break;
+                default: InstrumentAliasReg(ins, reg , opaqueHandle); break;
             }
-        }
+            break;
+        case 2:
+            if (REG_Size(aliasRegs->regs[0]) == REG_Size(aliasRegs->regs[1])) {
+                InstrumentTwoAliasRegs(ins,aliasRegs->regs[0],aliasRegs->regs[1],opaqueHandle);
+            } else {
+                InstrumentAliasReg(ins, aliasRegs->regs[0], opaqueHandle);
+                InstrumentAliasReg(ins, aliasRegs->regs[1], opaqueHandle);
+            }
+            break;
+        default:
+            for (int i = 0; i < aliaRegCount; i++) {
+                InstrumentAliasReg(ins, aliasRegs->regs[i], opaqueHandle);
+            }
+            break;
+    }
+    switch (regCount) {
+        case 1: InstrumentGeneralReg(ins, wRegs->regs[0], opaqueHandle); break;
+        case 2:
+            if (REG_Size(wRegs->regs[0]) == REG_Size(wRegs->regs[1])) {
+                InstrumentTwoGeneralRegs(ins,wRegs->regs[0],wRegs->regs[1],opaqueHandle);
+            } else {
+                InstrumentGeneralReg(ins, wRegs->regs[0], opaqueHandle);
+                InstrumentGeneralReg(ins, wRegs->regs[1], opaqueHandle);
+            }
+            break;
+        default:
+            for (int i = 0; i < regCount; i++) {
+                InstrumentGeneralReg(ins, wRegs->regs[i], opaqueHandle);
+            }
+            break;
     }
 }
 
@@ -903,6 +1037,11 @@ static void InstrumentTrace(TRACE trace, void* f) {
         uint32_t totInsInBbl = BBL_NumIns(bbl);
         uint32_t totBytes = 0;
         for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            
+            if (!INS_HasFallThrough(ins)) continue;
+            if (INS_IsIgnorable(ins)) continue;
+            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            
             if(INS_IsMemoryWrite(ins)) {
                 totBytes += INS_MemoryWriteSize(ins);
             }
@@ -914,6 +1053,9 @@ static void InstrumentTrace(TRACE trace, void* f) {
                     continue;
                 
                 REG curReg = INS_OperandReg(ins,Oper);
+                
+                if(REG_IsIgnorable(curReg))
+                    continue;
                 
                 totBytes += REG_Size(curReg);
             }
@@ -949,6 +1091,11 @@ static void InstrumentTrace(TRACE trace, void* f) {
     {
         uint32_t totBytes = 0;
         for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            
+            if (!INS_HasFallThrough(ins)) continue;
+            if (INS_IsIgnorable(ins)) continue;
+            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            
             if(INS_IsMemoryWrite(ins)) {
                 totBytes += INS_MemoryWriteSize(ins);
             }
@@ -960,6 +1107,9 @@ static void InstrumentTrace(TRACE trace, void* f) {
                     continue;
                 
                 REG curReg = INS_OperandReg(ins,Oper);
+                
+                if(REG_IsIgnorable(curReg))
+                    continue;
                 
                 totBytes += REG_Size(curReg);
             }
@@ -986,32 +1136,44 @@ static void PrintRedundancyPairs(THREADID threadId) {
 
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
+    
+#ifdef MERGING
     for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         ContextHandle_t dead = DECODE_DEAD((*it).first);
         ContextHandle_t kill = DECODE_KILL((*it).first);
 
         for(tmpIt = tmpList.begin();tmpIt != tmpList.end(); ++tmpIt){
-             bool ct1 = false;
-             if(dead == 0 || ((*tmpIt).dead) == 0){
-                  if(dead == 0 && ((*tmpIt).dead) == 0)
-                       ct1 = true;
-             }else{
-                  ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
-             }
-             bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
-             if(ct1 && ct2){
+            if(dead == 0 || ((*tmpIt).dead) == 0){
+                continue;
+            }
+            if (!HaveSameCallerPrefix(dead,(*tmpIt).dead)) {
+                continue;
+            }
+            if (!HaveSameCallerPrefix(kill,(*tmpIt).kill)) {
+                continue;
+            }
+            bool ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
+            bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
+            if(ct1 && ct2){
                   (*tmpIt).frequency += (*it).second;
                   grandTotalRedundantBytes += (*it).second;
                   break;
-             }
+            }
         }
         if(tmpIt == tmpList.end()){
              RedundacyData tmp = { dead, kill, (*it).second};
              tmpList.push_back(tmp);
              grandTotalRedundantBytes += tmp.frequency;
         }
-    }  
-        
+    }
+#else
+    for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+        grandTotalRedundantBytes += tmp.frequency;
+    }
+#endif
+    
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
