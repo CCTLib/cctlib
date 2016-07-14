@@ -383,12 +383,6 @@ static inline  VOID CheckLargeRegAfterWrite(PIN_REGISTER* regRef, REG reg, uint3
     tData->regCtxt[reg] = curCtxtHandle;
 }
 
-static inline bool IsLowByteAliasReg(REG reg){
-    if(reg == REG_AL || reg == REG_BL || reg == REG_CL || reg == REG_DL)
-        return true;
-    return false;
-}
-
 static inline uint32_t GetAliasIDs(REG reg){
     uint8_t regGroup = 0;
     uint8_t byteInd = 0;
@@ -485,7 +479,7 @@ static inline void InstrumentAliasReg(INS ins, REG reg, uint32_t opaqueHandle){
         case 8: HANDLE_ALIAS_REG(uint64_t, ALIAS_GENERIC, regId); break;
         case 4: HANDLE_ALIAS_REG(uint32_t, ALIAS_GENERIC, regId); break;
         case 2: HANDLE_ALIAS_REG(uint16_t, ALIAS_GENERIC, regId); break;
-        case 1: if (IsLowByteAliasReg(reg))
+        case 1: if (REG_is_Lower8(reg))
                     HANDLE_ALIAS_REG(uint8_t, ALIAS_LOW_BYTE, regId);
                 else
                     HANDLE_ALIAS_REG(uint8_t, ALIAS_HIGH_BYTE, regId);
@@ -766,7 +760,7 @@ static inline bool REG_IsIgnorable(REG reg){
         return true;
     else if(reg == REG_MXCSR)
         return true;
-    else if(reg == REG_GFLAGS || reg == REG_FLAGS)
+    else if(REG_is_flags(reg))
         return true;
     else if(reg == REG_ST0)
         return true;
