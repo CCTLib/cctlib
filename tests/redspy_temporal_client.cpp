@@ -844,7 +844,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
 inline VOID UpdateAndCheck(uint32_t count, uint32_t bytes, THREADID threadId) {
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    tData->bytesWritten += bytes;
+
     if(tData->sampleFlag){
         tData->numIns += count;
         if(tData->numIns > WINDOW_ENABLE){
@@ -859,12 +859,17 @@ inline VOID UpdateAndCheck(uint32_t count, uint32_t bytes, THREADID threadId) {
             tData->numIns = 0;
         }
     }
+    if (tData->sampleFlag) {
+        tData->bytesWritten += bytes;
+    }
 }
 
 inline VOID Update(uint32_t count, uint32_t bytes, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     tData->numIns += count;
-    tData->bytesWritten += bytes;
+    if (tData->sampleFlag) {
+        tData->bytesWritten += bytes;
+    }
 }
 
 //instrument the trace, count the number of ins in the trace, decide to instrument or not
