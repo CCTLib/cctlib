@@ -50,6 +50,11 @@
 #include <list>
 #include "pin.H"
 #include "cctlib.H"
+extern "C" {
+#include "xed-interface.h"
+#include "xed-common-hdrs.h"
+}
+
 using namespace std;
 using namespace PinCCTLib;
 
@@ -111,6 +116,13 @@ using namespace PinCCTLib;
 #define MAX_ALIAS_REG_SIZE (8) //RAX is 64bits
 #define MAX_ALIAS_TYPE (3) //(RAX, EAX, AX),(AH),(AL)
 
+//different redundant type
+enum RedType {
+    RED_PRECISION = 0,
+    RED_FLOAT,
+    RED_DOUBLE
+};
+
 //different register group
 enum AliasReg {
     ALIAS_REG_A = 0, //RAX, EAX, AX, AH, or AL
@@ -154,7 +166,7 @@ enum AliasGroup{
 #ifdef ENABLE_SAMPLING
 
 #define WINDOW_ENABLE 1000000
-#define WINDOW_DISABLE 1000000000
+#define WINDOW_DISABLE 10000000
 #define WINDOW_CLEAN 10
 #endif
 
@@ -163,6 +175,8 @@ enum AliasGroup{
 
 
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
+
+#define delta 0.01
 
 
 struct AddrValPair{
@@ -252,6 +266,8 @@ static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BY
 static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
 
 static unordered_map<uint64_t, uint64_t> RedMap[THREAD_MAX];
+static unordered_map<uint64_t, uint64_t> ApproxRedMap[THREAD_MAX];
+
 static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadId) {
 #ifdef MULTI_THREADED
     LOCK_RED_MAP();
@@ -266,6 +282,22 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
     UNLOCK_RED_MAP();
 #endif
 }
+
+static inline void AddToApproximateRedTable(uint64_t key,  uint16_t value, THREADID threadId) {
+#ifdef MULTI_THREADED
+    LOCK_RED_MAP();
+#endif
+    unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].find(key);
+    if ( it  == ApproxRedMap[threadId].end()) {
+        ApproxRedMap[threadId][key] = value;
+    } else {
+        it->second += value;
+    }
+#ifdef MULTI_THREADED
+    UNLOCK_RED_MAP();
+#endif
+}
+
 
 #ifdef ENABLE_SAMPLING
 
@@ -306,6 +338,25 @@ static ADDRINT IfEnableSample(THREADID threadId){
 }
 
 #endif
+
+static inline bool IsFloatInstruction(ADDRINT ip) {
+    xed_decoded_inst_t  xedd;
+    xed_state_t  xed_state;
+    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    
+    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
+        unsigned int NumOperands = xed_decoded_inst_noperands(&xedd);
+        for(unsigned int i = 0; i < NumOperands; ++i){
+            xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,i);
+            if(TypeOperand == XED_OPERAND_ELEMENT_TYPE_SINGLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_DOUBLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_FLOAT16 || TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE)
+                return true;
+        }
+        return false;
+    } else {
+        assert(0 && "failed to disassemble instruction");
+        return false;
+    }
+}
 
 /*********************************************************************************/
 /*                              register analysis                                */
@@ -479,11 +530,11 @@ static inline void InstrumentAliasReg(INS ins, REG reg, uint32_t opaqueHandle){
         case 8: HANDLE_ALIAS_REG(uint64_t, ALIAS_GENERIC, regId); break;
         case 4: HANDLE_ALIAS_REG(uint32_t, ALIAS_GENERIC, regId); break;
         case 2: HANDLE_ALIAS_REG(uint16_t, ALIAS_GENERIC, regId); break;
-        case 1: if (REG_is_Lower8(reg))
+        case 1: if (REG_is_Lower8(reg)){
                     HANDLE_ALIAS_REG(uint8_t, ALIAS_LOW_BYTE, regId);
-                else
+                }else{
                     HANDLE_ALIAS_REG(uint8_t, ALIAS_HIGH_BYTE, regId);
-                break;
+                }break;
         default: break;
     }
 }
@@ -505,11 +556,11 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint32_t opaqueHandle)
 /*********************** memory temporal redundancy functions **************************/
 /***************************************************************************************/
 
-template<int start, int end, int incr, bool conditional>
+template<int start, int end, int incr, bool conditional, uint8_t type>
 struct UnrolledLoop{
     static __attribute__((always_inline)) void Body(function<void (const int)> func){
         func(start); // Real loop body
-        UnrolledLoop<start+incr, end, incr, conditional>:: Body(func);   // unroll next iteration
+        UnrolledLoop<start+incr, end, incr, conditional, type>:: Body(func);   // unroll next iteration
     }
     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){
         if(conditional) {
@@ -518,7 +569,7 @@ struct UnrolledLoop{
         }
         // Update context
         prevIP[start] = handle;
-        UnrolledLoop<start+incr, end, incr, conditional>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
+        UnrolledLoop<start+incr, end, incr, conditional, type>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
     }
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){
         uint8_t * status = GetOrCreateShadowBaseAddress((uint64_t)addr + start);
@@ -529,12 +580,12 @@ struct UnrolledLoop{
         }
         // Update context
         prevIP[0] = handle;
-        UnrolledLoop<start+incr, end, incr, conditional>:: BodyStraddlePage(addr, handle, threadId);   // unroll next iteration
+        UnrolledLoop<start+incr, end, incr, conditional, type>:: BodyStraddlePage(addr, handle, threadId);   // unroll next iteration
     }
 };
 
-template<int end,  int incr, bool conditional>
-struct UnrolledLoop<end , end , incr, conditional>{
+template<int end,  int incr, bool conditional, uint8_t type>
+struct UnrolledLoop<end , end , incr, conditional, type>{
     static __attribute__((always_inline)) void Body(function<void (const int)> func){}
     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){}
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){}
@@ -561,18 +612,38 @@ struct UnrolledConjunction<end , end , incr>{
 };
 
 
-template<uint16_t AccessLen, uint32_t bufferOffset>
+template<uint16_t AccessLen, uint32_t bufferOffset, uint8_t redType>
 struct RedSpyAnalysis{
     static __attribute__((always_inline)) bool IsWriteRedundant(void * &addr, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         AddrValPair * avPair = & tData->buffer[bufferOffset];
         addr = avPair->address;
-        switch(AccessLen){
-            case 1: return *((uint8_t*)(&avPair->value)) == *(static_cast<uint8_t*>(avPair->address));
-            case 2: return *((uint16_t*)(&avPair->value)) == *(static_cast<uint16_t*>(avPair->address));
-            case 4: return *((uint32_t*)(&avPair->value)) == *(static_cast<uint32_t*>(avPair->address));
-            case 8: return *((uint64_t*)(&avPair->value)) == *(static_cast<uint64_t*>(avPair->address));
-            default: return memcmp(&avPair->value, avPair->address, AccessLen) == 0;
+        
+        if(redType == RED_FLOAT){
+            float newValue32 = *(static_cast<float*>(avPair->address));
+            float oldValue32 = *((float*)(&avPair->value));
+            
+            float rate32 = (newValue32 - oldValue32)/oldValue32;
+            *((float*)(&avPair->value)) = newValue32;
+            if( rate32 <= delta && rate32 >= -delta ) return true;
+            else return false;
+            
+        }else if(redType == RED_DOUBLE){
+            double newValue64 = *(static_cast<double*>(avPair->address));
+            double oldValue64 = *((double*)(&avPair->value));
+            
+            double rate64 = (newValue64 - oldValue64)/oldValue64;
+            *((double*)(&avPair->value)) = newValue64;
+            if( rate64 <= delta && rate64 >= -delta ) return true;
+            else return false;
+        }else{
+            switch(AccessLen){
+                case 1: return *((uint8_t*)(&avPair->value)) == *(static_cast<uint8_t*>(avPair->address));
+                case 2: return *((uint16_t*)(&avPair->value)) == *(static_cast<uint16_t*>(avPair->address));
+                case 4: return *((uint32_t*)(&avPair->value)) == *(static_cast<uint32_t*>(avPair->address));
+                case 8: return *((uint64_t*)(&avPair->value)) == *(static_cast<uint64_t*>(avPair->address));
+                default: return memcmp(&avPair->value, avPair->address, AccessLen) == 0;
+            }
         }
     }
     
@@ -583,12 +654,20 @@ struct RedSpyAnalysis{
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 
         avPair->address = addr;
-        switch(AccessLen){
-            case 1: *((uint8_t*)(&avPair->value)) = *(static_cast<uint8_t*>(addr)); break;
-            case 2: *((uint16_t*)(&avPair->value)) = *(static_cast<uint16_t*>(addr)); break;
-            case 4: *((uint32_t*)(&avPair->value)) = *(static_cast<uint32_t*>(addr)); break;
-            case 8: *((uint64_t*)(&avPair->value)) = *(static_cast<uint64_t*>(addr)); break;
-            default:memcpy(&avPair->value, addr, AccessLen);
+        
+        switch(redType){
+            case RED_FLOAT: *((float*)(&avPair->value)) = *(static_cast<float*>(addr)); break;
+            case RED_DOUBLE: *((double*)(&avPair->value)) = *(static_cast<double*>(addr)); break;
+            case RED_PRECISION:
+                switch(AccessLen){
+                    case 1: *((uint8_t*)(&avPair->value)) = *(static_cast<uint8_t*>(addr)); break;
+                    case 2: *((uint16_t*)(&avPair->value)) = *(static_cast<uint16_t*>(addr)); break;
+                    case 4: *((uint32_t*)(&avPair->value)) = *(static_cast<uint32_t*>(addr)); break;
+                    case 8: *((uint64_t*)(&avPair->value)) = *(static_cast<uint64_t*>(addr)); break;
+                    default: memcpy(&avPair->value, addr, AccessLen);
+                }
+                break;
+            default: memcpy(&avPair->value, addr, AccessLen); break;
         }
     }
     
@@ -608,37 +687,46 @@ struct RedSpyAnalysis{
                 // All from same ctxt?
                 if (UnrolledConjunction<0, AccessLen, 1>::BodyContextCheck(prevIP)) {
                     // report in RedTable
-                    AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), AccessLen, threadId);
+                    switch(redType){
+                        case RED_FLOAT:
+                        case RED_DOUBLE: AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), AccessLen, threadId);break;
+                        case RED_PRECISION: AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), AccessLen, threadId);break;
+                        default: break;
+                    }
                     // Update context
-                    UnrolledLoop<0, AccessLen, 1, false /* redundancy is updated outside*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
+                    UnrolledLoop<0, AccessLen, 1, false, /* redundancy is updated outside*/ redType>::BodySamePage(prevIP, curCtxtHandle, threadId);
                 } else {
                     // different contexts
-                    UnrolledLoop<0, AccessLen, 1, true /* redundancy is updated inside*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
+                    UnrolledLoop<0, AccessLen, 1, true, /* redundancy is updated inside*/ redType>::BodySamePage(prevIP, curCtxtHandle, threadId);
                 }
             } else {
                 // Write across a 64-K page boundary
                 // First byte is on this page though
-                AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), 1, threadId);
+                switch(redType){
+                    case RED_FLOAT:
+                    case RED_DOUBLE: AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), 1, threadId);break;
+                    case RED_PRECISION: AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0], curCtxtHandle), 1, threadId);break;
+                    default: break;
+                }
                 // Update context
                 prevIP[0] = curCtxtHandle;
                 
                 // Remaining bytes [1..AccessLen] somewhere will across a 64-K page boundary
-                UnrolledLoop<1, AccessLen, 1, true /* update redundancy */>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
+                UnrolledLoop<1, AccessLen, 1, true, /* update redundancy */ redType>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
             }
         } else {
             // No redundancy.
             // Just update contexts
             if(isAccessWithinPageBoundary) {
                 // Update context
-                UnrolledLoop<0, AccessLen, 1, false /* not redundant*/>::BodySamePage(prevIP, curCtxtHandle, threadId);
+                UnrolledLoop<0, AccessLen, 1, false, /* not redundant*/ redType>::BodySamePage(prevIP, curCtxtHandle, threadId);
             } else {
                 // Write across a 64-K page boundary
                 // Update context
                 prevIP[0] = curCtxtHandle;
                 
                 // Remaining bytes [1..AccessLen] somewhere will across a 64-K page boundary
-                UnrolledLoop<1, AccessLen, 1, false /* dont update redundancy */>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
-
+                UnrolledLoop<1, AccessLen, 1, false, /* not redundant*/ redType>::BodyStraddlePage( (uint64_t) addr, curCtxtHandle, threadId);
             }
         }
     }
@@ -683,11 +771,11 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
 
 #ifdef ENABLE_SAMPLING
 
-#define HANDLE_CASE(NUM, BUFFER_INDEX) \
+#define HANDLE_CASE(NUM, BUFFER_INDEX, RED_TYPE) \
 case (NUM):{INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX),(RED_TYPE)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX),(RED_TYPE)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
 #define HANDLE_LARGE() \
 INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
@@ -697,9 +785,9 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) CheckAfterLargeWrite, 
 
 #else
 
-#define HANDLE_CASE(NUM, BUFFER_INDEX) \
-case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+#define HANDLE_CASE(NUM, BUFFER_INDEX, RED_TYPE) \
+case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX),(RED_TYPE)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX),(RED_TYPE)>::CheckNByteValueAfterWrite, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
 #define HANDLE_LARGE() \
 INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);\
@@ -724,16 +812,30 @@ template<uint32_t readBufferSlotIndex>
 struct RedSpyInstrument{
     static __attribute__((always_inline)) void InstrumentReadValueBeforeAndAfterWriting(INS ins, UINT32 memOp, uint32_t opaqueHandle){
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
-        switch(refSize) {
-                HANDLE_CASE(1, readBufferSlotIndex);
-                HANDLE_CASE(2, readBufferSlotIndex);
-                HANDLE_CASE(4, readBufferSlotIndex);
-                HANDLE_CASE(8, readBufferSlotIndex);
-                HANDLE_CASE(10, readBufferSlotIndex);
-                HANDLE_CASE(16, readBufferSlotIndex);
-                
-            default: {
-                HANDLE_LARGE();
+        
+        if (IsFloatInstruction(INS_Address(ins))) {
+            switch(refSize) {
+                    HANDLE_CASE(1, readBufferSlotIndex, RED_FLOAT);
+                    HANDLE_CASE(2, readBufferSlotIndex, RED_FLOAT);
+                    HANDLE_CASE(4, readBufferSlotIndex, RED_FLOAT);
+                    HANDLE_CASE(8, readBufferSlotIndex, RED_DOUBLE);
+                    
+                default: {
+                    HANDLE_LARGE();
+                }
+            }
+        }else{
+            switch(refSize) {
+                    HANDLE_CASE(1, readBufferSlotIndex, RED_PRECISION);
+                    HANDLE_CASE(2, readBufferSlotIndex, RED_PRECISION);
+                    HANDLE_CASE(4, readBufferSlotIndex, RED_PRECISION);
+                    HANDLE_CASE(8, readBufferSlotIndex, RED_PRECISION);
+                    HANDLE_CASE(10, readBufferSlotIndex, RED_PRECISION);
+                    HANDLE_CASE(16, readBufferSlotIndex, RED_PRECISION);
+                    
+                default: {
+                    HANDLE_LARGE();
+                }
             }
         }
     }
@@ -844,7 +946,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
 inline VOID UpdateAndCheck(uint32_t count, uint32_t bytes, THREADID threadId) {
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
-
+    
     if(tData->sampleFlag){
         tData->numIns += count;
         if(tData->numIns > WINDOW_ENABLE){
@@ -1040,6 +1142,78 @@ static void PrintRedundancyPairs(THREADID threadId) {
     }
 }
 
+static void PrintApproximationRedundancyPairs(THREADID threadId) {
+    vector<RedundacyData> tmpList;
+    vector<RedundacyData>::iterator tmpIt;
+    
+    uint64_t grandTotalRedundantBytes = 0;
+    uint64_t grandTotalRedundantIns = 0;
+    fprintf(gTraceFile, "*************** Dump Data(delta=%.2f%%) from Thread %d ****************\n", delta*100,threadId);
+    
+#ifdef MERGING
+    for (unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
+        ContextHandle_t dead = DECODE_DEAD((*it).first);
+        ContextHandle_t kill = DECODE_KILL((*it).first);
+        
+        for(tmpIt = tmpList.begin();tmpIt != tmpList.end(); ++tmpIt){
+            if(dead == 0 || ((*tmpIt).dead) == 0){
+                continue;
+            }
+            if (!HaveSameCallerPrefix(dead,(*tmpIt).dead)) {
+                continue;
+            }
+            if (!HaveSameCallerPrefix(kill,(*tmpIt).kill)) {
+                continue;
+            }
+            bool ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
+            bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
+            if(ct1 && ct2){
+                (*tmpIt).frequency += (*it).second;
+                grandTotalRedundantBytes += (*it).second;
+                grandTotalRedundantIns += 1;
+                break;
+            }
+        }
+        if(tmpIt == tmpList.end()){
+            RedundacyData tmp = { dead, kill, (*it).second};
+            tmpList.push_back(tmp);
+            grandTotalRedundantBytes += tmp.frequency;
+            grandTotalRedundantIns += 1;
+        }
+    }
+#else
+    for (unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+        grandTotalRedundantBytes += tmp.frequency;
+        grandTotalRedundantIns += 1;
+    }
+#endif
+    
+    fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
+    fprintf(gTraceFile, "\n Total redundant instructions = %f %%\n", grandTotalRedundantIns * 100.0 / ClientGetTLS(threadId)->numIns);
+    
+    sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
+    vector<struct AnalyzedMetric_t>::iterator listIt;
+    int cntxtNum = 0;
+    for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
+        if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
+            fprintf(gTraceFile, "\n======= (%f) %% ======\n", (*listIt).frequency * 100.0 / grandTotalRedundantBytes);
+            if ((*listIt).dead == 0) {
+                fprintf(gTraceFile, "\n Prepopulated with  by OS\n");
+            } else {
+                PrintFullCallingContext((*listIt).dead);
+            }
+            fprintf(gTraceFile, "\n---------------------Redundantly written by---------------------------\n");
+            PrintFullCallingContext((*listIt).kill);
+        }
+        else {
+            break;
+        }
+        cntxtNum++;
+    }
+}
+
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");    
@@ -1048,9 +1222,11 @@ static VOID ImageUnload(IMG img, VOID* v) {
     // Update gTotalInstCount first
     PIN_LockClient();
     PrintRedundancyPairs(threadid);
+    PrintApproximationRedundancyPairs(threadid);
     PIN_UnlockClient();
     // clear redmap now
     RedMap[threadid].clear();
+    ApproxRedMap[threadid].clear();
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
