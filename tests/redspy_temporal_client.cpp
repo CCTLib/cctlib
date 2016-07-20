@@ -413,15 +413,63 @@ struct HandleGeneralRegisters{
     }
 };
 
+template<class T, bool isAlias>
+struct HandleApproxRegisters{
+    
+    static __attribute__((always_inline)) void CheckValues(PIN_REGISTER* regRef, uint32_t reg, uint32_t opaqueHandle, THREADID threadId){
+        
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+        
+        if(isAlias){
+            uint8_t byteOffset = 0;
+            
+            T newValue;
+            if(sizeof(T) == 8)
+                newValue = regRef->dbl[0];
+            else
+                newValue = regRef->flt[0];
+            
+            T oldValue = *((T*)(&tData->aliasValue[reg][byteOffset]));
+            T rate = (newValue - oldValue)/oldValue;
+            if( rate <= delta && rate >= -delta ){
+                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->aliasCtxt[reg][ALIAS_GENERIC],curCtxtHandle),sizeof(T),threadId);
+            }
+            if( newValue != oldValue)
+                *((T*)(&tData->aliasValue[reg][byteOffset])) = newValue;
+            
+            tData->aliasCtxt[reg][ALIAS_GENERIC] = curCtxtHandle;
+            tData->aliasCtxt[reg][ALIAS_HIGH_BYTE] = curCtxtHandle;
+            tData->aliasCtxt[reg][ALIAS_LOW_BYTE] = curCtxtHandle;
+            
+        }else{
+            T newValue;
+            if(sizeof(T) == 8)
+                newValue = regRef->dbl[0];
+            else
+                newValue = regRef->flt[0];
+            
+            T oldValue = *((T*)(&tData->regValue[reg][0]));
+            if(newValue == oldValue && tData->regCtxt[reg]!=0) {
+                AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),sizeof(T),threadId);
+            }
+            if(newValue != oldValue)
+                *((T*)(&tData->regValue[reg][0])) = newValue;
+            tData->regCtxt[reg] = curCtxtHandle;
+        }
+    }
+};
+
 static inline  VOID CheckLargeRegAfterWrite(PIN_REGISTER* regRef, REG reg, uint32_t regSize, uint32_t opaqueHandle, THREADID threadId){
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     
-    int i;
+    uint16_t i;
     bool isRedundantWrite = true;
-    for(i = 0; i < 16; ++i){
+    for(i = 0; i < regSize; ++i){
         if(tData->regValue[reg][i] != regRef->byte[i]){
             isRedundantWrite = false;
             tData->regValue[reg][i] = regRef->byte[i];
@@ -508,6 +556,11 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T
 #define HANDLE_GENERAL(T) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
 INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
+
+#define HANDLE_APPROXREG(T, IS_ALIAS, REG_ID) \
+INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, IS_ALIAS>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+
 #else
 
 #define HANDLE_LARGEREG() \
@@ -519,35 +572,67 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T, AL
 #define HANDLE_GENERAL(T) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
+#define HANDLE_APPROXREG(T, IS_ALIAS, REG_ID) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, IS_ALIAS>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+
 #endif
 
 static inline void InstrumentAliasReg(INS ins, REG reg, uint32_t opaqueHandle){
     
+    uint32_t regSize = REG_Size(reg);
     uint32_t aliasIDs = GetAliasIDs(reg);
     uint8_t regId = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
     
-    switch (REG_Size(reg)) {
-        case 8: HANDLE_ALIAS_REG(uint64_t, ALIAS_GENERIC, regId); break;
-        case 4: HANDLE_ALIAS_REG(uint32_t, ALIAS_GENERIC, regId); break;
-        case 2: HANDLE_ALIAS_REG(uint16_t, ALIAS_GENERIC, regId); break;
-        case 1: if (REG_is_Lower8(reg)){
-                    HANDLE_ALIAS_REG(uint8_t, ALIAS_LOW_BYTE, regId);
-                }else{
-                    HANDLE_ALIAS_REG(uint8_t, ALIAS_HIGH_BYTE, regId);
-                }break;
-        default: break;
+    if (IsFloatInstruction(INS_Address(ins))){
+        switch (regSize) {
+            case 1:
+            case 2:
+            case 4: HANDLE_APPROXREG(float, true, regId); break;
+            case 8: HANDLE_APPROXREG(double, true, regId); break;
+            default: break;
+        }
+    }else{
+        switch (regSize) {
+            case 8: HANDLE_ALIAS_REG(uint64_t, ALIAS_GENERIC, regId); break;
+            case 4: HANDLE_ALIAS_REG(uint32_t, ALIAS_GENERIC, regId); break;
+            case 2: HANDLE_ALIAS_REG(uint16_t, ALIAS_GENERIC, regId); break;
+            case 1: if (REG_is_Lower8(reg)){
+                HANDLE_ALIAS_REG(uint8_t, ALIAS_LOW_BYTE, regId);
+            }else{
+                HANDLE_ALIAS_REG(uint8_t, ALIAS_HIGH_BYTE, regId);
+            }break;
+            default: break;
+        }
+
     }
 }
 
 static inline void InstrumentGeneralReg(INS ins, REG reg, uint32_t opaqueHandle){
     uint32_t regSize = REG_Size(reg);
-    switch(regSize) {
-        case 1: HANDLE_GENERAL(uint8_t); break;
-        case 2: HANDLE_GENERAL(uint16_t); break;
-        case 4: HANDLE_GENERAL(uint32_t); break;
-        case 8: HANDLE_GENERAL(uint64_t); break;
-        default: {
-            HANDLE_LARGEREG(); break;
+    
+    if (IsFloatInstruction(INS_Address(ins))){
+        switch (regSize) {
+            case 1:
+            case 2:
+            case 4: HANDLE_APPROXREG(float, false, reg); break;
+            case 8: HANDLE_APPROXREG(double, false, reg); break;
+            default: {
+                HANDLE_LARGEREG(); break;
+            }
+        }
+    }else{
+        if (REG_is_in_X87(reg)) {
+            HANDLE_LARGEREG();
+            return;
+        }
+        switch(regSize) {
+            case 1: HANDLE_GENERAL(uint8_t); break;
+            case 2: HANDLE_GENERAL(uint16_t); break;
+            case 4: HANDLE_GENERAL(uint32_t); break;
+            case 8: HANDLE_GENERAL(uint64_t); break;
+            default: {
+                HANDLE_LARGEREG(); break;
+            }
         }
     }
 }
