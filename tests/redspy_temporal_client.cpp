@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <malloc.h>
 #include <iostream>
 #include <unistd.h>
 #include <assert.h>
@@ -50,6 +51,8 @@
 #include <list>
 #include "pin.H"
 #include "cctlib.H"
+#include <xmmintrin.h>
+
 extern "C" {
 #include "xed-interface.h"
 #include "xed-common-hdrs.h"
@@ -116,10 +119,16 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 #define MAX_REG_LENGTH (64)
+#define MAX_XMM_LENGTH (16)
 
+#define MAX_XMM_REGS (16)
 #define MAX_ALIAS_REGS (4)  //EAX, EBX, ECX, EDX
 #define MAX_ALIAS_REG_SIZE (8) //RAX is 64bits
 #define MAX_ALIAS_TYPE (3) //(RAX, EAX, AX),(AH),(AL)
+
+struct x {
+    float y;
+} __attribute__((aligned(16)));
 
 //different redundant type
 enum RedType {
@@ -189,12 +198,17 @@ struct AddrValPair{
     uint8_t value[MAX_WRITE_OP_LENGTH];
 };
 
+struct LargeReg{
+    UINT8 value[MAX_XMM_LENGTH];
+} __attribute__((aligned(16)));
+
 struct RedSpyThreadData{
-    AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
+    struct LargeReg largeRegValue[MAX_XMM_REGS];
     uint32_t regCtxt[REG_LAST];
     UINT8 regValue[REG_LAST][MAX_REG_LENGTH];
     UINT8 aliasValue[MAX_ALIAS_REGS][MAX_ALIAS_REG_SIZE];
     uint32_t aliasCtxt[MAX_ALIAS_REGS][MAX_ALIAS_TYPE];
+    AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
     uint64_t bytesWritten;
     
     long long numIns;
@@ -344,6 +358,224 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 #endif
 
+static inline bool IsFloatInstruction(ADDRINT ip) {
+    xed_decoded_inst_t  xedd;
+    xed_state_t  xed_state;
+    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    
+    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
+        xed_iclass_enum_t iclassType = xed_decoded_inst_get_iclass(&xedd);
+        if (iclassType >= XED_ICLASS_F2XM1 && iclassType <=XED_ICLASS_FYL2XP1) {
+            return true;
+        }
+        if (iclassType >= XED_ICLASS_VEXTRACTF128 && iclassType <=XED_ICLASS_VINSERTI128) {
+            return true;
+        }
+        if (iclassType >= XED_ICLASS_VRCPPS && iclassType <= XED_ICLASS_VSQRTSS) {
+            return true;
+        }
+        if (iclassType >= XED_ICLASS_VSUBPD && iclassType <= XED_ICLASS_VXORPS) {
+            return true;
+        }
+        switch (iclassType) {
+            case XED_ICLASS_AAD:
+            case XED_ICLASS_ADDPD:
+            case XED_ICLASS_ADDPS:
+            case XED_ICLASS_ADDSD:
+            case XED_ICLASS_ADDSS:
+            case XED_ICLASS_ADDSUBPD:
+            case XED_ICLASS_ADDSUBPS:
+            case XED_ICLASS_ANDNPD:
+            case XED_ICLASS_ANDNPS:
+            case XED_ICLASS_ANDPD:
+            case XED_ICLASS_ANDPS:
+            case XED_ICLASS_BLENDPD:
+            case XED_ICLASS_BLENDPS:
+            case XED_ICLASS_BLENDVPD:
+            case XED_ICLASS_BLENDVPS:
+            case XED_ICLASS_CMPPD:
+            case XED_ICLASS_CMPPS:
+            case XED_ICLASS_CMPSD:
+            case XED_ICLASS_CMPSD_XMM:
+            case XED_ICLASS_COMISD:
+            case XED_ICLASS_COMISS:
+            case XED_ICLASS_CVTDQ2PD:
+            case XED_ICLASS_CVTDQ2PS:
+            case XED_ICLASS_CVTPD2PS:
+            case XED_ICLASS_CVTPI2PD:
+            case XED_ICLASS_CVTPI2PS:
+            case XED_ICLASS_CVTPS2PD:
+            case XED_ICLASS_CVTSD2SS:
+            case XED_ICLASS_CVTSI2SD:
+            case XED_ICLASS_CVTSI2SS:
+            case XED_ICLASS_CVTSS2SD:
+            case XED_ICLASS_DIVPD:
+            case XED_ICLASS_DIVPS:
+            case XED_ICLASS_DIVSD:
+            case XED_ICLASS_DIVSS:
+            case XED_ICLASS_DPPD:
+            case XED_ICLASS_DPPS:
+            case XED_ICLASS_HADDPD:
+            case XED_ICLASS_HADDPS:
+            case XED_ICLASS_HSUBPD:
+            case XED_ICLASS_HSUBPS:
+            case XED_ICLASS_MAXPD:
+            case XED_ICLASS_MAXPS:
+            case XED_ICLASS_MAXSD:
+            case XED_ICLASS_MAXSS:
+            case XED_ICLASS_MINPD:
+            case XED_ICLASS_MINPS:
+            case XED_ICLASS_MINSD:
+            case XED_ICLASS_MINSS:
+            case XED_ICLASS_MOVAPD:
+            case XED_ICLASS_MOVAPS:
+            case XED_ICLASS_MOVD:
+            case XED_ICLASS_MOVHLPS:
+            case XED_ICLASS_MOVHPD:
+            case XED_ICLASS_MOVHPS:
+            case XED_ICLASS_MOVLHPS:
+            case XED_ICLASS_MOVLPD:
+            case XED_ICLASS_MOVLPS:
+            case XED_ICLASS_MOVMSKPD:
+            case XED_ICLASS_MOVMSKPS:
+            case XED_ICLASS_MOVNTPD:
+            case XED_ICLASS_MOVNTPS:
+            case XED_ICLASS_MOVNTSD:
+            case XED_ICLASS_MOVNTSS:
+            case XED_ICLASS_MOVSD:
+            case XED_ICLASS_MOVSD_XMM:
+            case XED_ICLASS_MOVSS:
+            case XED_ICLASS_MULPD:
+            case XED_ICLASS_MULPS:
+            case XED_ICLASS_MULSD:
+            case XED_ICLASS_MULSS:
+            case XED_ICLASS_ORPD:
+            case XED_ICLASS_ORPS:
+            case XED_ICLASS_ROUNDPD:
+            case XED_ICLASS_ROUNDPS:
+            case XED_ICLASS_ROUNDSD:
+            case XED_ICLASS_ROUNDSS:
+            case XED_ICLASS_SHUFPD:
+            case XED_ICLASS_SHUFPS:
+            case XED_ICLASS_SQRTPD:
+            case XED_ICLASS_SQRTPS:
+            case XED_ICLASS_SQRTSD:
+            case XED_ICLASS_SQRTSS:
+            case XED_ICLASS_SUBPD:
+            case XED_ICLASS_SUBPS:
+            case XED_ICLASS_SUBSD:
+            case XED_ICLASS_SUBSS:
+            case XED_ICLASS_VADDPD:
+            case XED_ICLASS_VADDPS:
+            case XED_ICLASS_VADDSD:
+            case XED_ICLASS_VADDSS:
+            case XED_ICLASS_VADDSUBPD:
+            case XED_ICLASS_VADDSUBPS:
+            case XED_ICLASS_VANDNPD:
+            case XED_ICLASS_VANDNPS:
+            case XED_ICLASS_VANDPD:
+            case XED_ICLASS_VANDPS:
+            case XED_ICLASS_VBLENDPD:
+            case XED_ICLASS_VBLENDPS:
+            case XED_ICLASS_VBLENDVPD:
+            case XED_ICLASS_VBLENDVPS:
+            case XED_ICLASS_VBROADCASTF128:
+            case XED_ICLASS_VBROADCASTI128:
+            case XED_ICLASS_VBROADCASTSD:
+            case XED_ICLASS_VBROADCASTSS:
+            case XED_ICLASS_VCMPPD:
+            case XED_ICLASS_VCMPPS:
+            case XED_ICLASS_VCMPSD:
+            case XED_ICLASS_VCMPSS:
+            case XED_ICLASS_VCOMISD:
+            case XED_ICLASS_VCOMISS:
+            case XED_ICLASS_VCVTDQ2PD:
+            case XED_ICLASS_VCVTDQ2PS:
+            case XED_ICLASS_VCVTPD2PS:
+            case XED_ICLASS_VCVTPH2PS:
+            case XED_ICLASS_VCVTPS2PD:
+            case XED_ICLASS_VCVTSD2SS:
+            case XED_ICLASS_VCVTSI2SD:
+            case XED_ICLASS_VCVTSI2SS:
+            case XED_ICLASS_VCVTSS2SD:
+            case XED_ICLASS_VDIVPD:
+            case XED_ICLASS_VDIVPS:
+            case XED_ICLASS_VDIVSD:
+            case XED_ICLASS_VDIVSS:
+            case XED_ICLASS_VDPPD:
+            case XED_ICLASS_VDPPS:
+            case XED_ICLASS_VMASKMOVPD:
+            case XED_ICLASS_VMASKMOVPS:
+            case XED_ICLASS_VMAXPD:
+            case XED_ICLASS_VMAXPS:
+            case XED_ICLASS_VMAXSD:
+            case XED_ICLASS_VMAXSS:
+            case XED_ICLASS_VMINPD:
+            case XED_ICLASS_VMINPS:
+            case XED_ICLASS_VMINSD:
+            case XED_ICLASS_VMINSS:
+            case XED_ICLASS_VMOVAPD:
+            case XED_ICLASS_VMOVAPS:
+            case XED_ICLASS_VMOVD:
+            case XED_ICLASS_VMOVHLPS:
+            case XED_ICLASS_VMOVHPD:
+            case XED_ICLASS_VMOVHPS:
+            case XED_ICLASS_VMOVLHPS:
+            case XED_ICLASS_VMOVLPD:
+            case XED_ICLASS_VMOVLPS:
+            case XED_ICLASS_VMOVMSKPD:
+            case XED_ICLASS_VMOVMSKPS:
+            case XED_ICLASS_VMOVNTPD:
+            case XED_ICLASS_VMOVNTPS:
+            case XED_ICLASS_VMOVSD:
+            case XED_ICLASS_VMOVSS:
+            case XED_ICLASS_VMOVUPD:
+            case XED_ICLASS_VMOVUPS:
+            case XED_ICLASS_VMULPD:
+            case XED_ICLASS_VMULPS:
+            case XED_ICLASS_VMULSD:
+            case XED_ICLASS_VMULSS:
+            case XED_ICLASS_VORPD:
+            case XED_ICLASS_VORPS:
+            case XED_ICLASS_VPABSD:
+            case XED_ICLASS_VPADDD:
+            case XED_ICLASS_VPCOMD:
+            case XED_ICLASS_VPCOMUD:
+            case XED_ICLASS_VPERMILPD:
+            case XED_ICLASS_VPERMILPS:
+            case XED_ICLASS_VPERMPD:
+            case XED_ICLASS_VPERMPS:
+            case XED_ICLASS_VPGATHERDD:
+            case XED_ICLASS_VPGATHERQD:
+            case XED_ICLASS_VPHADDBD:
+            case XED_ICLASS_VPHADDD:
+            case XED_ICLASS_VPHADDUBD:
+            case XED_ICLASS_VPHADDUWD:
+            case XED_ICLASS_VPHADDWD:
+            case XED_ICLASS_VPHSUBD:
+            case XED_ICLASS_VPHSUBWD:
+            case XED_ICLASS_VPINSRD:
+            case XED_ICLASS_VPMACSDD:
+            case XED_ICLASS_VPMACSSDD:
+            case XED_ICLASS_VPMASKMOVD:
+            case XED_ICLASS_VPMAXSD:
+            case XED_ICLASS_VPMAXUD:
+            case XED_ICLASS_VPMINSD:
+            case XED_ICLASS_VPMINUD:
+            case XED_ICLASS_VPROTD:
+            case XED_ICLASS_VPSUBD:
+            case XED_ICLASS_XORPD:
+            case XED_ICLASS_XORPS:
+                return true;
+                
+            default: return false;
+        }
+    } else {
+        assert(0 && "failed to disassemble instruction");
+        return false;
+    }
+}
+/*
 static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
     xed_decoded_inst_t  xedd;
     xed_state_t  xed_state;
@@ -358,7 +590,7 @@ static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
         assert(0 && "failed to disassemble instruction");
         return false;
     }
-}
+}*/
 
 static inline uint16_t OperandSize(ADDRINT ip, uint32_t oper) {
     xed_decoded_inst_t  xedd;
@@ -426,27 +658,25 @@ struct HandleGeneralRegisters{
             * regBefore = value;
         tData->regCtxt[reg] = curCtxtHandle;
     }
-    static __attribute__((always_inline)) void CheckLargeRegValues(PIN_REGISTER* regRef, REG reg, uint32_t regSize, uint32_t opaqueHandle, THREADID threadId){
+    static __attribute__((always_inline)) void CheckLargeRegValues(PIN_REGISTER* regRef, REG reg, uint32_t opaqueHandle, THREADID threadId){
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        uint16_t i,j;
-        uint16_t operandBytes = sizeof(T);
-        bool isRedundantWrite = true;
+        uint32_t regInd = reg-REG_XMM_BASE;
+        __m128i oldValue = _mm_load_si128( (__m128i*) (&(tData->largeRegValue[regInd].value)));
+        __m128i newValue = _mm_load_si128( (__m128i*) (regRef));
         
+        uint32_t result[4];
+        *(__m128i*)(&result[0]) = _mm_cmpeq_epi32(oldValue,newValue);
         
-        for(i = 0, j = 0; j < regSize; ++i, j += operandBytes){
-            T oldValue = *((T*)(&tData->regValue[reg][j]));
-            T newValue = regRef->qword[i];
-            if(oldValue != newValue) {
-                isRedundantWrite = false;
-                *((T*)(&tData->regValue[reg][j])) = newValue;
-            }
-        }
+        uint32_t isRedundantWrite = result[0] & result[1] & result[2] & result[3];
+        
         if(isRedundantWrite)
-            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),regSize,threadId);
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),MAX_XMM_LENGTH,threadId);
+        else
+            _mm_store_si128((__m128i*) (&(tData->largeRegValue[regInd].value)),newValue);
         tData->regCtxt[reg] = curCtxtHandle;
     }
 };
@@ -498,41 +728,63 @@ struct HandleApproxRegisters{
             tData->regCtxt[reg] = curCtxtHandle;
         }
     }
-    static __attribute__((always_inline)) void CheckLargeReg(PIN_REGISTER* regRef, REG reg, uint32_t regSize, uint32_t opaqueHandle, THREADID threadId){
+    static __attribute__((always_inline)) void CheckLargeReg(PIN_REGISTER* regRef, REG reg, uint32_t opaqueHandle, THREADID threadId){
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        uint16_t i,j;
-        uint16_t operandBytes = sizeof(T);
-        T oldValue, newValue, rate;
-        
-        switch(operandBytes){
-            case 4:
-                for(i = 0, j = 0; j < regSize; ++i, j += operandBytes){
-                    oldValue = *((T*)(&tData->regValue[reg][j]));
-                    newValue = regRef->flt[i];
-                    rate = (newValue - oldValue)/oldValue;
-                    if(rate <= delta && rate >= -delta) {
-                        AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),operandBytes,threadId);
-                    }
-                    if(rate != 0)
-                        *((T*)(&tData->regValue[reg][j])) = newValue;
-                }break;
-            case 8:
-                for(i = 0, j = 0; j < regSize; ++i, j += operandBytes){
-                    oldValue = *((T*)(&tData->regValue[reg][j]));
-                    newValue = regRef->dbl[i];
-                    rate = (newValue - oldValue)/oldValue;
-                    if(rate <= delta && rate >= -delta) {
-                        AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),operandBytes,threadId);
-                    }
-                    if(rate != 0)
-                        *((T*)(&tData->regValue[reg][j])) = newValue;
-                }break;
-            default: break;
-        }
+        uint32_t regInd = reg-REG_XMM_BASE;
+        if(sizeof(T) == 4){
+            __m128 oldValue = _mm_load_ps( reinterpret_cast<const float*> (&(tData->largeRegValue[regInd].value)));
+            __m128 newValue = _mm_load_ps( reinterpret_cast<const float*> (regRef));
+            
+            __m128 result = _mm_sub_ps(newValue,oldValue);
+            
+            result = _mm_div_ps(result,oldValue);
+            float rates[4] __attribute__((aligned(16)));
+            _mm_store_ps(rates,result);
+
+            uint8_t redCount = 0;
+            if(rates[0] <= delta && rates[0] >= -delta) {
+                redCount++;
+            }
+            if(rates[1] <= delta && rates[1] >= -delta) {
+                redCount++;
+            }
+            if(rates[2] <= delta && rates[2] >= -delta) {
+                redCount++;
+            }
+            if(rates[3] <= delta && rates[3] >= -delta) {
+                redCount++;
+            }
+            if(redCount)
+                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),4*redCount,threadId);
+            _mm_store_ps(reinterpret_cast<float*> (&(tData->largeRegValue[regInd].value)),newValue);
+
+        }else if(sizeof(T) == 8){
+            __m128d oldValue = _mm_load_pd( reinterpret_cast<const double*> (&(tData->largeRegValue[regInd].value)));
+            __m128d newValue = _mm_load_pd( reinterpret_cast<const double*> (regRef));
+            
+            __m128d result = _mm_sub_pd(newValue,oldValue);
+            
+            result = _mm_div_pd(result,oldValue);
+            
+            double rate[2];
+            _mm_storel_pd(&rate[0],result);
+            _mm_storeh_pd(&rate[1],result);
+           
+             uint8_t redCount = 0;
+            if(rate[0] <= delta && rate[0] >=-delta)
+                redCount++;
+            if(rate[1] <= delta && rate[1] >= -delta)
+                redCount++;
+            
+            if(redCount)
+                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),8*redCount,threadId);
+            _mm_store_pd(reinterpret_cast<double*> (&(tData->largeRegValue[regInd].value)),newValue);
+        }else
+            ;
         tData->regCtxt[reg] = curCtxtHandle;
     }
 };
@@ -602,11 +854,11 @@ inline bool RegHasAlias(REG reg){
 
 #define HANDLE_LARGEREG() \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint_64_t>::CheckLargeRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint_64_t>::CheckLargeRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_LARGEREG_APPROX(T) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, false>::CheckLargeReg, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, false>::CheckLargeReg, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ALIAS_REG(T, ALIAS_GRP, ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
@@ -623,10 +875,10 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<
 #else
 
 #define HANDLE_LARGEREG() \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint64_t>::CheckLargeRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint64_t>::CheckLargeRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_LARGEREG_APPROX(T) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, false>::CheckLargeReg, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, regSize, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, false>::CheckLargeReg, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ALIAS_REG(T, ALIAS_GRP, ID) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T, ALIAS_GRP>::CheckUpdateGenericAlias, IARG_UINT32, ID,IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
@@ -645,7 +897,7 @@ static inline void InstrumentAliasReg(INS ins, REG reg, uint16_t oper, uint32_t 
     uint32_t aliasIDs = GetAliasIDs(reg);
     uint8_t regId = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
     
-    if (IsFloatInstruction(INS_Address(ins),oper)){
+    if (IsFloatInstruction(INS_Address(ins))){
         switch (regSize) {
             case 1:
             case 2:
@@ -673,22 +925,23 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
     uint32_t regSize = REG_Size(reg);
     unsigned int operSize = OperandSize(INS_Address(ins),oper);
     
-    if (IsFloatInstruction(INS_Address(ins),oper)){
+    if (IsFloatInstruction(INS_Address(ins))){
         switch (regSize) {
             case 1:
             case 2:
             case 4: HANDLE_APPROXREG(float, false, reg); break;
             case 8: HANDLE_APPROXREG(double, false, reg); break;
-            default: {
+            case 16: {
                 switch (operSize) {
                     case 4: HANDLE_LARGEREG_APPROX(float);break;
                     case 8: HANDLE_LARGEREG_APPROX(double);break;
                     default: break;
                 }
             }break;
+            default: assert(0 & "larger than 128 bits register!\n");
         }
     }else{
-        if (REG_is_in_X87(reg) || regSize > 8) {
+        if (REG_is_in_X87(reg) || regSize == 16) {
             HANDLE_LARGEREG();
             return;
         }
@@ -697,7 +950,7 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
             case 2: HANDLE_GENERAL(uint16_t); break;
             case 4: HANDLE_GENERAL(uint32_t); break;
             case 8: HANDLE_GENERAL(uint64_t); break;
-            default: break;
+            default: assert(0 & "larger than 128 bits register!\n"); break;
         }
     }
 }
@@ -963,7 +1216,7 @@ struct RedSpyInstrument{
     static __attribute__((always_inline)) void InstrumentReadValueBeforeAndAfterWriting(INS ins, UINT32 memOp, uint32_t opaqueHandle){
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
         
-        if (IsFloatInstruction(INS_Address(ins),INS_MemoryOperandIndexToOperandIndex(ins,memOp))) {
+        if (IsFloatInstruction(INS_Address(ins))) {
             switch(refSize) {
                     HANDLE_CASE(1, readBufferSlotIndex, RED_FLOAT);
                     HANDLE_CASE(2, readBufferSlotIndex, RED_FLOAT);
@@ -1394,7 +1647,7 @@ static void InitThreadData(RedSpyThreadData* tdata){
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
-    RedSpyThreadData* tdata = new RedSpyThreadData();
+    RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(16,sizeof(RedSpyThreadData));
     InitThreadData(tdata);
     //    __sync_fetch_and_add(&gClientNumThreads, 1);
 #ifdef MULTI_THREADED
