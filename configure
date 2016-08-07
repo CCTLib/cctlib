@@ -597,6 +597,8 @@ BOOST_PATH
 SPARSEHASH_PATH
 PIN_ROOT
 PIN_PATH
+OPT_USE_BOOST_FALSE
+OPT_USE_BOOST_TRUE
 OPT_ENABLE_DEVELOP_FALSE
 OPT_ENABLE_DEVELOP_TRUE
 RANLIB
@@ -3999,6 +4001,7 @@ fi
 $as_echo_n "checking whether DEVELOP mode is enabled... " >&6; }
 
 OPT_ENABLE_DEVELOP=no
+OPT_USE_BOOST=no
 
 # Check whether --enable-develop was given.
 if test "${enable_develop+set}" = set; then :
@@ -4025,7 +4028,7 @@ fi
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -std=c++11"
+CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
@@ -4090,13 +4093,22 @@ if test "${with_boost+set}" = set; then :
        as_fn_error $? "--with-boost requires absolute path as argument; given '${withval}'" "$LINENO" 5
      fi
      BOOST_PATH=${withval}
+     CCTLIB_EXTRA_CXXFLAGS+=" -DUSE_BOOST"
+     OPT_USE_BOOST="yes"
 
 fi
 
 
-if test "$BOOST_PATH" = "" ; then
-as_fn_error $? "--with-boost requires absolute path as argument; given '${withval}'" "$LINENO" 5
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${OPT_USE_BOOST}" >&5
+$as_echo "${OPT_USE_BOOST}" >&6; }
+ if test "${OPT_USE_BOOST}" = "yes"; then
+  OPT_USE_BOOST_TRUE=
+  OPT_USE_BOOST_FALSE='#'
+else
+  OPT_USE_BOOST_TRUE='#'
+  OPT_USE_BOOST_FALSE=
 fi
+
 
 
 # Check whether --with-sparse-hash was given.
@@ -4279,6 +4291,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${OPT_ENABLE_DEVELOP_TRUE}" && test -z "${OPT_ENABLE_DEVELOP_FALSE}"; then
   as_fn_error $? "conditional \"OPT_ENABLE_DEVELOP\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${OPT_USE_BOOST_TRUE}" && test -z "${OPT_USE_BOOST_FALSE}"; then
+  as_fn_error $? "conditional \"OPT_USE_BOOST\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

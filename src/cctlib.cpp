@@ -71,9 +71,12 @@
 #include <unwind.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+
+#ifdef USE_BOOST
 #include <boost/filesystem.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
+#endif
 
 #ifdef TARGET_MAC
 #include <libelf/libelf.h>
@@ -99,8 +102,10 @@ using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
 using namespace std;
 using namespace std::tr1;
-namespace boostFS = ::boost::filesystem;
 
+#ifdef USE_BOOST
+namespace boostFS = ::boost::filesystem;
+#endif
 namespace PinCCTLib {
 
 // All globals
@@ -186,8 +191,10 @@ namespace PinCCTLib {
     static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath);
 
     static inline bool IsValidIP(ADDRINT ip);
+    
+#ifdef USE_BOOST
     static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp);
-
+#endif
     enum CCTLibUsageMode {CCT_LIB_MODE_COLLECTION = 1, CCT_LIB_MODE_POSTMORTEM = 2};
 
 
@@ -1185,6 +1192,8 @@ namespace PinCCTLib {
 
 #endif
 
+#ifdef USE_BOOST
+
 // Visit all nodes of the splay tree of child traces.
     static void VisitAllNodesOfSplayTree(TraceSplay* node, FILE* const fp) {
         // process self
@@ -1379,9 +1388,6 @@ namespace PinCCTLib {
             GLOBAL_STATE.numThreads++;
         }
     }
-
-
-
 
     static void DottifyCCTNode(TraceNode* traceNode,  uint64_t curDotId, FILE* const fp);
 
@@ -1583,9 +1589,14 @@ namespace PinCCTLib {
         fclose(fp);
     }
 
+#endif // USE_BOOST
 
 
     void SerializeMetadata(string directoryForSerializationFiles) {
+#ifndef USE_BOOST
+        fprintf(stderr, "\n SerializeMetadata should not be called when USE_BOOST is not set\n");
+        PIN_ExitProcess(-1);
+#else
         if(directoryForSerializationFiles != "") {
             GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
         } else {
@@ -1609,15 +1620,21 @@ namespace PinCCTLib {
         SerializeAllCCTs();
         SerializeMouleInfo();
         SerializeTraceIps();
+#endif //USE_BOOST
     }
-
+    
     void DeserializeMetadata(string directoryForSerializationFiles) {
+#ifndef USE_BOOST
+        fprintf(stderr, "\n DeserializeMetadata should not be called when USE_BOOST is not set\n");
+        PIN_ExitProcess(-1);
+#else
         GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
         DeserializeAllCCTs();
         DeserializeTraceIps();
         DeserializeMouleInfo();
+#endif // USE_BOOST
     }
-
+    
     /**
      * Returns the peak (maximum so far) resident set size (physical
      * memory use) measured in KB, or zero if the value cannot be
@@ -1877,7 +1894,7 @@ namespace PinCCTLib {
             if((threadCtx = IsARootIPNode(curIPNode)) != NOT_ROOT_CTX) {
                 // if the thread has a parent, recur over it.
                 IPNode* parentThreadIPNode = CCTLibGetTLS(threadCtx)->tlsParentThreadIPNode;
-                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                Context ctxt = {"THREAD[" +  std::to_string(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
                 contextVec.push_back(ctxt);
 
                 if(parentThreadIPNode)
@@ -1950,6 +1967,10 @@ namespace PinCCTLib {
 
 
     static VOID GetFullCallingContextPostmortem(IPNode* curIPNode, vector<Context>& contextVec) {
+#ifndef USE_BOOST
+        fprintf(stderr, "\n GetFullCallingContextPostmortem should not be called when USE_BOOST is not set\n");
+        PIN_ExitProcess(-1);
+#else
         int depth = 0;
 #ifdef MULTI_THREADED
         int root;
@@ -2026,6 +2047,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
         //reset sig handler
         sigaction(SIGSEGV, &old, 0);
+#endif // USE_BOOST
     }
 
 
