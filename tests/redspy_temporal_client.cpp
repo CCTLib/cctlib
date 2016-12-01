@@ -52,6 +52,7 @@
 #include "pin.H"
 #include "cctlib.H"
 #include <xmmintrin.h>
+#include <immintrin.h>
 
 extern "C" {
 #include "xed-interface.h"
@@ -119,10 +120,11 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
 #define MAX_REG_LENGTH (64)
-#define MAX_XMM_LENGTH (16)
 
-#define MAX_XMM_REGS (16)
-#define MAX_ALIAS_REGS (4)  //EAX, EBX, ECX, EDX
+#define MAX_SIMD_LENGTH (64)
+#define MAX_SIMD_REGS (32)
+
+#define MAX_ALIAS_REGS (16)  //EAX, EBX, ECX, EDX, EBP, EDI, ESI, ESP, R8-R15
 #define MAX_ALIAS_REG_SIZE (8) //RAX is 64bits
 #define MAX_ALIAS_TYPE (3) //(RAX, EAX, AX),(AH),(AL)
 
@@ -131,15 +133,26 @@ enum AliasReg {
     ALIAS_REG_A = 0, //RAX, EAX, AX, AH, or AL
     ALIAS_REG_B,
     ALIAS_REG_C,
-    ALIAS_REG_D};
+    ALIAS_REG_D,
+    ALIAS_REG_BP,
+    ALIAS_REG_DI,
+    ALIAS_REG_SI,
+    ALIAS_REG_SP,
+    ALIAS_REG_R8,
+    ALIAS_REG_R9,
+    ALIAS_REG_R10,
+    ALIAS_REG_R11,
+    ALIAS_REG_R12,
+    ALIAS_REG_R13,
+    ALIAS_REG_R14,
+    ALIAS_REG_R15};
 
 //alias type, generic, high byte or low byte
 
 enum AliasGroup{
     ALIAS_GENERIC=0, // RAX, EAX, or AX
     ALIAS_HIGH_BYTE, //AH
-    ALIAS_LOW_BYTE, // AL
-    ALIAS_HIGH_LOW // What is this?
+    ALIAS_LOW_BYTE // AL
 };
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -188,16 +201,20 @@ struct AddrValPair{
 } __attribute__((aligned(16)));
 
 struct LargeReg{
-    UINT8 value[MAX_XMM_LENGTH];
-} __attribute__((aligned(16)));
+    UINT8 value[MAX_SIMD_LENGTH];
+} __attribute__((aligned(32)));
 
 struct RedSpyThreadData{
-    struct LargeReg largeRegValue[MAX_XMM_REGS];
+
     AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
+    struct LargeReg simdValue[MAX_SIMD_REGS];
+    
     uint32_t regCtxt[REG_LAST];
     UINT8 regValue[REG_LAST][MAX_REG_LENGTH];
     UINT8 aliasValue[MAX_ALIAS_REGS][MAX_ALIAS_REG_SIZE];
     uint32_t aliasCtxt[MAX_ALIAS_REGS][MAX_ALIAS_TYPE];
+    uint32_t simdCtxt[MAX_SIMD_REGS];
+    
     uint64_t bytesWritten;
     
     long long numIns;
@@ -635,30 +652,90 @@ struct HandleGeneralRegisters{
             * regBefore = value;
         tData->regCtxt[reg] = curCtxtHandle;
     }
-    static __attribute__((always_inline)) void CheckLargeRegValues(PIN_REGISTER* regRef, REG reg, uint32_t opaqueHandle, THREADID threadId){
+};
+
+//lenInt64: 1(X87), 2(XMM), 4(YMM), 8(ZMM)
+template<uint8_t lenInt64>
+struct HandleSpecialRegisters{
+
+    //check the MM_x part registers in X87
+    static __attribute__((always_inline)) void CheckRegValues(PIN_REGISTER* regRef, REG regID, uint32_t opaqueHandle, THREADID threadId){
+        
+        RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+
+        if(lenInt64 == 1){
+            uint64_t *oldValue = (uint64_t*)&(tData->regValue[regID][0]);
+            if(*oldValue == regRef->qword[0])
+                AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[regID],curCtxtHandle),8,threadId);
+            else
+                *oldValue = regRef->qword[0];
+        
+            tData->regCtxt[regID] = curCtxtHandle;
+        }else if(lenInt64 == 2){
+            
+            uint64_t *oldValue1 = (uint64_t*)&(tData->simdValue[regID].value);
+            uint64_t *oldValue2 = (uint64_t*)&(tData->simdValue[regID].value[8]);
+            if(*oldValue1 == regRef->qword[0] && *oldValue2 == regRef->qword[1])
+            AddToRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regID],curCtxtHandle),16,threadId);
+            else{
+                *oldValue1 = regRef->qword[0];
+                *oldValue2 = regRef->qword[1];
+            }
+            tData->simdCtxt[regID] = curCtxtHandle;
+            
+        }else{
+            
+            uint64_t *oldValue;
+            bool isRedundant = true;
+            for(int i = 0,j = 0; i < lenInt64; ++i, j += 8){
+                oldValue = (uint64_t*)&(tData->simdValue[regID].value[j]);
+                if(*oldValue != regRef->qword[i]){
+                    isRedundant = false;
+                    *oldValue = regRef->qword[i];
+                }
+            }
+            
+            if(isRedundant)
+                AddToRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regID],curCtxtHandle),lenInt64*8,threadId);
+            
+            tData->simdCtxt[regID] = curCtxtHandle;
+        }
+    }
+    
+    static __attribute__((always_inline)) void CheckSIMDRegValues(PIN_REGISTER* regRef, uint8_t simdID, uint32_t opaqueHandle, THREADID threadId){
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        if(len == 1){
-            uint64_t *oldValue = (uint64_t*)&(tData->regValue[reg][0]);
-            if(*oldValue == regRef->qword[0])
-                AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),8,threadId);
-            else
-                *oldValue = regRef->qword[0];
-        }else{
-            uint32_t regInd = reg-REG_XMM_BASE;
-            uint64_t *oldValue1 = (uint64_t*)&(tData->largeRegValue[regInd].value);
-            uint64_t *oldValue2 = (uint64_t*)&(tData->largeRegValue[regInd].value[8]);
+        if(lenInt64 == 2){
+            
+            uint64_t *oldValue1 = (uint64_t*)&(tData->simdValue[simdID].value[0]);
+            uint64_t *oldValue2 = (uint64_t*)&(tData->simdValue[simdID].value[8]);
             if(*oldValue1 == regRef->qword[0] && *oldValue2 == regRef->qword[1])
-                AddToRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),MAX_XMM_LENGTH,threadId);
+                AddToRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[simdID],curCtxtHandle),16,threadId);
             else{
                 *oldValue1 = regRef->qword[0];
                 *oldValue2 = regRef->qword[1];
             }
+        }else{
+            
+            uint64_t *oldValue;
+            bool isRedundant = true;
+            for(int i = 0,j = 0; i < lenInt64; ++i, j += 8){
+                oldValue = (uint64_t*)&(tData->simdValue[simdID].value[j]);
+                if(*oldValue != regRef->qword[i]){
+                    isRedundant = false;
+                    *oldValue = regRef->qword[i];
+                }
+            }
+            
+            if(isRedundant)
+                AddToRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[simdID],curCtxtHandle),lenInt64*8,threadId);
         }
-        tData->regCtxt[reg] = curCtxtHandle;
+        tData->simdCtxt[simdID] = curCtxtHandle;
     }
 };
 
@@ -687,8 +764,9 @@ static void Check10BytesReg(CONTEXT * ctxt, REG reg, uint32_t opaqueHandle, THRE
     tData->regCtxt[reg] = curCtxtHandle;
 }
 
+//approximate general registers
 template<class T, bool isAlias>
-struct HandleApproxRegisters{
+struct ApproxGeneralRegisters{
     
     static __attribute__((always_inline)) void CheckValues(PIN_REGISTER* regRef, uint32_t reg, uint32_t opaqueHandle, THREADID threadId){
         
@@ -734,65 +812,145 @@ struct HandleApproxRegisters{
             tData->regCtxt[reg] = curCtxtHandle;
         }
     }
+};
+
+//approximate SIMD registers, simdType:0(XMM), 1(YMM), 2(ZMM)
+template<class T, uint8_t simdType>
+struct ApproxLargeRegisters{
     
-    static __attribute__((always_inline)) void CheckLargeReg(PIN_REGISTER* regRef, REG reg, uint32_t opaqueHandle, THREADID threadId){
+    static __attribute__((always_inline)) void CheckValues(PIN_REGISTER* regRef, uint8_t regInd, uint32_t opaqueHandle, THREADID threadId){
         
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        uint32_t regInd = reg-REG_XMM_BASE;
-        if(sizeof(T) == 4){
-            __m128 oldValue = _mm_load_ps( reinterpret_cast<const float*> (&(tData->largeRegValue[regInd].value)));
-            __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (regRef));
+        if(simdType == 0){
             
-            __m128 result = _mm_sub_ps(newValue,oldValue);
-            
-            result = _mm_div_ps(result,oldValue);
-            float rates[4] __attribute__((aligned(16)));
-            _mm_store_ps(rates,result);
+            if(sizeof(T) == 4){
+                __m128 oldValue = _mm_load_ps( reinterpret_cast<const float*> (&(tData->simdValue[regInd].value[0])));
+                __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (regRef));
+                
+                __m128 result = _mm_sub_ps(newValue,oldValue);
+                
+                result = _mm_div_ps(result,oldValue);
+                float rates[4] __attribute__((aligned(16)));
+                _mm_store_ps(rates,result);
+                
+                uint8_t redCount = 0;
+                if(rates[0] <= delta && rates[0] >= -delta) redCount++;
+                if(rates[1] <= delta && rates[1] >= -delta) redCount++;
+                if(rates[2] <= delta && rates[2] >= -delta) redCount++;
+                if(rates[3] <= delta && rates[3] >= -delta) redCount++;
 
-            uint8_t redCount = 0;
-            if(rates[0] <= delta && rates[0] >= -delta) {
-                redCount++;
-            }
-            if(rates[1] <= delta && rates[1] >= -delta) {
-                redCount++;
-            }
-            if(rates[2] <= delta && rates[2] >= -delta) {
-                redCount++;
-            }
-            if(rates[3] <= delta && rates[3] >= -delta) {
-                redCount++;
-            }
-            if(redCount)
-                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),4*redCount,threadId);
-            _mm_store_ps(reinterpret_cast<float*> (&(tData->largeRegValue[regInd].value)),newValue);
-
-        }else if(sizeof(T) == 8){
-            __m128d oldValue = _mm_load_pd( reinterpret_cast<const double*> (&(tData->largeRegValue[regInd].value)));
-            __m128d newValue = _mm_loadu_pd( reinterpret_cast<const double*> (regRef));
+                if(redCount)
+                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),4*redCount,threadId);
+                _mm_store_ps(reinterpret_cast<float*> (&(tData->simdValue[regInd].value[0])),newValue);
+                
+            }else if(sizeof(T) == 8){
+                __m128d oldValue = _mm_load_pd( reinterpret_cast<const double*> (&(tData->simdValue[regInd].value[0])));
+                __m128d newValue = _mm_loadu_pd( reinterpret_cast<const double*> (regRef));
+                
+                __m128d result = _mm_sub_pd(newValue,oldValue);
+                
+                result = _mm_div_pd(result,oldValue);
+                
+                double rate[2];
+                _mm_storel_pd(&rate[0],result);
+                _mm_storeh_pd(&rate[1],result);
+                
+                uint8_t redCount = 0;
+                if(rate[0] <= delta && rate[0] >=-delta) redCount++;
+                if(rate[1] <= delta && rate[1] >= -delta) redCount++;
+                
+                if(redCount)
+                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),8*redCount,threadId);
+                _mm_store_pd(reinterpret_cast<double*> (&(tData->simdValue[regInd].value[0])),newValue);
+            }else ;
             
-            __m128d result = _mm_sub_pd(newValue,oldValue);
+        }else if(simdType == 1){
             
-            result = _mm_div_pd(result,oldValue);
+            if(sizeof(T) == 4){
+                __m256 oldValue = _mm256_load_ps( reinterpret_cast<const float*> (&(tData->simdValue[regInd].value[0])));
+                __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (regRef));
+                
+                __m256 result = _mm256_sub_ps(newValue,oldValue);
+                
+                result = _mm256_div_ps(result,oldValue);
+                float rates[8] __attribute__((aligned(32)));
+                _mm256_store_ps(rates,result);
+                
+                uint8_t redCount = 0;
+                for(int i = 0; i < 7; ++i)
+                    if(rates[i] <= delta && rates[i] >= -delta) redCount++;
+                
+                if(redCount)
+                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),4*redCount,threadId);
+                _mm256_store_ps(reinterpret_cast<float*> (&(tData->simdValue[regInd].value[0])),newValue);
+                
+            }else if(sizeof(T) == 8){
+                __m256d oldValue = _mm256_load_pd( reinterpret_cast<const double*> (&(tData->simdValue[regInd].value[0])));
+                __m256d newValue = _mm256_loadu_pd( reinterpret_cast<const double*> (regRef));
+                
+                __m256d result = _mm256_sub_pd(newValue,oldValue);
+                
+                result = _mm256_div_pd(result,oldValue);
+                
+                double rate[4] __attribute__((aligned(32)));
+                _mm256_store_pd(rate,result);
+                
+                uint8_t redCount = 0;
+                if(rate[0] <= delta && rate[0] >=-delta) redCount++;
+                if(rate[1] <= delta && rate[1] >= -delta) redCount++;
+                if(rate[2] <= delta && rate[2] >=-delta) redCount++;
+                if(rate[3] <= delta && rate[3] >= -delta) redCount++;
+                
+                if(redCount)
+                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),8*redCount,threadId);
+                _mm256_store_pd(reinterpret_cast<double*> (&(tData->simdValue[regInd].value[0])),newValue);
+            }else ;
             
-            double rate[2];
-            _mm_storel_pd(&rate[0],result);
-            _mm_storeh_pd(&rate[1],result);
-           
-             uint8_t redCount = 0;
-            if(rate[0] <= delta && rate[0] >=-delta)
-                redCount++;
-            if(rate[1] <= delta && rate[1] >= -delta)
-                redCount++;
+        }else ;/*else{
             
-            if(redCount)
+            if(sizeof(T) == 4){
+                __m512 oldValue = _mm512_load_ps( reinterpret_cast<const float*> (&(tData->simdValue[regInd].value[0])));
+                __m512 newValue = _mm512_loadu_ps( reinterpret_cast<const float*> (regRef));
+                
+                __m512 result = _mm512_sub_ps(newValue,oldValue);
+                
+                result = _mm512_div_ps(result,oldValue);
+                float rates[16] __attribute__((aligned(64)));
+                _mm512_store_ps(rates,result);
+                
+                uint8_t redCount = 0;
+                for(int i = 0; i < 15; ++i)
+                    if(rates[i] <= delta && rates[i] >= -delta) redCount++;
+                
+                if(redCount)
+                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),4*redCount,threadId);
+                _mm512_store_ps(reinterpret_cast<float*> (&(tData->simdValue[regInd].value[0])),newValue);
+                
+            }else if(sizeof(T) == 8){
+                __m512d oldValue = _mm512_load_pd( reinterpret_cast<const double*> (&(tData->simdValue[regInd].value[0])));
+                __m512d newValue = _mm512_loadu_pd( reinterpret_cast<const double*> (regRef));
+                
+                __m512d result = _mm512_sub_pd(newValue,oldValue);
+                
+                result = _mm512_div_pd(result,oldValue);
+                
+                double rates[8] __attribute__((aligned(64)));
+                _mm512_store_ps(rates,result);
+                
+                uint8_t redCount = 0;
+                for(int i = 0; i < 7; ++i)
+                    if(rates[i] <= delta && rates[i] >= -delta) redCount++;
+                
+                if(redCount)
                 AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),8*redCount,threadId);
-            _mm_store_pd(reinterpret_cast<double*> (&(tData->largeRegValue[regInd].value)),newValue);
-        }else
-            ;
-        tData->regCtxt[reg] = curCtxtHandle;
+                _mm512_store_pd(reinterpret_cast<double*> (&(tData->simdValue[regInd].value[0])),newValue);
+            }else ;
+        }*/
+
+        tData->simdCtxt[regInd] = curCtxtHandle;
     }
 };
 
@@ -824,6 +982,67 @@ static inline uint32_t GetAliasIDs(REG reg){
         case REG_DX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_DH: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
         case REG_DL: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
+            
+        case REG_RBP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_EBP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_BP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_BPL: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+            
+        case REG_RDI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_EDI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_DI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_DIL: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+            
+        case REG_RSI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_ESI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_SI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_SIL: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+            
+        case REG_RSP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_ESP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_SP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_SPL: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+            
+        case REG_R8: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R8D: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R8W: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R8B: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+            
+        case REG_R9: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R9D: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R9W: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R9B: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
+        case REG_R10: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R10D: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R10W: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R10B: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
+        case REG_R11: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R11D: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R11W: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R11B: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
+        case REG_R12: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R12D: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R12W: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R12B: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
+        case REG_R13: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R13D: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R13W: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R13B: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
+        case REG_R14: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R14D: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R14W: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R14B: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
+        case REG_R15: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case REG_R15D: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
+        case REG_R15W: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
+        case REG_R15B: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
+
         default: assert(0 && "not alias registers! should not reach here!"); break;
     }
     uint32_t aliasGroupByteType = ((uint32_t)regGroup << 16) | ((uint32_t)byteInd << 8) | ((uint32_t)type);
@@ -852,6 +1071,54 @@ inline bool RegHasAlias(REG reg){
         case REG_BL:
         case REG_CL:
         case REG_DL:
+        case REG_RBP:
+        case REG_EBP:
+        case REG_BP:
+        case REG_BPL:
+        case REG_RDI:
+        case REG_EDI:
+        case REG_DI:
+        case REG_DIL:
+        case REG_RSI:
+        case REG_ESI:
+        case REG_SI:
+        case REG_SIL:
+        case REG_RSP:
+        case REG_ESP:
+        case REG_SP:
+        case REG_SPL:
+        case REG_R8:
+        case REG_R8D:
+        case REG_R8W:
+        case REG_R8B:
+        case REG_R9:
+        case REG_R9D:
+        case REG_R9W:
+        case REG_R9B:
+        case REG_R10:
+        case REG_R10D:
+        case REG_R10W:
+        case REG_R10B:
+        case REG_R11:
+        case REG_R11D:
+        case REG_R11W:
+        case REG_R11B:
+        case REG_R12:
+        case REG_R12D:
+        case REG_R12W:
+        case REG_R12B:
+        case REG_R13:
+        case REG_R13D:
+        case REG_R13W:
+        case REG_R13B:
+        case REG_R14:
+        case REG_R14D:
+        case REG_R14W:
+        case REG_R14B:
+        case REG_R15:
+        case REG_R15D:
+        case REG_R15W:
+        case REG_R15B:
             return true;
         default: return false;
     }
@@ -859,13 +1126,13 @@ inline bool RegHasAlias(REG reg){
 
 #ifdef ENABLE_SAMPLING
 
-#define HANDLE_LARGEREG(LEN) \
+#define HANDLE_SPECIALREG(LEN,REG_ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint64_t,LEN>::CheckLargeRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleSpecialRegisters<LEN>::CheckRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_LARGEREG_APPROX(T) \
+#define HANDLE_LARGEREG_APPROX(T, SIMD_TYPE, REG_ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, false>::CheckLargeReg, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxLargeRegisters<T, SIMD_TYPE>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ALIAS_REG(T, ALIAS_GRP, ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
@@ -877,7 +1144,7 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters
 
 #define HANDLE_APPROXREG(T, IS_ALIAS, REG_ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, IS_ALIAS>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxGeneralRegisters<T, IS_ALIAS>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_10BYTES_APPROX(REG_ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
@@ -885,11 +1152,11 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) Check10BytesReg, IARG_
 
 #else
 
-#define HANDLE_LARGEREG(LEN) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<uint64_t,LEN>::CheckLargeRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+#define HANDLE_SPECIALREG(LEN,REG_ID) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleSpecialRegisters<LEN>::CheckRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_LARGEREG_APPROX(T) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, false>::CheckLargeReg, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+#define HANDLE_LARGEREG_APPROX(T, SIMD_TYPE, REG_ID) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxLargeRegisters<T, SIMD_TYPE>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ALIAS_REG(T, ALIAS_GRP, ID) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T, ALIAS_GRP>::CheckUpdateGenericAlias, IARG_UINT32, ID,IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
@@ -898,7 +1165,7 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T, AL
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleGeneralRegisters<T,1>::CheckValues,IARG_REG_VALUE,reg,IARG_UINT32, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
 
 #define HANDLE_APPROXREG(T, IS_ALIAS, REG_ID) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleApproxRegisters<T, IS_ALIAS>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxGeneralRegisters<T, IS_ALIAS>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_10BYTES_APPROX(REG_ID) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) Check10BytesReg, IARG_CONTEXT, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
@@ -948,8 +1215,22 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
             case 10: HANDLE_10BYTES_APPROX(reg); break;
             case 16: {
                 switch (operSize) {
-                    case 4: HANDLE_LARGEREG_APPROX(float);break;
-                    case 8: HANDLE_LARGEREG_APPROX(double);break;
+                    case 4: HANDLE_LARGEREG_APPROX(float,0,reg-REG_XMM_BASE);break;
+                    case 8: HANDLE_LARGEREG_APPROX(double,0,reg-REG_XMM_BASE);break;
+                    default: assert(0 && "handle large reg with large operand size\n"); break;
+                }
+            }break;
+            case 32:{
+                switch (operSize) {
+                    case 4: HANDLE_LARGEREG_APPROX(float,1,reg-REG_YMM_BASE);break;
+                    case 8: HANDLE_LARGEREG_APPROX(double,1,reg-REG_YMM_BASE);break;
+                    default: assert(0 && "handle large reg with large operand size\n"); break;
+                }
+            }break;
+            case 64: {
+                switch (operSize) {
+                    case 4: HANDLE_LARGEREG_APPROX(float,2,reg-REG_ZMM_BASE);break;
+                    case 8: HANDLE_LARGEREG_APPROX(double,2,reg-REG_ZMM_BASE);break;
                     default: assert(0 && "handle large reg with large operand size\n"); break;
                 }
             }break;
@@ -957,7 +1238,7 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
         }
     }else{
         if (REG_is_in_X87(reg)) {
-            HANDLE_LARGEREG(1);
+            HANDLE_SPECIALREG(1,reg);
             return;
         }
         switch(regSize) {
@@ -965,7 +1246,9 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
             case 2: HANDLE_GENERAL(uint16_t); break;
             case 4: HANDLE_GENERAL(uint32_t); break;
             case 8: HANDLE_GENERAL(uint64_t); break;
-            case 16: HANDLE_LARGEREG(2); break;
+            case 16: HANDLE_SPECIALREG(2,reg-REG_XMM_BASE); break;
+            case 32: HANDLE_SPECIALREG(4,reg-REG_YMM_BASE); break;
+            case 64: HANDLE_SPECIALREG(8,reg-REG_ZMM_BASE); break;
             default: assert(0 && "not recoganized register size for integer instruction!\n"); break;
         }
     }
@@ -1045,7 +1328,43 @@ struct RedSpyAnalysis{
         addr = avPair->address;
         
         if(isApprox){
-            if(AccessLen>=16){
+            if(AccessLen>=32){
+                if(sizeof(T) == 4){
+                    __m256 oldValue = _mm256_load_ps( reinterpret_cast<const float*> (&avPair->value));
+                    __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (avPair->address));
+                    
+                    __m256 result = _mm256_sub_ps(newValue,oldValue);
+                    
+                    result = _mm256_div_ps(result,oldValue);
+                    float rates[8] __attribute__((aligned(32)));
+                    _mm256_store_ps(rates,result);
+                    
+                    for(int i = 0; i < 8; ++i){
+                        if(rates[i] < -delta || rates[i] > delta) {
+                            return false;
+                        }
+                    }
+                    return true;
+                    
+                }else if(sizeof(T) == 8){
+                    __m256d oldValue = _mm256_load_pd( reinterpret_cast<const double*> (&avPair->value));
+                    __m256d newValue = _mm256_loadu_pd( reinterpret_cast<const double*> (avPair->address));
+                    
+                    __m256d result = _mm256_sub_pd(newValue,oldValue);
+                    
+                    result = _mm256_div_pd(result,oldValue);
+                    
+                    double rates[4] __attribute__((aligned(32)));
+                    _mm256_store_pd(rates,result);
+                    
+                    for(int i = 0; i < 4; ++i){
+                        if(rates[i] < -delta || rates[i] > delta) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+            }else if(AccessLen == 16){
                 if(sizeof(T) == 4){
                     __m128 oldValue = _mm_load_ps( reinterpret_cast<const float*> (&avPair->value));
                     __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (avPair->address));
@@ -1116,8 +1435,16 @@ struct RedSpyAnalysis{
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 
         avPair->address = addr;
-        
-        if(AccessLen>=16){
+        if(AccessLen >= 32){
+            if(sizeof(T) == 4){
+                __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (addr));
+                _mm256_store_ps(reinterpret_cast<float*> (&avPair->value), newValue);
+                
+            }else if(sizeof(T) == 8){
+                __m256d newValue = _mm256_loadu_pd(reinterpret_cast<const double*> (addr));
+                _mm256_store_pd(reinterpret_cast<double*> (&avPair->value), newValue);
+            }
+        }else if(AccessLen == 16){
             if(sizeof(T) == 4){
                 __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (addr));
                 _mm_store_ps(reinterpret_cast<float*> (&avPair->value), newValue);
@@ -1323,6 +1650,13 @@ struct RedSpyInstrument{
                     switch (operSize) {
                         case 4: HANDLE_APPROX_CASE(float, 16, readBufferSlotIndex, true); break;
                         case 8: HANDLE_APPROX_CASE(double, 16, readBufferSlotIndex, true); break;
+                        default: assert(0 && "handle large mem write with unexpected operand size\n"); break;
+                    }
+                }break;
+                case 32: {
+                    switch (operSize) {
+                        case 4: HANDLE_APPROX_CASE(float, 32, readBufferSlotIndex, true); break;
+                        case 8: HANDLE_APPROX_CASE(double, 32, readBufferSlotIndex, true); break;
                         default: assert(0 && "handle large mem write with unexpected operand size\n"); break;
                     }
                 }break;
@@ -1744,7 +2078,7 @@ static void InitThreadData(RedSpyThreadData* tdata){
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
-    RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(16,sizeof(RedSpyThreadData));
+    RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(32,sizeof(RedSpyThreadData));
     InitThreadData(tdata);
     //    __sync_fetch_and_add(&gClientNumThreads, 1);
 #ifdef MULTI_THREADED

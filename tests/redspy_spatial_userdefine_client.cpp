@@ -59,19 +59,17 @@ using namespace PinCCTLib;
 
 #define THREAD_MAX (1024)
 
-
-#define MAX_WRITE_OP_LENGTH (512)
-#define MAX_WRITE_OPS_IN_INS (8)
-
-#define DATA_TYPES_NUM (2)
-#define DATA_DYNAMIC (0)
-#define DATA_STATIC (1)
-
-#define ARRAY_SIZE_LIMIT (10)
+#define GEN_REG_NUM (16)
+#define GEN_REG_LEN (8)
+#define X87_REG_NUM (8)
+#define X87_REG_LEN (10)
+#define SIMD_REG_NUM (16)
+#define SIMD_REG_LEN (32)
 
 #define SAME_RATE (0.1)
 #define SAME_RECORD_LIMIT (0)
 #define RED_RATE (0.9)
+#define APPROX_RATE (0.01)
 
 #define ARRAY_UPDATE_THRESHOLD(a) (a/4)
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
@@ -89,6 +87,12 @@ typedef struct intraRedRecord{
     list<ValueGroup> group;
     list<uint32_t> spatialRedInd;
 }IntraRedRecord;
+
+typedef struct intraRegsRed{
+    double genRegRed;
+    double x87RegRed;
+    double simdRegRed;
+}IntraRegsRed;
 
 struct RedSpyThreadData{
 
@@ -148,10 +152,22 @@ static void ClientInit(int argc, char* argv[]) {
 }
 
 static unordered_map<string, list<IntraRedRecord>> arrayDataRed[THREAD_MAX];
+static unordered_map<uint32_t, list<IntraRegsRed>> regsRed[THREAD_MAX];
 
 
+VOID inline RecordIntraRegsRedundancy(uint32_t ctxt, IntraRegsRed redPair,THREADID threadId){
+    
+    unordered_map<uint32_t,list<IntraRegsRed>>::iterator it;
+    it = regsRed[threadId].find(ctxt);
+    if(it == regsRed[threadId].end()){
+        list<IntraRegsRed> newlist;
+        newlist.push_back(redPair);
+        regsRed[threadId].insert(std::pair<uint32_t,list<IntraRegsRed>>(ctxt,newlist));
+    }else{
+        it->second.push_back(redPair);
+    }
+}
 
-//type:DATA_DYNAMIC means dynamic data object while DATA_STATIC means static
 VOID inline RecordIntraArrayRedundancy(string name, IntraRedRecord redPair,THREADID threadId){
     
     unordered_map<string,list<IntraRedRecord>>::iterator it;
@@ -165,7 +181,152 @@ VOID inline RecordIntraArrayRedundancy(string name, IntraRedRecord redPair,THREA
     }
 }
 
-template<typename T>
+static void CheckRegValues(CONTEXT * ctxt,THREADID threadId){
+    
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    //ContextHandle_t curCtxtHandle = GetContextHandle(threadId, 0);
+    
+    //get values for general registers
+    UINT8 ** genRegs;
+    genRegs = (UINT8 **)malloc(GEN_REG_NUM * sizeof(UINT8 *));
+    for (int i = 0; i < GEN_REG_NUM; ++i) {
+        genRegs[i] = (UINT8 *)malloc(GEN_REG_LEN * sizeof(UINT8));
+    }
+    
+    PIN_GetContextRegval(ctxt,REG_RAX,genRegs[0]);
+    PIN_GetContextRegval(ctxt,REG_RBX,genRegs[1]);
+    PIN_GetContextRegval(ctxt,REG_RCX,genRegs[2]);
+    PIN_GetContextRegval(ctxt,REG_RDX,genRegs[3]);
+    
+    PIN_GetContextRegval(ctxt,REG_RBP,genRegs[4]);
+    PIN_GetContextRegval(ctxt,REG_RDI,genRegs[5]);
+    PIN_GetContextRegval(ctxt,REG_RSI,genRegs[6]);
+    PIN_GetContextRegval(ctxt,REG_RSP,genRegs[7]);
+    
+    PIN_GetContextRegval(ctxt,REG_R8,genRegs[8]);
+    PIN_GetContextRegval(ctxt,REG_R9,genRegs[9]);
+    PIN_GetContextRegval(ctxt,REG_R10,genRegs[10]);
+    PIN_GetContextRegval(ctxt,REG_R11,genRegs[11]);
+    PIN_GetContextRegval(ctxt,REG_R12,genRegs[12]);
+    PIN_GetContextRegval(ctxt,REG_R13,genRegs[13]);
+    PIN_GetContextRegval(ctxt,REG_R14,genRegs[14]);
+    PIN_GetContextRegval(ctxt,REG_R15,genRegs[15]);
+    
+    //get values for X87 registers
+    UINT8 ** x87Regs;
+    x87Regs = (UINT8 **)malloc(X87_REG_NUM * sizeof(UINT8 *));
+    for (int i = 0; i < X87_REG_NUM; ++i) {
+        x87Regs[i] = (UINT8 *)malloc(X87_REG_LEN * sizeof(UINT8));
+    }
+    
+    PIN_GetContextRegval(ctxt,REG_ST0,x87Regs[0]);
+    PIN_GetContextRegval(ctxt,REG_ST1,x87Regs[1]);
+    PIN_GetContextRegval(ctxt,REG_ST2,x87Regs[2]);
+    PIN_GetContextRegval(ctxt,REG_ST3,x87Regs[3]);
+    PIN_GetContextRegval(ctxt,REG_ST4,x87Regs[4]);
+    PIN_GetContextRegval(ctxt,REG_ST5,x87Regs[5]);
+    PIN_GetContextRegval(ctxt,REG_ST6,x87Regs[6]);
+    PIN_GetContextRegval(ctxt,REG_ST7,x87Regs[7]);
+    
+    //get values for SIMD registers
+    UINT8 ** simdRegs;
+    simdRegs = (UINT8 **)malloc(SIMD_REG_NUM * sizeof(UINT8 *));
+    for (int i = 0; i < SIMD_REG_NUM; ++i) {
+        simdRegs[i] = (UINT8 *)malloc(SIMD_REG_LEN * sizeof(UINT8));
+    }
+    
+    PIN_GetContextRegval(ctxt,REG_YMM0,simdRegs[0]);
+    PIN_GetContextRegval(ctxt,REG_YMM1,simdRegs[1]);
+    PIN_GetContextRegval(ctxt,REG_YMM2,simdRegs[2]);
+    PIN_GetContextRegval(ctxt,REG_YMM3,simdRegs[3]);
+    PIN_GetContextRegval(ctxt,REG_YMM4,simdRegs[4]);
+    PIN_GetContextRegval(ctxt,REG_YMM5,simdRegs[5]);
+    PIN_GetContextRegval(ctxt,REG_YMM6,simdRegs[6]);
+    PIN_GetContextRegval(ctxt,REG_YMM7,simdRegs[7]);
+    PIN_GetContextRegval(ctxt,REG_YMM8,simdRegs[8]);
+    PIN_GetContextRegval(ctxt,REG_YMM9,simdRegs[9]);
+    PIN_GetContextRegval(ctxt,REG_YMM10,simdRegs[10]);
+    PIN_GetContextRegval(ctxt,REG_YMM11,simdRegs[11]);
+    PIN_GetContextRegval(ctxt,REG_YMM12,simdRegs[12]);
+    PIN_GetContextRegval(ctxt,REG_YMM13,simdRegs[13]);
+    PIN_GetContextRegval(ctxt,REG_YMM14,simdRegs[14]);
+    PIN_GetContextRegval(ctxt,REG_YMM15,simdRegs[15]);
+    
+    int index = 0;
+    int i,j;
+    
+    //check redundancy in general registers
+    uint64_t valuesMap[GEN_REG_NUM];
+    valuesMap[index++] = *(uint64_t *)(genRegs[0]);
+    
+    for (int i = 1; i < GEN_REG_NUM; ++i) {
+        
+        for (j = 0; j < index; ++j) {
+            if (*(uint64_t *)(genRegs[i]) == valuesMap[j]) {
+                break;
+            }
+        }
+        if (j >= index) {
+            valuesMap[index++] = *(uint64_t *)(genRegs[i]);
+        }
+    }
+    
+    float genRegRate = (float)index/GEN_REG_NUM;
+    
+    //check redundancy in x87 registers
+    UINT8 ** x87values;
+    x87values = (UINT8 **)malloc(X87_REG_NUM * sizeof(UINT8 *));
+    for (int i = 0; i < X87_REG_NUM; ++i) {
+        x87values[i] = (UINT8 *)malloc(X87_REG_LEN * sizeof(UINT8));
+    }
+    index = 0;
+    memcpy(x87values[index++], x87Regs[0], X87_REG_LEN * sizeof(UINT8));
+    for (int i = 1; i < X87_REG_NUM; ++i) {
+        
+        for (j = 0; j < index; ++j) {
+            if (memcmp(x87values[j],x87Regs[i],X87_REG_LEN * sizeof(UINT8))==0) {
+                break;
+            }
+        }
+        if (j >= index) {
+            memcpy(x87values[index++], x87Regs[i], X87_REG_LEN * sizeof(UINT8));
+        }
+    }
+    float x87RegRate = (float)index/X87_REG_NUM;
+    
+    //check redundancy in SIMD registers
+    UINT8 ** simdValues;
+    simdValues = (UINT8 **)malloc(SIMD_REG_NUM * sizeof(UINT8 *));
+    for (int i = 0; i < SIMD_REG_NUM; ++i) {
+        simdValues[i] = (UINT8 *)malloc(SIMD_REG_LEN * sizeof(UINT8));
+    }
+    index = 0;
+    memcpy(simdValues[index++], simdRegs[0], SIMD_REG_LEN * sizeof(UINT8));
+    for (int i = 1; i < 8; ++i) {
+        
+        for (j = 0; j < index; ++j) {
+            if (memcmp(simdValues[j],simdRegs[i],SIMD_REG_LEN * sizeof(UINT8))==0) {
+                break;
+            }
+        }
+        if (j >= index) {
+            memcpy(simdValues[index++], simdRegs[i], SIMD_REG_LEN * sizeof(UINT8));
+        }
+    }
+    float simdRegRate = (float)index/SIMD_REG_NUM;
+    
+    if (genRegRate > RED_RATE || x87RegRate > RED_RATE || simdRegRate > RED_RATE) {
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, 0);
+        IntraRegsRed newpair;
+        newpair.genRegRed = genRegRate;
+        newpair.x87RegRed = x87RegRate;
+        newpair.simdRegRed = simdRegRate;
+        RecordIntraRegsRedundancy(curCtxtHandle,newpair,threadId);
+    }
+}
+
+
+template<typename T, bool isApprox>
 struct ArrayAnalysis{
     
     typedef typename unordered_map<T,list<uint32_t>>::iterator MyIterator;
@@ -181,15 +342,34 @@ struct ArrayAnalysis{
         while(address < endAddr){
             
             T value = *static_cast<T *>((void *)address);
-            if(value == valueLast)
-                spatialRedIndex.push_back(index);
-            mapIt = valuesMap.find(value);
-            if(mapIt == valuesMap.end()){
-                list<uint32_t> newlist;
-                newlist.push_back(index);
-                valuesMap.insert(std::pair<T,list<uint32_t>>(value,newlist));
+            
+            if(isApprox){
+                T r = (value - valueLast)/value;
+                if (r < APPROX_RATE && r > -APPROX_RATE)
+                    spatialRedIndex.push_back(index);
+                for(mapIt=valuesMap.begin(); mapIt != valuesMap.end(); ++mapIt){
+                    r = (value - mapIt->first)/value;
+                    if (r < APPROX_RATE && r > -APPROX_RATE){
+                        mapIt->second.push_back(index);
+                        break;
+                    }
+                }
+                if(mapIt == valuesMap.end()){
+                    list<uint32_t> newlist;
+                    newlist.push_back(index);
+                    valuesMap.insert(std::pair<T,list<uint32_t>>(value,newlist));
+                }
             }else{
-                mapIt->second.push_back(index);
+                if(value == valueLast)
+                    spatialRedIndex.push_back(index);
+                mapIt = valuesMap.find(value);
+                if(mapIt == valuesMap.end()){
+                    list<uint32_t> newlist;
+                    newlist.push_back(index);
+                    valuesMap.insert(std::pair<T,list<uint32_t>>(value,newlist));
+                }else{
+                    mapIt->second.push_back(index);
+                }
             }
             address += stride;
             index++;
@@ -219,7 +399,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     ;
 }
 
-void new_ARRAY_ANALYSIS_FN_NAME(char * name, void * addr, uint32_t typeSize, uint32_t stride, THREADID threadId){
+void new_ARRAY_ANALYSIS_FN_NAME(char * name, void * addr, uint32_t typeSize, uint32_t stride, bool isApprox, THREADID threadId){
     printf("name:%s, addr:%p, type:%d, stride:%d\n",name,addr,typeSize,stride);
     string str(name);
     
@@ -227,35 +407,56 @@ void new_ARRAY_ANALYSIS_FN_NAME(char * name, void * addr, uint32_t typeSize, uin
     IntraRedRecord newRecord;
     bool hasRedundant = false;
     
-    switch (typeSize) {
-        case 1:
-            hasRedundant = ArrayAnalysis<uint8_t>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
-            break;
-        case 2:
-            hasRedundant = ArrayAnalysis<uint16_t>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
-            break;
-        case 4:
-            hasRedundant = ArrayAnalysis<uint32_t>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
-            break;
-        case 8:
-            hasRedundant = ArrayAnalysis<uint64_t>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
-            break;
-        default:
-            break;
+    if (isApprox) {
+        switch (typeSize) {
+            case 4:
+                hasRedundant = ArrayAnalysis<float,true>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
+                break;
+            case 8:
+                hasRedundant = ArrayAnalysis<double,true>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
+                break;
+            default:
+                assert(0 && "approx inappropriate type size, should not reach here!");
+                break;
+        }
+    }else{
+    
+        switch (typeSize) {
+            case 1:
+                hasRedundant = ArrayAnalysis<uint8_t,false>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
+                break;
+            case 2:
+                hasRedundant = ArrayAnalysis<uint16_t,false>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
+                break;
+            case 4:
+                hasRedundant = ArrayAnalysis<uint32_t,false>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
+                break;
+            case 8:
+                hasRedundant = ArrayAnalysis<uint64_t,false>::CheckIntraArrayRedundancy(dataHandle.beg_addr,dataHandle.end_addr,stride,&newRecord);
+                break;
+            default:
+                assert(0 && "unknow element size, should not reach here!");
+                break;
+        }
     }
-    if(hasRedundant)
+    if(hasRedundant){
+        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, 0);
+        newRecord.curCtxt = curCtxtHandle;
         RecordIntraArrayRedundancy( name, newRecord, threadId);
+    }
 }
 
 VOID Overrides (IMG img, VOID * v) {
     // Master setup
     RTN rtn = RTN_FindByName (img, ARRAY_ANALYSIS_FN_NAME);
     if (RTN_Valid (rtn)) {
+        
+        RTN_InsertCall (rtn, IPOINT_BEFORE, (AFUNPTR) CheckRegValues, IARG_CONTEXT, IARG_THREAD_ID,IARG_END);
         // Define a function prototype that describes the application routine
         // that will be replaced.
         //
         PROTO proto_master = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
-                                             ARRAY_ANALYSIS_FN_NAME,PIN_PARG (char *),PIN_PARG (void *),PIN_PARG (uint32_t),PIN_PARG (uint32_t),
+                                             ARRAY_ANALYSIS_FN_NAME,PIN_PARG (char *),PIN_PARG (void *),PIN_PARG (uint32_t),PIN_PARG (uint32_t), PIN_PARG (bool),
                                              PIN_PARG_END ());
         
         // Replace the application routine with the replacement function.
@@ -267,6 +468,7 @@ VOID Overrides (IMG img, VOID * v) {
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
                               IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                              IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
                               IARG_THREAD_ID, IARG_END);
         // Free the function prototype.
         PROTO_Free (proto_master);
@@ -313,12 +515,12 @@ static void PrintRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile,"========== Selected Dataobjecy Redundancy ==========\n");
     for(itIntra = arrayDataRed[threadId].begin(); itIntra != arrayDataRed[threadId].end(); ++itIntra){
 
-        fprintf(gTraceFile,"\nVariable %s at \n",(itIntra->first).c_str());
- //////////////////////////////////////////////////////////////
-        //       PrintFullCallingContext(contxt);
+        fprintf(gTraceFile,"\nVariable %s: \n",(itIntra->first).c_str());
+
         list<IntraRedRecord>::iterator listIt;
         for(listIt = itIntra->second.begin(); listIt != itIntra->second.end(); ++listIt){
             
+            PrintFullCallingContext((*listIt).curCtxt);
             fprintf(gTraceFile,"\nRed:%.2f, unique value large index group:\n",(*listIt).redundancy);
             list<ValueGroup>::iterator groupIt;
             int num = 0;
@@ -329,6 +531,24 @@ static void PrintRedundancyPairs(THREADID threadId) {
             string indexlist = ConvertListToString((*listIt).spatialRedInd);
             fprintf(gTraceFile,"redundant spatial indexes:%s\n",indexlist.c_str());
 
+        }
+        fprintf(gTraceFile,"\n----------------------------");
+    }
+    
+    fprintf(gTraceFile,"\n*************** Intra Registers Redundancy of Thread %d ***************\n",threadId);
+    unordered_map<uint32_t,list<IntraRegsRed>>::iterator itIntraReg;
+    
+    fprintf(gTraceFile,"========== ==========\n");
+    for(itIntraReg = regsRed[threadId].begin(); itIntraReg != regsRed[threadId].end(); ++itIntraReg){
+        
+        PrintFullCallingContext(itIntraReg->first);
+        
+        list<IntraRegsRed>::iterator listItReg;
+        for(listItReg = itIntraReg->second.begin(); listItReg != itIntraReg->second.end(); ++listItReg){
+            
+            fprintf(gTraceFile,"\n general registers redundancy: %.2f\n",(*listItReg).genRegRed);
+            fprintf(gTraceFile,"\n X87 registers redundancy: %.2f\n",(*listItReg).x87RegRed);
+            fprintf(gTraceFile,"\n SIMD registers redundancy: %.2f\n",(*listItReg).simdRegRed);
         }
         fprintf(gTraceFile,"\n----------------------------");
     }
