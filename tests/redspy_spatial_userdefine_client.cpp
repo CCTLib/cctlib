@@ -75,6 +75,7 @@ using namespace PinCCTLib;
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
 
 #define ARRAY_ANALYSIS_FN_NAME "Analyze_this_array"
+#define REG_ANALYSIS_FN_NAME "Analyze_regs"
 
 
 typedef struct valueGroup{
@@ -400,7 +401,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
 }
 
 void new_ARRAY_ANALYSIS_FN_NAME(char * name, void * addr, uint32_t typeSize, uint32_t stride, bool isApprox, THREADID threadId){
-    printf("name:%s, addr:%p, type:%d, stride:%d\n",name,addr,typeSize,stride);
+    //printf("name:%s, addr:%p, type:%d, stride:%d\n",name,addr,typeSize,stride);
     string str(name);
     
     DataHandle_t dataHandle = GetDataObjectHandle(addr,threadId);
@@ -445,7 +446,7 @@ void new_ARRAY_ANALYSIS_FN_NAME(char * name, void * addr, uint32_t typeSize, uin
         RecordIntraArrayRedundancy( name, newRecord, threadId);
     }
 }
-
+/*
 VOID Overrides (IMG img, VOID * v) {
     // Master setup
     RTN rtn = RTN_FindByName (img, ARRAY_ANALYSIS_FN_NAME);
@@ -472,6 +473,42 @@ VOID Overrides (IMG img, VOID * v) {
                               IARG_THREAD_ID, IARG_END);
         // Free the function prototype.
         PROTO_Free (proto_master);
+    }
+}*/
+
+VOID Overrides (IMG img, VOID * v) {
+    // Master setup
+    for( SEC sec= IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec) ){
+        for( RTN rtn= SEC_RtnHead(sec); RTN_Valid(rtn); rtn = RTN_Next(rtn) ){
+            string rtnName = RTN_Name(rtn);
+            if (rtnName.find(ARRAY_ANALYSIS_FN_NAME) != std::string::npos) {
+                
+                // Define a function prototype that describes the application routine
+                // that will be replaced.
+                //
+                PROTO proto_master = PROTO_Allocate (PIN_PARG (void), CALLINGSTD_DEFAULT,
+                                                     ARRAY_ANALYSIS_FN_NAME,PIN_PARG (char *),PIN_PARG (void *),PIN_PARG (uint32_t),PIN_PARG (uint32_t), PIN_PARG (bool),
+                                                     PIN_PARG_END ());
+                
+                // Replace the application routine with the replacement function.
+                // Additional arguments have been added to the replacement routine.
+                //
+                RTN_ReplaceSignature (rtn, AFUNPTR (new_ARRAY_ANALYSIS_FN_NAME),
+                                      IARG_PROTOTYPE, proto_master,
+                                      IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                      IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                                      IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                                      IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                                      IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+                                      IARG_THREAD_ID, IARG_END);
+                // Free the function prototype.
+                PROTO_Free (proto_master);
+            }else if (rtnName.find(REG_ANALYSIS_FN_NAME) != std::string::npos) {
+                RTN_Open(rtn);
+                RTN_InsertCall (rtn, IPOINT_BEFORE, (AFUNPTR) CheckRegValues, IARG_CONTEXT, IARG_THREAD_ID,IARG_END);
+                RTN_Close(rtn);
+            }
+        }
     }
 }
 
