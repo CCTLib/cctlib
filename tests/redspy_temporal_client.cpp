@@ -408,7 +408,7 @@ static inline uint32_t GetAliasIDs(REG reg){
         case REG_DX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_DH: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
         case REG_DL: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
-        default: assert(0 & "not alias registers! should not reach here!"); break;
+        default: assert(0 && "not alias registers! should not reach here!"); break;
     }
     uint32_t aliasGroupByteType = ((uint32_t)regGroup << 16) | ((uint32_t)byteInd << 8) | ((uint32_t)type);
     return aliasGroupByteType;
