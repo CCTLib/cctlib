@@ -62,7 +62,7 @@ static FILE* gTraceFile;
 
 
 #define CACHE_LINE_BITS (6)
-#define CACHE_INDEX_BITS (14)
+#define CACHE_INDEX_BITS (20)
 #define CACHE_SZ (1L<< (CACHE_LINE_BITS + CACHE_INDEX_BITS))
 #define CACHE_LINE_SZ (1L << CACHE_LINE_BITS)
 #define CACHE_LINE_MASK (CACHE_LINE_SZ-1)
@@ -215,6 +215,9 @@ static void ClientInit(int argc, char* argv[]) {
     sprintf(name + strlen(name), "%d", pid);
     cerr << "\n Creating log file at:" << name << "\n";
     gTraceFile = fopen(name, "w");
+    fprintf(gTraceFile, "CONFIG:\n");
+    fprintf(gTraceFile, "CACHE_SZ:%lu\n", CACHE_SZ);
+    fprintf(gTraceFile, "---------------\n");
     // print the arguments passed
     fprintf(gTraceFile, "\n");
     
@@ -223,6 +226,7 @@ static void ClientInit(int argc, char* argv[]) {
     }
     
     fprintf(gTraceFile, "\n");
+    fflush(gTraceFile);
 }
 
 
