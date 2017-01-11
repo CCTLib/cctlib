@@ -181,7 +181,7 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
       ContextHandle_t ctxthndl = GetContextHandle(id, 0);
       *metric = &(hmap_vector[id])[ctxthndl];
       (hmap_vector[id])[ctxthndl].addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (hmap_vector[id])[ctxthndl].accessNum+=1;//refSize;
+      (hmap_vector[id])[ctxthndl].accessNum+=refSize;
       
       // check how many times write to a shared address
       // shared means that this address is read/write before this write
@@ -190,7 +190,7 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
     }
     else {
       (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (static_cast<struct node_metric_t*>(*metric))->accessNum+=1;//refSize;
+      (static_cast<struct node_metric_t*>(*metric))->accessNum+=refSize;
       if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
         (static_cast<struct node_metric_t*>(*metric))->dependentNum+=refSize;
     }
@@ -277,7 +277,7 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %lu Bytes, #distinct memory access is %ld, reuse is %ld, write dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).fpNum, (*ListIt).dependentNum);
+        fprintf(gTraceFile, "Footprint is %lu Bytes, #distinct memory access is %ld, reuse is %ld, write dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }
