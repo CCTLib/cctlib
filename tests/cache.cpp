@@ -47,8 +47,8 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
- #include <sys/time.h>
-       #include <sys/resource.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include "pin.H"
 using namespace std;
 
@@ -66,17 +66,40 @@ static FILE* gTraceFile;
 #define CACHE_SZ (1L<< (CACHE_LINE_BITS + CACHE_INDEX_BITS))
 #define CACHE_LINE_SZ (1L << CACHE_LINE_BITS)
 #define CACHE_LINE_MASK (CACHE_LINE_SZ-1)
-#define CACHE_LINE_BASE(addr) ((size_t)(addr) & (~CACHE_LINE_MASK)) 
+#define CACHE_LINE_BASE(addr) ((size_t)(addr) & (~CACHE_LINE_MASK))
 
 #define CACHE_NUM_LINES (CACHE_SZ/CACHE_LINE_SZ)
 #define CACHE_TAG_MASK (~CACHE_LINE_MASK)
 #define CACHE_TAG(address) (((size_t)address) & CACHE_TAG_MASK)
 #define CACHE_LINE_INDEX(address)  (((size_t)(address) & (CACHE_SZ - 1)) >> CACHE_LINE_BITS)
 #define IS_VALID(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isInUse &&  (cache[CACHE_LINE_INDEX(((size_t)address))].tag == CACHE_TAG(((size_t)address))))
+#define IS_INUSE(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isInUse)
+
 #define SET_TAG(address) (cache[CACHE_LINE_INDEX(((size_t)address))].tag = CACHE_TAG(address))
+
+#define SET_DIRTY(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isDirty = true)
+#define SET_CLEAN(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isDirty = false)
+#define IS_DIRTY(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isDirty)
+
 #define SET_INUSE(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isInUse = true)
 #define GET_TAG(address) (cache[CACHE_LINE_INDEX(((size_t)address))].tag)
 #define WAS_DIFFERENT(address) (cache[CACHE_LINE_INDEX(((size_t)address))].wasDifferent)
+
+
+
+
+#define SHADOW_CACHE_INDEX_BITS (20)
+#define SHADOW_CACHE_SZ (1L<< (CACHE_LINE_BITS + SHADOW_CACHE_INDEX_BITS))
+#define SHADOW_CACHE_LINE_MASK (CACHE_LINE_SZ-1)
+#define SHADOW_CACHE_TAG_MASK (~SHADOW_CACHE_LINE_MASK)
+#define SHADOW_CACHE_TAG(address) (((size_t)address) & SHADOW_CACHE_TAG_MASK)
+
+#define SHADOW_CACHE_NUM_LINES (SHADOW_CACHE_SZ/CACHE_LINE_SZ)
+#define SHADOW_CACHE_LINE_INDEX(address)  (((size_t)(address) & (SHADOW_CACHE_SZ - 1)) >> CACHE_LINE_BITS)
+#define SHADOW_IS_VALID(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].isInUse &&  (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].tag == cache[CACHE_LINE_INDEX(((size_t)address))].tag))
+#define SHADOW_SET_TAG(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].tag = SHADOW_CACHE_TAG(address))
+#define SHADOW_SET_INUSE(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].isInUse = true)
+#define SHADOW_GET_TAG(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].tag)
 
 
 #define MAX_WRITE_OP_LENGTH (512)
@@ -92,12 +115,20 @@ struct Cache_t{
     Cache_t(): tag(0), isDirty(false), isInUse(false), wasDifferent(false) {}
 };
 
+struct ShadowCache_t{
+    size_t tag;
+    bool isInUse;
+    uint8_t value[CACHE_LINE_SZ];
+    ShadowCache_t(): tag(0), isInUse(false) {}
+};
+
 struct Stats_t{
     uint64_t sameData;
     uint64_t evicts;
     uint64_t unchanged;
     uint64_t dirtyEvicts;
-    Stats_t() : sameData(0), evicts(0), unchanged(0), dirtyEvicts(0) {}
+    uint64_t shadowDetects;
+    Stats_t() : sameData(0), evicts(0), unchanged(0), dirtyEvicts(0), shadowDetects(0) {}
 };
 
 struct AddrValPair{
@@ -130,24 +161,71 @@ thread_local Stats_t stats;
 
 
 thread_local Cache_t cache[CACHE_NUM_LINES];
+thread_local ShadowCache_t shadowCache[SHADOW_CACHE_NUM_LINES];
 
 
 void CacheFlush(){
-   #pragma omp simd
-   for(int i = 0; i < CACHE_NUM_LINES; i++){
-       cache[i].isInUse = false;
-   }
+#pragma omp simd
+    for(int i = 0; i < CACHE_NUM_LINES; i++){
+        cache[i].isInUse = false;
+        cache[i].tag = -1;
+    }
+    
+#pragma omp simd
+    for(int i = 0; i < SHADOW_CACHE_NUM_LINES; i++){
+        shadowCache[i].isInUse = false;
+        shadowCache[i].tag = -1;
+    }
 }
 
-static inline void OnEvict(void ** addr) {
-    uint64_t address = (uint64_t)addr;
-    uint8_t * newValue = (uint8_t *) (address & (~CACHE_LINE_MASK));
-    uint8_t * originalVal = cache[CACHE_LINE_INDEX(address)].value;
-    bool isDirty = cache[CACHE_LINE_INDEX(address)].isDirty;
-    uint8_t * curValue = (uint8_t *) (GET_TAG(address));
+static inline void Allocate(uint64_t addr) {
+    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+    uint64_t index = CACHE_LINE_INDEX(address);
+    uint8_t * newValue = (uint8_t *) (address);
+    uint8_t * originalVal = cache[index].value;
+    SET_CLEAN(address);
+    SET_TAG(address);
+    WAS_DIFFERENT(address) = false;
+    SET_INUSE(address);
 
-    if (isDirty && cache[CACHE_LINE_INDEX(((size_t)address))].isInUse) {
-//        fprintf(stderr, "\n E: address=%lx, newValue=%p, originalVal=%p, curValue=%p, idx=%lx, tag=%lx\n", address, newValue, originalVal, curValue, CACHE_LINE_INDEX(address), GET_TAG(address));
+#pragma omp simd
+    for(int i = 0; i < CACHE_LINE_SZ; i++){
+        originalVal[i] = newValue[i];
+    }
+}
+
+
+static inline void MakeShadowCopy(uint64_t addr){
+    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+    // copy to shadow and make it active
+    SHADOW_SET_INUSE(address);
+    SHADOW_SET_TAG(address);
+    uint8_t * baseLocation = cache[CACHE_LINE_INDEX(((uint64_t)address))].value;
+    uint8_t * shadowLocation = shadowCache[SHADOW_CACHE_LINE_INDEX(((uint64_t)address))].value;
+#pragma omp simd
+    for(int i = 0; i < CACHE_LINE_SZ; i++){
+        shadowLocation[i] = baseLocation[i];
+    }
+}
+
+static inline void CleanShadowCopy(uint64_t addr){
+    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+    // copy to shadow and make it active
+    shadowCache[SHADOW_CACHE_LINE_INDEX(address)].isInUse = false;
+    shadowCache[SHADOW_CACHE_LINE_INDEX(address)].tag = -1;
+}
+
+
+static inline void OnEvict(uint64_t addr) {
+    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+    uint64_t index = CACHE_LINE_INDEX(address);
+    uint8_t * newValue = (uint8_t *) (address);
+    uint8_t * originalVal = cache[index].value;
+    uint8_t * curValue = (uint8_t *) (GET_TAG(address));
+    bool isDirty = IS_DIRTY(address);
+    
+    if (isDirty) {
+        //        fprintf(stderr, "\n E: address=%lx, newValue=%p, originalVal=%p, curValue=%p, idx=%lx, tag=%lx\n", address, newValue, originalVal, curValue, CACHE_LINE_INDEX(address), GET_TAG(address));
         bool isRedundant = true;
         for(int i = 0; i < CACHE_LINE_SZ; i++){
             if(originalVal[i] != curValue[i]) {
@@ -155,36 +233,66 @@ static inline void OnEvict(void ** addr) {
                 break;
             }
         }
-    
         if (!WAS_DIFFERENT(address)) {
             stats.unchanged++;
         }
         if (isRedundant) {
             stats.sameData++;
         }
-        cache[CACHE_LINE_INDEX(address)].isDirty = false; 
+        
+        //        uint64_t oldAddress = GET_TAG(address);
+        if(SHADOW_IS_VALID(address)){
+            bool isRedundantviaShadow = true;
+            for(int i = 0; i < CACHE_LINE_SZ; i++){
+                uint8_t * originalValInShadow = shadowCache[SHADOW_CACHE_LINE_INDEX(address)].value;
+                if(originalValInShadow[i] != curValue[i]) {
+                    isRedundantviaShadow = false;
+                    break;
+                }
+            }
+            if (isRedundantviaShadow) {
+                stats.shadowDetects++;
+            }
+            if(isRedundantviaShadow != isRedundant){
+//                fprintf(stderr, "\n disagreement!");
+            }
+            
+            CleanShadowCopy(address);
+        } else {
+           // fprintf(stderr, "\n INVALID: idx=%lx, tag=%lx, s-tag=%lx, inuse = %d \n", SHADOW_CACHE_LINE_INDEX(address), GET_TAG(address), SHADOW_GET_TAG(address), shadowCache[CACHE_LINE_INDEX(address)].isInUse);
+        }
         stats.dirtyEvicts++;
     } else {
-  //      fprintf(stderr, "\n X: address=%lx, newValue=%p, originalVal=%p, curValue=%p, idx=%lx, tag=%lx\n", address, newValue, originalVal, curValue, CACHE_LINE_INDEX(address), GET_TAG(address));
+        //      fprintf(stderr, "\n X: address=%lx, newValue=%p, originalVal=%p, curValue=%p, idx=%lx, tag=%lx\n", address, newValue, originalVal, curValue, CACHE_LINE_INDEX(address), GET_TAG(address));
     }
-    #pragma omp simd
+#pragma omp simd
     for(int i = 0; i < CACHE_LINE_SZ; i++){
         originalVal[i] = newValue[i];
     }
     stats.evicts++;
-    SET_TAG(address);
-    WAS_DIFFERENT(address) = false;
 }
 
-static inline void HandleOneCacheLine(void ** address, bool isWrite){
-    if(!IS_VALID(address)) {
-        // cache miss, allocate it.
+static inline void HandleOneCacheLine(void ** addr, bool isWrite){
+    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+    
+    // Is cacheline unused?
+    if(!IS_INUSE(address)){
+        // Allocate
+        Allocate(address);
+    } else if(CACHE_TAG(address) != GET_TAG(address)) /* Not a match*/{
+        // cache miss write back
         OnEvict(address);
+        // Allocate
+        Allocate(address);
     }
-    SET_INUSE(address);
-   // set dirty if write
-   if(isWrite)
-        cache[CACHE_LINE_INDEX(address)].isDirty = true;
+    // else : by now we have the line in cache and old one is written by if needed
+    // if this is a first time write to this line, mark it dirty and copy to the shadow cache
+    if(isWrite){
+        if(!IS_DIRTY(address)){
+            SET_DIRTY(address);
+            MakeShadowCopy(address);
+        }
+    }
 }
 
 static inline void OnAccess(void ** address, uint64_t accessLen, bool isWrite){
@@ -238,7 +346,7 @@ struct RedSpyAnalysis{
         AddrValPair * avPair = & tData->buffer[bufferOffset];
         return memcmp(avPair->value + startOffset, (void **)(avPair->address) + startOffset, length) == 0;
     }
-
+    
     static __attribute__((always_inline)) bool IsWriteRedundant(void * &addr, THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         AddrValPair * avPair = & tData->buffer[bufferOffset];
@@ -274,7 +382,7 @@ struct RedSpyAnalysis{
             bool isSameCacheLine = CACHE_LINE_INDEX(addr) == CACHE_LINE_INDEX((size_t)(addr) + AccessLen - 1);
             if(isSameCacheLine){
                 if(!WAS_DIFFERENT(addr))
-                	WAS_DIFFERENT(addr) = true;
+                    WAS_DIFFERENT(addr) = true;
             }else {
                 size_t firstCacheLineAccessLength = CACHE_LINE_BASE(addr) + CACHE_LINE_SZ - (size_t)(addr);
                 size_t firstCacheLineStart = 0;
@@ -327,7 +435,7 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
 }
 #define HANDLE_CASE(NUM, BUFFER_INDEX, HAS_FALLTHRU) \
 case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
-    INS_InsertPredicatedCall(ins, HAS_FALLTHRU? IPOINT_AFTER : IPOINT_TAKEN_BRANCH, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
+INS_InsertPredicatedCall(ins, HAS_FALLTHRU? IPOINT_AFTER : IPOINT_TAKEN_BRANCH, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
 
 #define HANDLE_LARGE(HAS_FALLTHRU) \
 INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);\
@@ -370,18 +478,18 @@ static VOID InstrumentInsCallback(INS ins, VOID* v) {
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     if (memOperands == 0)
         return;
-
+    
     for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
-         if(INS_MemoryOperandIsWritten(ins, memOp)) {
-             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_BOOL, 1, IARG_END);
-         } else {
-             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_BOOL, 0,  IARG_END);
+        if(INS_MemoryOperandIsWritten(ins, memOp)) {
+            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_BOOL, 1, IARG_END);
+        } else {
+            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_BOOL, 0,  IARG_END);
         }
     }
-
-// Now do the redSpy business
-
-   bool hasFallThu = INS_HasFallThrough(ins);
+    
+    // Now do the redSpy business
+    
+    bool hasFallThu = INS_HasFallThrough(ins);
     
     // Special case, if we have only one write operand
     
@@ -428,28 +536,28 @@ static VOID InstrumentInsCallback(INS ins, VOID* v) {
             readBufferSlotIndex++;
         }
     }
-
+    
 }
 
-    size_t getPeakRSS() {
-        struct rusage u;
-        getrusage(RUSAGE_SELF, &u);
-        return (size_t)(u.ru_maxrss);
-    }
+size_t getPeakRSS() {
+    struct rusage u;
+    getrusage(RUSAGE_SELF, &u);
+    return (size_t)(u.ru_maxrss);
+}
 
 
 static VOID FiniFunc(INT32 code, VOID *v) {
-    fprintf(gTraceFile, "\n Total evict=%lu, dirtyEvicts=%lu, redundant=%lu, unchanged=%lu, waste=%f, cacheFixable=%f, Peak RSS=%zu\n", stats.evicts, stats.dirtyEvicts, stats.sameData, stats.unchanged, 100.0 * stats.sameData/ stats.dirtyEvicts, 100.0 * stats.unchanged/ stats.dirtyEvicts, getPeakRSS());
+    fprintf(gTraceFile, "\n Total evict=%lu, dirtyEvicts=%lu, shadowDetects=%lu, redundant=%lu, unchanged=%lu, waste=%f, cacheFixable=%f, shadowFixable=%f, Peak RSS=%zu\n", stats.evicts, stats.dirtyEvicts, stats.shadowDetects, stats.sameData, stats.unchanged, 100.0 * stats.sameData/ stats.dirtyEvicts, 100.0 * stats.unchanged/ stats.dirtyEvicts, 100.0 * stats.shadowDetects / stats.sameData            , getPeakRSS());
 }
 
 static VOID ImageUnload(IMG img, VOID* v) {
-//fprintf(stderr, "\n ImageUnload\n");
+    //fprintf(stderr, "\n ImageUnload\n");
     CacheFlush();
 }
 
 static void HandleSysCall(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v){
-//fprintf(stderr, "\n HandleSysCall\n");
-        CacheFlush();
+    //fprintf(stderr, "\n HandleSysCall\n");
+    CacheFlush();
 }
 
 inline VOID Update(uint32_t bytes, THREADID threadId){
@@ -459,7 +567,7 @@ inline VOID Update(uint32_t bytes, THREADID threadId){
 
 //instrument the trace, count the number of ins in the trace, decide to instrument or not
 static void InstrumentTrace(TRACE trace, void* f) {
-
+    
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
     {
         uint32_t totBytes = 0;
@@ -474,7 +582,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
 
 
 static VOID ThreadFiniFunc(THREADID threadId, const CONTEXT *ctxt, INT32 code, VOID *v) {
-RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
     fprintf(gTraceFile, "\n Bytes written=%lu, Bytes redundant=%lu, redundant=%f \n", tData->bytesWritten, tData->bytesRedundant, 100.0 * tData->bytesRedundant/ tData->bytesWritten);
 }
 
@@ -503,7 +611,7 @@ int main(int argc, char* argv[]) {
     
     // Init Client
     ClientInit(argc, argv);
-     
+    
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
@@ -512,18 +620,18 @@ int main(int argc, char* argv[]) {
     
     // fini function for post-mortem analysis
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
-  
+    
     // Register SyscallEntry
     PIN_AddSyscallEntryFunction (HandleSysCall, 0);
-  //  PIN_AddSyscallExitFunction (HandleSysCall, 0);
-
-    INS_AddInstrumentFunction(InstrumentInsCallback, 0); 
+    //  PIN_AddSyscallExitFunction (HandleSysCall, 0);
+    
+    INS_AddInstrumentFunction(InstrumentInsCallback, 0);
     // fini function for post-mortem analysis
     PIN_AddFiniFunction(FiniFunc, 0);
     
     TRACE_AddInstrumentFunction(InstrumentTrace, 0);
-
-
+    
+    
     // Launch program now
     PIN_StartProgram();
     return 0;
