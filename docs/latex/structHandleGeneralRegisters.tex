@@ -1,0 +1,76 @@
+\hypertarget{structHandleGeneralRegisters}{\section{Handle\-General\-Registers$<$ T $>$ Struct Template Reference}
+\label{structHandleGeneralRegisters}\index{Handle\-General\-Registers$<$ T $>$@{Handle\-General\-Registers$<$ T $>$}}
+}
+\subsection*{Static Public Member Functions}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{structHandleGeneralRegisters_a7c8491409c3a41d3ba9321ec80f5bad7}{static {\bfseries \-\_\-\-\_\-attribute\-\_\-\-\_\-} ((always\-\_\-inline)) void Check\-Values(T value}\label{structHandleGeneralRegisters_a7c8491409c3a41d3ba9321ec80f5bad7}
+
+\end{DoxyCompactItemize}
+\subsection*{Public Attributes}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{structHandleGeneralRegisters_a41c949d0a193af77658671c066c6855d}{static R\-E\-G {\bfseries reg}}\label{structHandleGeneralRegisters_a41c949d0a193af77658671c066c6855d}
+
+\item 
+\hypertarget{structHandleGeneralRegisters_a209211dc1f8f3965c160da822599231f}{static R\-E\-G uint32\-\_\-t {\bfseries opaque\-Handle}}\label{structHandleGeneralRegisters_a209211dc1f8f3965c160da822599231f}
+
+\item 
+static R\-E\-G uint32\-\_\-t T\-H\-R\-E\-A\-D\-I\-D {\bfseries thread\-Id}
+\item 
+\hypertarget{structHandleGeneralRegisters_a1c79da2d213ae8dd21079581d7ee69bf}{Context\-Handle\-\_\-t {\bfseries cur\-Ctxt\-Handle} = Get\-Context\-Handle(thread\-Id, opaque\-Handle)}\label{structHandleGeneralRegisters_a1c79da2d213ae8dd21079581d7ee69bf}
+
+\item 
+\hypertarget{structHandleGeneralRegisters_ae78d9091d4eb5eb5dc72a0c21c8aa87b}{T $\ast$ {\bfseries reg\-Before} = (T $\ast$)(\&t\-Data-\/$>$reg\-Value\mbox{[}reg\mbox{]}\mbox{[}0\mbox{]})}\label{structHandleGeneralRegisters_ae78d9091d4eb5eb5dc72a0c21c8aa87b}
+
+\item 
+if {\bfseries reg\-Before}
+\item 
+\hypertarget{structHandleGeneralRegisters_afce9ed50cad57b6e4118a0ab4b1edbef}{else $\ast$ {\bfseries reg\-Before} = value}\label{structHandleGeneralRegisters_afce9ed50cad57b6e4118a0ab4b1edbef}
+
+\item 
+\hypertarget{structHandleGeneralRegisters_a8178a7e792bad65cc8709ce40a03b128}{t\-Data {\bfseries reg\-Ctxt} \mbox{[}reg\mbox{]} = cur\-Ctxt\-Handle}\label{structHandleGeneralRegisters_a8178a7e792bad65cc8709ce40a03b128}
+
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{template$<$class T$>$struct Handle\-General\-Registers$<$ T $>$}
+
+
+
+Definition at line 345 of file redspy\-\_\-temporal\-\_\-client.\-cpp.
+
+
+
+\subsection{Member Data Documentation}
+\hypertarget{structHandleGeneralRegisters_ae44164656bd477ab58ac4a5c4b79f5ee}{\index{Handle\-General\-Registers@{Handle\-General\-Registers}!reg\-Before@{reg\-Before}}
+\index{reg\-Before@{reg\-Before}!HandleGeneralRegisters@{Handle\-General\-Registers}}
+\subsubsection[{reg\-Before}]{\setlength{\rightskip}{0pt plus 5cm}template$<$class T $>$ if {\bf Handle\-General\-Registers}$<$ T $>$\-::reg\-Before}}\label{structHandleGeneralRegisters_ae44164656bd477ab58ac4a5c4b79f5ee}
+{\bfseries Initial value\-:}
+\begin{DoxyCode}
+\{
+            AddToRedTable(MAKE\_CONTEXT\_PAIR(tData->regCtxt[reg],curCtxtHandle),\textcolor{keyword}{sizeof}(T),threadId)
+\end{DoxyCode}
+
+
+Definition at line 354 of file redspy\-\_\-temporal\-\_\-client.\-cpp.
+
+\hypertarget{structHandleGeneralRegisters_a1c358ea1f32751b2b7d8aaef2bd24f3b}{\index{Handle\-General\-Registers@{Handle\-General\-Registers}!thread\-Id@{thread\-Id}}
+\index{thread\-Id@{thread\-Id}!HandleGeneralRegisters@{Handle\-General\-Registers}}
+\subsubsection[{thread\-Id}]{\setlength{\rightskip}{0pt plus 5cm}template$<$class T $>$ R\-E\-G uint32\-\_\-t T\-H\-R\-E\-A\-D\-I\-D {\bf Handle\-General\-Registers}$<$ T $>$\-::thread\-Id}}\label{structHandleGeneralRegisters_a1c358ea1f32751b2b7d8aaef2bd24f3b}
+{\bfseries Initial value\-:}
+\begin{DoxyCode}
+\{
+        
+        \hyperlink{structRedSpyThreadData}{RedSpyThreadData}* \textcolor{keyword}{const} tData = ClientGetTLS(threadId)
+\end{DoxyCode}
+
+
+Definition at line 347 of file redspy\-\_\-temporal\-\_\-client.\-cpp.
+
+
+
+The documentation for this struct was generated from the following file\-:\begin{DoxyCompactItemize}
+\item 
+tests/redspy\-\_\-temporal\-\_\-client.\-cpp\end{DoxyCompactItemize}

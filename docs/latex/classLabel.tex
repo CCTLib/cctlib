@@ -1,0 +1,72 @@
+\hypertarget{classLabel}{\section{Label Class Reference}
+\label{classLabel}\index{Label@{Label}}
+}
+
+
+Collaboration diagram for Label\-:
+\subsection*{Public Member Functions}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{classLabel_a3d24d0fa7b7143b026bd23997a06c296}{uint8\-\_\-t {\bfseries Get\-Length} () const }\label{classLabel_a3d24d0fa7b7143b026bd23997a06c296}
+
+\item 
+\hypertarget{classLabel_a475dc352b81f8b64683d54ff3fe8d5be}{void {\bfseries Set\-Length} (uint64\-\_\-t len)}\label{classLabel_a475dc352b81f8b64683d54ff3fe8d5be}
+
+\item 
+\hypertarget{classLabel_a50e658323137aefd599f0bc7f8d6fd6e}{void {\bfseries Increment\-Ref} ()}\label{classLabel_a50e658323137aefd599f0bc7f8d6fd6e}
+
+\item 
+\hypertarget{classLabel_a9e5b99342ddd639decfc651e5244b401}{void {\bfseries Decrement\-Ref} ()}\label{classLabel_a9e5b99342ddd639decfc651e5244b401}
+
+\item 
+\hypertarget{classLabel_af736ace059589eeee09cd026ed971cdf}{\hyperlink{structLabelSegment}{Label\-Segment} $\ast$ {\bfseries Get\-Segment\-At\-Index} (int index) const }\label{classLabel_af736ace059589eeee09cd026ed971cdf}
+
+\item 
+\hypertarget{classLabel_ad955a0f57fd172dbd14f0303e4501aa9}{void {\bfseries Copy\-Label\-Segments} (const \hyperlink{classLabel}{Label} \&label)}\label{classLabel_ad955a0f57fd172dbd14f0303e4501aa9}
+
+\item 
+\hypertarget{classLabel_a9499c1f80b21413facd34e17d0d40f25}{void {\bfseries Label\-Create\-After\-Fork} (const \hyperlink{classLabel}{Label} \&label, const \hyperlink{structLabelSegment}{Label\-Segment} \&extension)}\label{classLabel_a9499c1f80b21413facd34e17d0d40f25}
+
+\item 
+\hypertarget{classLabel_ae17efa5ab74875313f0ee39e36c1aae6}{void {\bfseries Label\-Create\-After\-Join} (const \hyperlink{classLabel}{Label} \&label)}\label{classLabel_ae17efa5ab74875313f0ee39e36c1aae6}
+
+\item 
+\hypertarget{classLabel_a02c946f6049061e9403210f63a291747}{void {\bfseries Label\-Create\-After\-Barrier} (const \hyperlink{classLabel}{Label} \&label)}\label{classLabel_a02c946f6049061e9403210f63a291747}
+
+\item 
+\hypertarget{classLabel_a42bdbc380e214b539c5b8db861fd6757}{void {\bfseries Label\-Create\-After\-Enering\-Ordered\-Section} (const \hyperlink{classLabel}{Label} \&label)}\label{classLabel_a42bdbc380e214b539c5b8db861fd6757}
+
+\item 
+\hypertarget{classLabel_a28873ccfd689391e0bd46f2a9bd5719e}{void {\bfseries Label\-Create\-After\-Exiting\-Ordered\-Section} (const \hyperlink{classLabel}{Label} \&label)}\label{classLabel_a28873ccfd689391e0bd46f2a9bd5719e}
+
+\item 
+\hypertarget{classLabel_a0e238fe9836ba9f4be1af22ee64599ff}{{\bfseries Label} (Label\-Creation\-Type type, const \hyperlink{classLabel}{Label} \&label, const \hyperlink{structLabelSegment}{Label\-Segment} \&extension=default\-Extension)}\label{classLabel_a0e238fe9836ba9f4be1af22ee64599ff}
+
+\item 
+\hypertarget{classLabel_aa548453871aa09bb2e6d6244c53054d9}{void {\bfseries Print\-Label} () const }\label{classLabel_aa548453871aa09bb2e6d6244c53054d9}
+
+\end{DoxyCompactItemize}
+\subsection*{Private Attributes}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{classLabel_a1676b7ea6b1e67e8c0c8ba762c23fec2}{\hyperlink{structLabelSegment}{Label\-Segment} $\ast$ {\bfseries m\-\_\-\-Label\-Segment}}\label{classLabel_a1676b7ea6b1e67e8c0c8ba762c23fec2}
+
+\item 
+\hypertarget{classLabel_adaef34df8bbdb59687139262ed25b644}{uint8\-\_\-t {\bfseries m\-\_\-label\-Length}}\label{classLabel_adaef34df8bbdb59687139262ed25b644}
+
+\item 
+\hypertarget{classLabel_a9412617cd8470d7d2f4ac32f0530a50f}{volatile atomic$<$ uint64\-\_\-t $>$ {\bfseries m\-\_\-ref\-Count}}\label{classLabel_a9412617cd8470d7d2f4ac32f0530a50f}
+
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+
+
+Definition at line 182 of file omp\-\_\-datarace\-\_\-client.\-cpp.
+
+
+
+The documentation for this class was generated from the following file\-:\begin{DoxyCompactItemize}
+\item 
+tests/omp\-\_\-datarace\-\_\-client.\-cpp\end{DoxyCompactItemize}
