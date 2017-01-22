@@ -42,7 +42,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sstream>
-//#include <functional>
+#include <functional>
 #include <unordered_set>
 #include <vector>
 #include <unordered_map>
