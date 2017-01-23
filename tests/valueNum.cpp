@@ -1,4 +1,7 @@
-/* This file is created by Shasha Wen at College of William and Mary. This is a cctlib client for detecting computation redundancies using dynamic value numbering */
+// @COPYRIGHT@
+// Licensed under MIT license.
+// See LICENSE.TXT file in the project root for more information.
+// ==============================================================
 
 #include <stdio.h>
 #include <stdlib.h>
