@@ -1,3 +1,8 @@
+// @COPYRIGHT@
+// Licensed under MIT license.
+// See LICENSE.TXT file in the project root for more information.
+// ==============================================================
+
 #define N (0xfffff)
 
 int a[N];

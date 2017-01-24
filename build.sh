@@ -1,3 +1,8 @@
+# @COPYRIGHT@
+# Licensed under MIT license.
+# See LICENSE.TXT file in the project root for more information.
+# ==============================================================
+
 set -ex
 #PATH_TO_PIN=/home/scratch/xl10/support/pin-2.14-71313-gcc.4.4.7-linux
 CUR_DIR=`pwd`

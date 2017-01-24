@@ -1,3 +1,8 @@
+// @COPYRIGHT@
+// Licensed under MIT license.
+// See LICENSE.TXT file in the project root for more information.
+// ==============================================================
+
 static inline void CopyRegionToShadowMemory(uint8_t * address, uint64_t length){
     uint64_t remainingBytesToCopy = length;
     uint8_t* curAddress = address;
