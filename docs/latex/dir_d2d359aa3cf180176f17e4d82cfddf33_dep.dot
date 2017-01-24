@@ -1,9 +1,0 @@
-digraph "tests/footprint_test" {
-  compound=true
-  node [ fontsize="10", fontname="Helvetica"];
-  edge [ labelfontsize="10", labelfontname="Helvetica"];
-  subgraph clusterdir_59425e443f801f1f2fd8bbe4959a3ccf {
-    graph [ bgcolor="#ddddee", pencolor="black", label="tests" fontname="Helvetica", fontsize="10", URL="dir_59425e443f801f1f2fd8bbe4959a3ccf.html"]
-  dir_d2d359aa3cf180176f17e4d82cfddf33 [shape=box, label="footprint_test", style="filled", fillcolor="#eeeeff", pencolor="black", URL="dir_d2d359aa3cf180176f17e4d82cfddf33.html"];
-  }
-}
