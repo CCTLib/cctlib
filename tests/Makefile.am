@@ -3,7 +3,7 @@
 CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
 include $(CONFIG_ROOT)/makefile.config
 
-TEST_TOOL_ROOTS =  cct_client deadspy_client redspy_client redspy_temporal_client redspy_temporal_approx_client cct_data_centric_client cct_client_mem_only cct_data_centric_client_tree_based redspy_spatial_client redspy_spatial_approx_client cct_metric_client cctlib_reader footprint_client footprint_client2 valueNum omp_datarace_client
+TEST_TOOL_ROOTS =  cct_client deadspy_client redspy_client redspy_temporal_client cct_data_centric_client cct_client_mem_only cct_data_centric_client_tree_based redspy_spatial_userdefine_client redspy_spatial_client cct_metric_client cctlib_reader footprint_client footprint_client2 valueNum omp_datarace_client
 APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
@@ -39,17 +39,10 @@ $(OBJDIR)redspy_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_client$(OBJ_SUFFIX) $(C
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 $(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX): redspy_temporal_client.cpp ../src/cctlib.H
-	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+	$(CXX) -mavx -DENABLE_SAMPLING -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)redspy_temporal_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
-
-$(OBJDIR)redspy_temporal_approx_client$(OBJ_SUFFIX): redspy_temporal_approx_client.cpp ../src/cctlib.H
-	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
-
-$(OBJDIR)redspy_temporal_approx_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_temporal_approx_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
-	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
-
 
 $(OBJDIR)omp_datarace_client$(OBJ_SUFFIX): omp_datarace_client.cpp ../src/cctlib.H shadow_memory.cpp
 	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
@@ -85,18 +78,18 @@ $(OBJDIR)cct_data_centric_client_tree_based$(OBJ_SUFFIX): cct_data_centric_clien
 $(OBJDIR)cct_data_centric_client_tree_based$(PINTOOL_SUFFIX): $(OBJDIR)cct_data_centric_client_tree_based$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS) -lcctlib_tree_based  $(TOOL_LIBS) $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
+$(OBJDIR)redspy_spatial_userdefine_client$(OBJ_SUFFIX): redspy_spatial_userdefine_client.cpp ../src/cctlib.H
+	$(CXX)  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+
+$(OBJDIR)redspy_spatial_userdefine_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_spatial_userdefine_client$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
+
+
 $(OBJDIR)redspy_spatial_client$(OBJ_SUFFIX): redspy_spatial_client.cpp ../src/cctlib.H
 	$(CXX)  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)redspy_spatial_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_spatial_client$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
-
-$(OBJDIR)redspy_spatial_approx_client$(OBJ_SUFFIX): redspy_spatial_approx_client.cpp ../src/cctlib.H
-	$(CXX)  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
-
-$(OBJDIR)redspy_spatial_approx_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_spatial_approx_client$(OBJ_SUFFIX) $(CCTLIB_TREE_BASED_LIBRARY)
-	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
-
 
 $(OBJDIR)cct_metric_client$(OBJ_SUFFIX): cct_metric_client.cpp ../src/cctlib.H
 	$(CXX)  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
