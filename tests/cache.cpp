@@ -1,38 +1,3 @@
-// * BeginRiceCopyright *****************************************************
-//
-// Copyright ((c)) 2002-2014, Rice University
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-// * Redistributions of source code must retain the above copyright
-//   notice, this list of conditions and the following disclaimer.
-//
-// * Redistributions in binary form must reproduce the above copyright
-//   notice, this list of conditions and the following disclaimer in the
-//   documentation and/or other materials provided with the distribution.
-//
-// * Neither the name of Rice University (RICE) nor the names of its
-//   contributors may be used to endorse or promote products derived from
-//   this software without specific prior written permission.
-//
-// This software is provided by RICE and contributors "as is" and any
-// express or implied warranties, including, but not limited to, the
-// implied warranties of merchantability and fitness for a particular
-// purpose are disclaimed. In no event shall RICE or contributors be
-// liable for any direct, indirect, incidental, special, exemplary, or
-// consequential damages (including, but not limited to, procurement of
-// substitute goods or services; loss of use, data, or profits; or
-// business interruption) however caused and on any theory of liability,
-// whether in contract, strict liability, or tort (including negligence
-// or otherwise) arising in any way out of the use of this software, even
-// if advised of the possibility of such damage.
-//
-// ******************************************************* EndRiceCopyright *
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -63,63 +28,92 @@ static FILE* gTraceFile;
 
 #define CACHE_LINE_BITS (6)
 #define CACHE_INDEX_BITS (20)
+#define CACHE_WAY_BITS (3)
+
+
 #define CACHE_SZ (1L<< (CACHE_LINE_BITS + CACHE_INDEX_BITS))
+#define CACHE_NUM_WAYS (1L<< CACHE_WAY_BITS)
 #define CACHE_LINE_SZ (1L << CACHE_LINE_BITS)
 #define CACHE_LINE_MASK (CACHE_LINE_SZ-1)
+
 #define CACHE_LINE_BASE(addr) ((size_t)(addr) & (~CACHE_LINE_MASK))
 
 #define CACHE_NUM_LINES (CACHE_SZ/CACHE_LINE_SZ)
 #define CACHE_TAG_MASK (~CACHE_LINE_MASK)
 #define CACHE_TAG(address) (((size_t)address) & CACHE_TAG_MASK)
 #define CACHE_LINE_INDEX(address)  (((size_t)(address) & (CACHE_SZ - 1)) >> CACHE_LINE_BITS)
-#define IS_VALID(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isInUse &&  (cache[CACHE_LINE_INDEX(((size_t)address))].tag == CACHE_TAG(((size_t)address))))
-#define IS_INUSE(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isInUse)
-
-#define SET_TAG(address) (cache[CACHE_LINE_INDEX(((size_t)address))].tag = CACHE_TAG(address))
-
-#define SET_DIRTY(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isDirty = true)
-#define SET_CLEAN(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isDirty = false)
-#define IS_DIRTY(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isDirty)
-
-#define SET_INUSE(address) (cache[CACHE_LINE_INDEX(((size_t)address))].isInUse = true)
-#define GET_TAG(address) (cache[CACHE_LINE_INDEX(((size_t)address))].tag)
-#define WAS_DIFFERENT(address) (cache[CACHE_LINE_INDEX(((size_t)address))].wasDifferent)
+#define IS_VALID(index, address) (cache[index].isInUse &&  (cache[index].tag == CACHE_TAG(((size_t)address))))
+#define IS_INUSE(index) (cache[index].isInUse)
 
 
 
+#define SET_TAG(index, address) (cache[index].tag = CACHE_TAG(address))
+#define SET_DIRTY(index) (cache[index].isDirty = true)
+#define SET_CLEAN(index) (cache[index].isDirty = false)
+#define SET_ISZERO(index) (cache[index].isZero = true)
 
-#define SHADOW_CACHE_INDEX_BITS (20)
+#define IS_DIRTY(index) (cache[index].isDirty)
+
+#define SET_INUSE(index) (cache[index].isInUse = true)
+#define GET_TAG(index) (cache[index].tag)
+#define WAS_DIFFERENT(index) (cache[index].wasDifferent)
+#define SET_ACCESSTIME(index) (cache[index].lastAcceessTime = accessTime)
+
+#define SHADOW_CACHE_INDEX_BITS (16)
 #define SHADOW_CACHE_SZ (1L<< (CACHE_LINE_BITS + SHADOW_CACHE_INDEX_BITS))
 #define SHADOW_CACHE_LINE_MASK (CACHE_LINE_SZ-1)
 #define SHADOW_CACHE_TAG_MASK (~SHADOW_CACHE_LINE_MASK)
 #define SHADOW_CACHE_TAG(address) (((size_t)address) & SHADOW_CACHE_TAG_MASK)
 
+#define SHADOW_CACHE_NUM_WAYS (CACHE_NUM_WAYS)
 #define SHADOW_CACHE_NUM_LINES (SHADOW_CACHE_SZ/CACHE_LINE_SZ)
 #define SHADOW_CACHE_LINE_INDEX(address)  (((size_t)(address) & (SHADOW_CACHE_SZ - 1)) >> CACHE_LINE_BITS)
-#define SHADOW_IS_VALID(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].isInUse &&  (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].tag == cache[CACHE_LINE_INDEX(((size_t)address))].tag))
-#define SHADOW_SET_TAG(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].tag = SHADOW_CACHE_TAG(address))
-#define SHADOW_SET_INUSE(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].isInUse = true)
-#define SHADOW_GET_TAG(address) (shadowCache[SHADOW_CACHE_LINE_INDEX(((size_t)address))].tag)
+#define SHADOW_IS_VALID(idx, tag) (shadowCache[idx].isInUse &&  (shadowCache[idx].tag == tag))
+#define SHADOW_SET_TAG(index, address) (shadowCache[index].tag = SHADOW_CACHE_TAG(address))
+#define SHADOW_SET_INUSE(index) (shadowCache[index].isInUse = true)
+#define SHADOW_GET_TAG(index) (shadowCache[index].tag)
+#define SHADOW_IS_INUSE(index) (shadowCache[index].isInUse)
+#define SHADOW_WAS_REDUNDANT(index) (shadowCache[index].wasRedundant)
 
 
 #define MAX_WRITE_OP_LENGTH (512)
 #define MAX_WRITE_OPS_IN_INS (8)
+
+//#define DO_REDSPY
 
 
 struct Cache_t{
     size_t tag;
     bool isDirty;
     bool isInUse;
+    bool isZero;
     bool wasDifferent;
     uint8_t value[CACHE_LINE_SZ];
-    Cache_t(): tag(0), isDirty(false), isInUse(false), wasDifferent(false) {}
+    uint64_t lastAcceessTime;
+    Cache_t(): tag(-1), isDirty(false), isInUse(false), isZero(false), wasDifferent(false), lastAcceessTime(0) {}
+    void ReInit(){
+        tag = -1;
+        isDirty = false;
+        isInUse = false;
+        wasDifferent = false;
+        lastAcceessTime = 0;
+        isZero = false;
+    }
 };
 
 struct ShadowCache_t{
     size_t tag;
     bool isInUse;
+    bool wasRedundant;
+    uint64_t lastAcceessTime;
     uint8_t value[CACHE_LINE_SZ];
-    ShadowCache_t(): tag(0), isInUse(false) {}
+    ShadowCache_t(): tag(-1), isInUse(false), wasRedundant(false), lastAcceessTime(0) {}
+    void ReInit(){
+        tag = -1;
+        isInUse = false;
+        wasRedundant = false;
+        lastAcceessTime = 0;
+    }
 };
 
 struct Stats_t{
@@ -128,7 +122,8 @@ struct Stats_t{
     uint64_t unchanged;
     uint64_t dirtyEvicts;
     uint64_t shadowDetects;
-    Stats_t() : sameData(0), evicts(0), unchanged(0), dirtyEvicts(0), shadowDetects(0) {}
+    uint64_t zeroDetect;
+    Stats_t() : sameData(0), evicts(0), unchanged(0), dirtyEvicts(0), shadowDetects(0), zeroDetect(0) {}
 };
 
 struct AddrValPair{
@@ -157,72 +152,230 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 }
 
 
-thread_local Stats_t stats;
+//thread_local Stats_t stats;
+//thread_local Cache_t cache[CACHE_NUM_LINES];
+//thread_local ShadowCache_t shadowCache[SHADOW_CACHE_NUM_LINES];
+ Stats_t stats;
+ Cache_t cache[CACHE_NUM_LINES];
+ ShadowCache_t shadowCache[SHADOW_CACHE_NUM_LINES];
+
+uint64_t accessTime;
+
+enum LineStatus{CACHED, EMPTY, OCCUPIED};
+
+LineStatus IsCached(uint64_t address, uint64_t &cacheLineIdx){
+    uint64_t baseAddr = CACHE_LINE_BASE(address);
+    uint64_t tag = CACHE_TAG(baseAddr);
+    // Most likely place
+    cacheLineIdx = CACHE_LINE_INDEX(baseAddr);
+    if (IS_VALID(cacheLineIdx, tag))
+        return CACHED;
+    
+    uint64_t idxAvailable = UINT64_MAX;
+    uint64_t oldest = cacheLineIdx;
+    
+    // Search the N-ways
+    const uint64_t stride = CACHE_NUM_LINES / CACHE_NUM_WAYS;
+    
+    for(int i = 0; i < CACHE_NUM_WAYS-1; i++) {
+        cacheLineIdx = (cacheLineIdx + stride) % CACHE_NUM_LINES;
+        if (IS_VALID(cacheLineIdx, tag))
+            return CACHED;
+        if ( (idxAvailable != UINT64_MAX) && (!IS_INUSE(cacheLineIdx))){
+            idxAvailable = cacheLineIdx;
+        }
+        if (cache[cacheLineIdx].lastAcceessTime < cache[oldest].lastAcceessTime){
+            oldest = cacheLineIdx;
+        }
+    }
+    
+    if(idxAvailable != UINT64_MAX){
+        cacheLineIdx = idxAvailable;
+        return EMPTY;
+    } else {
+        cacheLineIdx = oldest;
+        return OCCUPIED;
+    }
+}
 
 
-thread_local Cache_t cache[CACHE_NUM_LINES];
-thread_local ShadowCache_t shadowCache[SHADOW_CACHE_NUM_LINES];
+bool HasDataChanged(uint64_t shadowCacheLineIdx){
+    uint8_t * originalData = shadowCache[shadowCacheLineIdx].value;
+    uint8_t * curData = (uint8_t *) shadowCache[shadowCacheLineIdx].tag;
+    
+    for (int i = 0; i < CACHE_LINE_SZ; i++) {
+        if(originalData[i] != curData[i]){
+            return true;
+        }
+    }
+    return false;
+}
+
+LineStatus IsShadowCached(uint64_t tag, uint64_t &shadowCacheLineIdx){
+    // Most likely place
+    shadowCacheLineIdx = SHADOW_CACHE_LINE_INDEX(tag);
+    if (SHADOW_IS_VALID(shadowCacheLineIdx, tag))
+        return CACHED;
+    
+    uint64_t idxAvailable = UINT64_MAX;
+    uint64_t preferred = UINT64_MAX;
+    uint64_t oldest = shadowCacheLineIdx;
+    uint64_t mostPreferred = UINT64_MAX;
+    uint64_t dataChangedIndex = UINT64_MAX;
+    
+    // Search the N-ways
+    const uint64_t stride = SHADOW_CACHE_NUM_LINES / SHADOW_CACHE_NUM_WAYS;
+    
+    for(int i = 0; i < SHADOW_CACHE_NUM_WAYS-1; i++) {
+        shadowCacheLineIdx = (shadowCacheLineIdx + stride) % SHADOW_CACHE_NUM_LINES;
+        if (SHADOW_IS_VALID(shadowCacheLineIdx, tag))
+            return CACHED;
+        
+        if ( (mostPreferred != UINT64_MAX) && (!SHADOW_IS_INUSE(shadowCacheLineIdx) && SHADOW_WAS_REDUNDANT(shadowCacheLineIdx))){
+            mostPreferred = shadowCacheLineIdx;
+        }
+        
+        if ( (idxAvailable != UINT64_MAX)  && (!SHADOW_IS_INUSE(shadowCacheLineIdx))){
+            idxAvailable = shadowCacheLineIdx;
+        }
+        
+        if ((dataChangedIndex != UINT64_MAX) && (SHADOW_IS_INUSE(shadowCacheLineIdx) && HasDataChanged(shadowCacheLineIdx))){
+            dataChangedIndex = shadowCacheLineIdx;
+        }
+        
+        if (shadowCache[shadowCacheLineIdx].lastAcceessTime < shadowCache[oldest].lastAcceessTime){
+            oldest = shadowCacheLineIdx;
+        }
+    }
+    
+    if(mostPreferred != UINT64_MAX){
+        shadowCacheLineIdx = mostPreferred;
+        return EMPTY;
+    }
+    
+    if(idxAvailable != UINT64_MAX){
+        shadowCacheLineIdx = idxAvailable;
+        return EMPTY;
+    }
+    
+    if(dataChangedIndex != UINT64_MAX){
+        shadowCacheLineIdx = dataChangedIndex;
+        return OCCUPIED;
+    }
+    
+    shadowCacheLineIdx = oldest;
+    return OCCUPIED;
+}
 
 
 void CacheFlush(){
 #pragma omp simd
     for(int i = 0; i < CACHE_NUM_LINES; i++){
-        cache[i].isInUse = false;
-        cache[i].tag = -1;
+        cache[i].ReInit();
     }
     
 #pragma omp simd
     for(int i = 0; i < SHADOW_CACHE_NUM_LINES; i++){
-        shadowCache[i].isInUse = false;
-        shadowCache[i].tag = -1;
+        shadowCache[i].ReInit();
     }
 }
 
-static inline void Allocate(uint64_t addr) {
+static inline void Allocate(uint64_t addr, uint64_t index) {
     uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
-    uint64_t index = CACHE_LINE_INDEX(address);
     uint8_t * newValue = (uint8_t *) (address);
     uint8_t * originalVal = cache[index].value;
-    SET_CLEAN(address);
-    SET_TAG(address);
-    WAS_DIFFERENT(address) = false;
-    SET_INUSE(address);
+    SET_CLEAN(index);
+    SET_TAG(index, address);
+    WAS_DIFFERENT(index) = false;
+    SET_INUSE(index);
 
+    
+
+    bool isAllZero = true;
 #pragma omp simd
     for(int i = 0; i < CACHE_LINE_SZ; i++){
         originalVal[i] = newValue[i];
+        if(newValue[i] != 0)
+            isAllZero = false;
     }
+    
+    if(isAllZero)
+        SET_ISZERO(index);
 }
 
 
-static inline void MakeShadowCopy(uint64_t addr){
-    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
-    // copy to shadow and make it active
-    SHADOW_SET_INUSE(address);
-    SHADOW_SET_TAG(address);
-    uint8_t * baseLocation = cache[CACHE_LINE_INDEX(((uint64_t)address))].value;
-    uint8_t * shadowLocation = shadowCache[SHADOW_CACHE_LINE_INDEX(((uint64_t)address))].value;
+static inline void MakeShadowCopy(uint64_t cacheLineIdx){
+    uint64_t tag = cache[cacheLineIdx].tag;
+    uint64_t shadowCacheLineIdx;
+    LineStatus s = IsShadowCached(tag, shadowCacheLineIdx);
+    switch (s) {
+        case CACHED:
+            assert(0 && "IMPOSSIBLE");
+            break;
+        case EMPTY:
+        case OCCUPIED:{
+            // copy to shadow and make it active
+            SHADOW_SET_INUSE(shadowCacheLineIdx);
+            SHADOW_SET_TAG(shadowCacheLineIdx, tag);
+            shadowCache[shadowCacheLineIdx].lastAcceessTime = accessTime;
+            
+            uint8_t * baseLocation = cache[cacheLineIdx].value;
+            uint8_t * shadowLocation = shadowCache[shadowCacheLineIdx].value;
 #pragma omp simd
-    for(int i = 0; i < CACHE_LINE_SZ; i++){
-        shadowLocation[i] = baseLocation[i];
+            for(int i = 0; i < CACHE_LINE_SZ; i++){
+                shadowLocation[i] = baseLocation[i];
+            }
+#if 0
+            fprintf(stderr, "\n MakeShadowCopy: idx=%lx s-idx=%lx, tag =%lx", cacheLineIdx, shadowCacheLineIdx, tag);
+#endif
+        }
+            break;
+        default:
+            break;
     }
 }
 
-static inline void CleanShadowCopy(uint64_t addr){
-    uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+static inline void CleanShadowCopy(uint64_t shadowCacheIdx, bool isRedundantviaShadow){
     // copy to shadow and make it active
-    shadowCache[SHADOW_CACHE_LINE_INDEX(address)].isInUse = false;
-    shadowCache[SHADOW_CACHE_LINE_INDEX(address)].tag = -1;
+    shadowCache[shadowCacheIdx].isInUse = false;
+    shadowCache[shadowCacheIdx].tag = UINT64_MAX;
+    shadowCache[shadowCacheIdx].wasRedundant = isRedundantviaShadow;
+    shadowCache[shadowCacheIdx].lastAcceessTime = 0;
+}
+
+bool HasShadowCache(uint64_t cacheLineIdx, uint64_t &shadowCacheIdx){
+    uint64_t tag = cache[cacheLineIdx].tag;
+    shadowCacheIdx = SHADOW_CACHE_LINE_INDEX(tag);
+    if (SHADOW_IS_VALID(shadowCacheIdx, tag))
+        return true;
+    // Search the N-ways
+    const uint64_t stride = SHADOW_CACHE_NUM_LINES / SHADOW_CACHE_NUM_WAYS;
+    
+    for(int i = 0; i < SHADOW_CACHE_NUM_WAYS-1; i++) {
+        shadowCacheIdx = (shadowCacheIdx + stride) % SHADOW_CACHE_NUM_LINES;
+        if (SHADOW_IS_VALID(shadowCacheIdx, tag))
+            return true;
+    }
+#if 0
+    fprintf(stderr, "\n HasShadowCache: idx=%lx s-idx=%lx, tag =%lx", cacheLineIdx, shadowCacheIdx, tag);
+    shadowCacheIdx = SHADOW_CACHE_LINE_INDEX(tag);
+    for(int i = 0; i < SHADOW_CACHE_NUM_WAYS; i++) {
+        shadowCacheIdx = (shadowCacheIdx + stride) % SHADOW_CACHE_NUM_LINES;
+        fprintf(stderr, "\n XX: idx=%lx s-idx=%lx, tag =%lx s-Tag=%lx", cacheLineIdx, shadowCacheIdx, tag,shadowCache[shadowCacheIdx].tag);
+    }
+#endif
+    
+    return false;
 }
 
 
-static inline void OnEvict(uint64_t addr) {
+
+static inline void OnEvict(uint64_t addr, uint64_t index) {
     uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
-    uint64_t index = CACHE_LINE_INDEX(address);
     uint8_t * newValue = (uint8_t *) (address);
     uint8_t * originalVal = cache[index].value;
-    uint8_t * curValue = (uint8_t *) (GET_TAG(address));
-    bool isDirty = IS_DIRTY(address);
+    uint8_t * curValue = (uint8_t *) (GET_TAG(index));
+    bool isDirty = IS_DIRTY(index);
     
     if (isDirty) {
         //        fprintf(stderr, "\n E: address=%lx, newValue=%p, originalVal=%p, curValue=%p, idx=%lx, tag=%lx\n", address, newValue, originalVal, curValue, CACHE_LINE_INDEX(address), GET_TAG(address));
@@ -233,7 +386,23 @@ static inline void OnEvict(uint64_t addr) {
                 break;
             }
         }
-        if (!WAS_DIFFERENT(address)) {
+        
+        if(cache[index].isZero) {
+            bool foundAllZeros = true;
+            for(int i = 0; i < CACHE_LINE_SZ; i++){
+                if(curValue[i] != 0) {
+                    foundAllZeros = false;
+                    break;
+                }
+            }
+            
+            if(foundAllZeros)
+                stats.zeroDetect++;
+//            if(!isRedundant && foundAllZeros)
+//                assert(0);
+        }
+        
+        if (!WAS_DIFFERENT(index)) {
             stats.unchanged++;
         }
         if (isRedundant) {
@@ -241,10 +410,19 @@ static inline void OnEvict(uint64_t addr) {
         }
         
         //        uint64_t oldAddress = GET_TAG(address);
-        if(SHADOW_IS_VALID(address)){
+        
+        uint64_t shadowCacheIdx;
+        //SHADOW_IS_VALID(address)
+        if(HasShadowCache(index, shadowCacheIdx)){
             bool isRedundantviaShadow = true;
+            uint8_t * originalValInShadow = shadowCache[shadowCacheIdx].value;
+#if 0
             for(int i = 0; i < CACHE_LINE_SZ; i++){
-                uint8_t * originalValInShadow = shadowCache[SHADOW_CACHE_LINE_INDEX(address)].value;
+                fprintf(stderr, "%d:%d", originalValInShadow[i],curValue[i]);
+            }
+            fprintf(stderr, "\n");
+#endif
+            for(int i = 0; i < CACHE_LINE_SZ; i++){
                 if(originalValInShadow[i] != curValue[i]) {
                     isRedundantviaShadow = false;
                     break;
@@ -257,8 +435,9 @@ static inline void OnEvict(uint64_t addr) {
 //                fprintf(stderr, "\n disagreement!");
             }
             
-            CleanShadowCopy(address);
+            CleanShadowCopy(shadowCacheIdx, isRedundantviaShadow);
         } else {
+            //fprintf(stderr, "\n no shadow");
            // fprintf(stderr, "\n INVALID: idx=%lx, tag=%lx, s-tag=%lx, inuse = %d \n", SHADOW_CACHE_LINE_INDEX(address), GET_TAG(address), SHADOW_GET_TAG(address), shadowCache[CACHE_LINE_INDEX(address)].isInUse);
         }
         stats.dirtyEvicts++;
@@ -272,36 +451,55 @@ static inline void OnEvict(uint64_t addr) {
     stats.evicts++;
 }
 
-static inline void HandleOneCacheLine(void ** addr, bool isWrite){
+static inline void HandleOneCacheLine(void ** addr, bool isWrite, bool print=false){
     uint64_t address = CACHE_LINE_BASE((uint64_t)addr);
+    uint64_t cacheLineIdx;
+    LineStatus s = IsCached(address, cacheLineIdx);
     
-    // Is cacheline unused?
-    if(!IS_INUSE(address)){
-        // Allocate
-        Allocate(address);
-    } else if(CACHE_TAG(address) != GET_TAG(address)) /* Not a match*/{
-        // cache miss write back
-        OnEvict(address);
-        // Allocate
-        Allocate(address);
+    switch (s) {
+        case EMPTY:
+            // Allocate
+            Allocate(address, cacheLineIdx);
+            break;
+        case OCCUPIED:
+            // cache miss write back
+            OnEvict(address, cacheLineIdx);
+            // Allocate
+            Allocate(address, cacheLineIdx);
+            break;
+        default:
+            break;
     }
-    // else : by now we have the line in cache and old one is written by if needed
+//    if(print)
+//        fprintf(stderr, "\n CACHE: addr=%p, base =%lx, status=%d, idx = %lx, who=%lx", addr, CACHE_LINE_BASE(((uint64_t)addr)), s, cacheLineIdx, cache[cacheLineIdx].tag);
+    // by now we have the line in cache and old one is written back if needed
     // if this is a first time write to this line, mark it dirty and copy to the shadow cache
     if(isWrite){
-        if(!IS_DIRTY(address)){
-            SET_DIRTY(address);
-            MakeShadowCopy(address);
+        if(!IS_DIRTY(cacheLineIdx)){
+            SET_DIRTY(cacheLineIdx);
+            MakeShadowCopy(cacheLineIdx);
         }
     }
+    // Update access time
+    SET_ACCESSTIME(cacheLineIdx);
 }
 
 static inline void OnAccess(void ** address, uint64_t accessLen, bool isWrite){
     // Is within cache line?
     if(CACHE_LINE_INDEX(address) == CACHE_LINE_INDEX((size_t)(address) + accessLen - 1)) {
-        HandleOneCacheLine(address, isWrite);
+        
+//        fprintf(stderr, "\n == address=%p, accessLen=%lx", address, accessLen);
+        HandleOneCacheLine(address, isWrite, true);
     } else {
-        for(void ** cur = address; cur < address + accessLen; cur += CACHE_LINE_SZ){
-            HandleOneCacheLine(cur, isWrite);
+        bool print = true;
+/*       fprintf(stderr, "\n address=%p, accessLen=%lx", address, accessLen);
+        fprintf(stderr, "\n cur+CACHE_LINE_SZ=%lx, end=%p", CACHE_LINE_BASE(address)+CACHE_LINE_SZ, address + accessLen);
+        fflush(stderr); */
+        for(uint64_t cur =  CACHE_LINE_BASE(address); cur < ((size_t)address )+ accessLen; cur += CACHE_LINE_SZ){
+/*            fprintf(stderr, "\n TRIP cur=%lx", cur);
+            fflush(stderr); */
+            HandleOneCacheLine((void ** )cur, isWrite, print);
+//            fflush(stderr);
         }
     }
 }
@@ -325,6 +523,8 @@ static void ClientInit(int argc, char* argv[]) {
     gTraceFile = fopen(name, "w");
     fprintf(gTraceFile, "CONFIG:\n");
     fprintf(gTraceFile, "CACHE_SZ:%lu\n", CACHE_SZ);
+    fprintf(gTraceFile, "CACHE_NUM_WAYS:%lu\n", CACHE_NUM_WAYS);
+    fprintf(gTraceFile, "SHADOW_CACHE_SZ:%lu\n", SHADOW_CACHE_SZ);
     fprintf(gTraceFile, "---------------\n");
     // print the arguments passed
     fprintf(gTraceFile, "\n");
@@ -335,6 +535,7 @@ static void ClientInit(int argc, char* argv[]) {
     
     fprintf(gTraceFile, "\n");
     fflush(gTraceFile);
+    CacheFlush();
 }
 
 
@@ -381,23 +582,55 @@ struct RedSpyAnalysis{
         } else {
             bool isSameCacheLine = CACHE_LINE_INDEX(addr) == CACHE_LINE_INDEX((size_t)(addr) + AccessLen - 1);
             if(isSameCacheLine){
-                if(!WAS_DIFFERENT(addr))
-                    WAS_DIFFERENT(addr) = true;
+                uint64_t cacheLineIdx;
+                LineStatus s = IsCached((uint64_t)addr, cacheLineIdx);
+/*                if(s != CACHED){
+                    fprintf(stderr, "\n addr=%p, base =%lx, len=%d, status=%d, idx=%lx, who=%lx", addr, CACHE_LINE_BASE(((uint64_t)addr)), AccessLen, s, cacheLineIdx, cache[cacheLineIdx].tag);
+                    fflush(stderr);
+                } */
+                
+                
+                assert(s == CACHED);
+                
+                if(!WAS_DIFFERENT(cacheLineIdx))
+                    WAS_DIFFERENT(cacheLineIdx) = true;
             }else {
                 size_t firstCacheLineAccessLength = CACHE_LINE_BASE(addr) + CACHE_LINE_SZ - (size_t)(addr);
                 size_t firstCacheLineStart = 0;
                 size_t lastCacheLineAccessLength = (size_t) addr + AccessLen - CACHE_LINE_BASE((size_t)addr + AccessLen - 1);
                 size_t lastCacheLineStart = CACHE_LINE_BASE((size_t)(addr) + AccessLen - 1) - (size_t)(addr);
-                
-                if( (!WAS_DIFFERENT(addr)) && IsPartialWriteRedundant(firstCacheLineStart, firstCacheLineAccessLength, threadId)){
-                    WAS_DIFFERENT(addr) = true;
+
+                uint64_t cacheLineIdx;
+                LineStatus s = IsCached((uint64_t)addr, cacheLineIdx);
+
+/*                if(s != CACHED){
+                    fprintf(stderr, "\n addr=%p, base =%lx, len=%d, status=%d, idx=%lx, who=%lx", addr, CACHE_LINE_BASE(((uint64_t)addr)), AccessLen, s, cacheLineIdx, cache[cacheLineIdx].tag);
+                    fflush(stderr);
                 }
-                if( (!WAS_DIFFERENT(addr + AccessLen - 1)) && IsPartialWriteRedundant(lastCacheLineStart, lastCacheLineAccessLength, threadId)){
-                    WAS_DIFFERENT(addr + AccessLen - 1) = true;
+                assert(s == CACHED); */
+                
+                if( (!WAS_DIFFERENT(cacheLineIdx)) && IsPartialWriteRedundant(firstCacheLineStart, firstCacheLineAccessLength, threadId)){
+                    WAS_DIFFERENT(cacheLineIdx) = true;
+                }
+                
+                
+                s = IsCached(((uint64_t)addr) + AccessLen - 1, cacheLineIdx);
+/*                if(s!=CACHED) {
+                    fprintf(stderr, "\n addr=%p, base =%lx, len=%d, status=%d, who=%lx", addr, CACHE_LINE_BASE(((uint64_t)addr) + AccessLen - 1), AccessLen, s, cache[cacheLineIdx].tag);
+                    fflush(stderr);
+                } */
+                assert(s == CACHED);
+
+                if( (!WAS_DIFFERENT(cacheLineIdx)) && IsPartialWriteRedundant(lastCacheLineStart, lastCacheLineAccessLength, threadId)){
+                    WAS_DIFFERENT(cacheLineIdx) = true;
                 }
                 for(int startOffset = firstCacheLineAccessLength ;  startOffset < lastCacheLineStart; startOffset += CACHE_LINE_SZ){
-                    if((!WAS_DIFFERENT(addr + startOffset)) && IsPartialWriteRedundant(startOffset, CACHE_LINE_SZ, threadId))
-                        WAS_DIFFERENT(addr + startOffset) = true;
+                    s = IsCached(((uint64_t)addr) + startOffset, cacheLineIdx);
+                    assert(s == CACHED);
+
+                    
+                    if((!WAS_DIFFERENT(cacheLineIdx)) && IsPartialWriteRedundant(startOffset, CACHE_LINE_SZ, threadId))
+                        WAS_DIFFERENT(cacheLineIdx) = true;
                 }
             }
         }
@@ -421,18 +654,30 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
         size_t lastCacheLineAccessLength = addr + accessLen - CACHE_LINE_BASE((size_t)(addr) + accessLen - 1);
         size_t lastCacheLineStart = CACHE_LINE_BASE((size_t)(addr) + accessLen - 1) - addr;
         
-        if( (!WAS_DIFFERENT(addr)) && (0 == memcmp((void *) (tData->buffer[bufferOffset].value + firstCacheLineStart), (void *) ( addr + firstCacheLineStart), firstCacheLineAccessLength))){
-            WAS_DIFFERENT(addr) = true;
+        uint64_t cacheLineIdx;
+        LineStatus s = IsCached((uint64_t)addr, cacheLineIdx);
+        assert(s == CACHED);
+
+        
+        if( (!WAS_DIFFERENT(cacheLineIdx)) && (0 == memcmp((void *) (tData->buffer[bufferOffset].value + firstCacheLineStart), (void *) ( addr + firstCacheLineStart), firstCacheLineAccessLength))){
+            WAS_DIFFERENT(cacheLineIdx) = true;
         }
-        if( (!WAS_DIFFERENT(addr + accessLen - 1)) && (0 == memcmp((void *) (tData->buffer[bufferOffset].value + lastCacheLineStart), (void *) (addr + lastCacheLineStart), lastCacheLineAccessLength))){
-            WAS_DIFFERENT(addr + accessLen - 1) = true;
+        
+        s = IsCached(((uint64_t)addr) + accessLen - 1, cacheLineIdx);
+        assert(s == CACHED);
+
+        if( (!WAS_DIFFERENT(cacheLineIdx)) && (0 == memcmp((void *) (tData->buffer[bufferOffset].value + lastCacheLineStart), (void *) (addr + lastCacheLineStart), lastCacheLineAccessLength))){
+            WAS_DIFFERENT(cacheLineIdx) = true;
         }
         for(size_t startOffset = firstCacheLineAccessLength ;  startOffset < lastCacheLineStart; startOffset += CACHE_LINE_SZ){
-            if((!WAS_DIFFERENT(addr + startOffset)) && (0 == memcmp((void *) (tData->buffer[bufferOffset].value), (void *)(addr + startOffset), CACHE_LINE_SZ)))
-                WAS_DIFFERENT(addr + startOffset) = true;
+            s = IsCached(((uint64_t)addr) + startOffset, cacheLineIdx);
+            assert(s == CACHED);
+            if((!WAS_DIFFERENT(cacheLineIdx)) && (0 == memcmp((void *) (tData->buffer[bufferOffset].value), (void *)(addr + startOffset), CACHE_LINE_SZ)))
+                WAS_DIFFERENT(cacheLineIdx) = true;
         }
     }
 }
+
 #define HANDLE_CASE(NUM, BUFFER_INDEX, HAS_FALLTHRU) \
 case (NUM):{INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::RecordNByteValueBeforeWrite, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);\
 INS_InsertPredicatedCall(ins, HAS_FALLTHRU? IPOINT_AFTER : IPOINT_TAKEN_BRANCH, (AFUNPTR) RedSpyAnalysis<(NUM), (BUFFER_INDEX)>::CheckNByteValueAfterWrite, IARG_THREAD_ID, IARG_INST_PTR,IARG_END);}break
@@ -486,7 +731,8 @@ static VOID InstrumentInsCallback(INS ins, VOID* v) {
             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_BOOL, 0,  IARG_END);
         }
     }
-    
+
+#ifdef DO_REDSPY
     // Now do the redSpy business
     
     bool hasFallThu = INS_HasFallThrough(ins);
@@ -536,6 +782,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v) {
             readBufferSlotIndex++;
         }
     }
+#endif
     
 }
 
@@ -547,7 +794,7 @@ size_t getPeakRSS() {
 
 
 static VOID FiniFunc(INT32 code, VOID *v) {
-    fprintf(gTraceFile, "\n Total evict=%lu, dirtyEvicts=%lu, shadowDetects=%lu, redundant=%lu, unchanged=%lu, waste=%f, cacheFixable=%f, shadowFixable=%f, Peak RSS=%zu\n", stats.evicts, stats.dirtyEvicts, stats.shadowDetects, stats.sameData, stats.unchanged, 100.0 * stats.sameData/ stats.dirtyEvicts, 100.0 * stats.unchanged/ stats.dirtyEvicts, 100.0 * stats.shadowDetects / stats.sameData            , getPeakRSS());
+    fprintf(gTraceFile, "\n Total evict=%lu, dirtyEvicts=%lu, shadowDetects=%lu, redundant=%lu, unchanged=%lu, zeroDetectCnt=%lu, waste=%f, cacheFixable=%f, shadowFixable=%f, zeroDetect=%f, Peak RSS=%zu\n", stats.evicts, stats.dirtyEvicts, stats.shadowDetects, stats.sameData, stats.unchanged, stats.zeroDetect, 100.0 * stats.sameData/ stats.dirtyEvicts, 100.0 * stats.unchanged/stats.dirtyEvicts , 100.0 * stats.shadowDetects / stats.sameData, 100.0 * stats.zeroDetect/stats.sameData, getPeakRSS());
 }
 
 static VOID ImageUnload(IMG img, VOID* v) {
@@ -565,6 +812,11 @@ inline VOID Update(uint32_t bytes, THREADID threadId){
     tData->bytesWritten += bytes;
 }
 
+inline VOID UpdateTime(){
+    accessTime++;
+}
+
+
 //instrument the trace, count the number of ins in the trace, decide to instrument or not
 static void InstrumentTrace(TRACE trace, void* f) {
     
@@ -577,6 +829,9 @@ static void InstrumentTrace(TRACE trace, void* f) {
             }
         }
         BBL_InsertCall(bbl,IPOINT_ANYWHERE,(AFUNPTR)Update, IARG_UINT32, totBytes, IARG_THREAD_ID, IARG_END);
+
+        // Update access time counter
+        BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR)UpdateTime, IARG_END);
     }
 }
 
@@ -630,7 +885,6 @@ int main(int argc, char* argv[]) {
     PIN_AddFiniFunction(FiniFunc, 0);
     
     TRACE_AddInstrumentFunction(InstrumentTrace, 0);
-    
     
     // Launch program now
     PIN_StartProgram();
