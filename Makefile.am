@@ -19,7 +19,7 @@ clean-local:
 check:
 	rm -f deadspy.out.* client.out.* 
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
-	@echo "-----Testing Pin---------" && $(PIN_ROOT)/pin.sh -- ls && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "-----Testing Pin---------" && $(PIN_ROOT)/pin.sh -- echo hi > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST1----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_client$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST2----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_client_mem_only$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST3----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
