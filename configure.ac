@@ -4,6 +4,8 @@ AC_INIT(cctlib, 0.1, chabbi.milind@gmail.com)
 # (for sanity checking)
 AC_CONFIG_SRCDIR(README)
 AM_INIT_AUTOMAKE([foreign -Werror])
+# Using adepricated macro to workaround the timestamp issue
+AM_MAINTAINER_MODE([disable])
 AC_CONFIG_HEADERS([src/config.h])
 AC_PROG_CXX
 AC_PROG_CC
