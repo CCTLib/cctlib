@@ -1,0 +1,80 @@
+\hypertarget{classThreadData__t}{\section{Thread\-Data\-\_\-t Class Reference}
+\label{classThreadData__t}\index{Thread\-Data\-\_\-t@{Thread\-Data\-\_\-t}}
+}
+
+
+Collaboration diagram for Thread\-Data\-\_\-t\-:
+\nopagebreak
+\begin{figure}[H]
+\begin{center}
+\leavevmode
+\includegraphics[width=198pt]{classThreadData__t__coll__graph}
+\end{center}
+\end{figure}
+\subsection*{Public Member Functions}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{classThreadData__t_a22203941b96bbe6cea34b4cc4a6070ea}{{\bfseries Thread\-Data\-\_\-t} (A\-D\-D\-R\-I\-N\-T stack\-Base\-Address, A\-D\-D\-R\-I\-N\-T stack\-End\-Address, A\-D\-D\-R\-I\-N\-T stack\-Current\-Frame\-Base\-Address)}\label{classThreadData__t_a22203941b96bbe6cea34b4cc4a6070ea}
+
+\item 
+\hypertarget{classThreadData__t_a1d3a20be3e399d4dfa71bf0f1269b44d}{\hyperlink{classLabel}{Label} $\ast$ {\bfseries Get\-Label} () const }\label{classThreadData__t_a1d3a20be3e399d4dfa71bf0f1269b44d}
+
+\item 
+\hypertarget{classThreadData__t_a7dce48f6655568d46cd5ba63d476cc4c}{void {\bfseries Set\-Label} (\hyperlink{classLabel}{Label} $\ast$label)}\label{classThreadData__t_a7dce48f6655568d46cd5ba63d476cc4c}
+
+\end{DoxyCompactItemize}
+\subsection*{Public Attributes}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{classThreadData__t_a08574b1d9c8759a4716431494148452f}{uint64\-\_\-t {\bfseries reg\-Number} \mbox{[}R\-E\-G\-\_\-\-L\-A\-S\-T\mbox{]}}\label{classThreadData__t_a08574b1d9c8759a4716431494148452f}
+
+\item 
+\hypertarget{classThreadData__t_ae9572c498b01ee8fb45a9c214c3ea38d}{unordered\-\_\-map$<$ uint64\-\_\-t, uint64\-\_\-t $>$ {\bfseries immediate\-Map}}\label{classThreadData__t_ae9572c498b01ee8fb45a9c214c3ea38d}
+
+\item 
+\hypertarget{classThreadData__t_a4f7f7ded925b7e4ff905215d216d6e7e}{unordered\-\_\-map$<$ uint64\-\_\-t, \\*
+uint64\-\_\-t $>$\-::iterator {\bfseries immediate\-Map\-It}}\label{classThreadData__t_a4f7f7ded925b7e4ff905215d216d6e7e}
+
+\item 
+\hypertarget{classThreadData__t_a4bcf08d6b95afe71c3a26830a71f9c67}{unordered\-\_\-map$<$ uint64\-\_\-t, \hyperlink{structopMap}{O\-P\-Map} $>$ {\bfseries opcode\-Map}}\label{classThreadData__t_a4bcf08d6b95afe71c3a26830a71f9c67}
+
+\item 
+\hypertarget{classThreadData__t_a4d3247c71db09c581be7f97fef207157}{unordered\-\_\-map$<$ uint64\-\_\-t, \hyperlink{structopMap}{O\-P\-Map} $>$\\*
+\-::iterator {\bfseries opcode\-Map\-It}}\label{classThreadData__t_a4d3247c71db09c581be7f97fef207157}
+
+\item 
+\hypertarget{classThreadData__t_a9a19ba920cd1a058d42ebd0e5a662d4f}{unordered\-\_\-map$<$ uint64\-\_\-t, uint64\-\_\-t $>$ {\bfseries redundant\-Map}}\label{classThreadData__t_a9a19ba920cd1a058d42ebd0e5a662d4f}
+
+\item 
+\hypertarget{classThreadData__t_a33b51bf837061adf532cc348db222b87}{unordered\-\_\-map$<$ uint64\-\_\-t, \\*
+uint64\-\_\-t $>$\-::iterator {\bfseries redundant\-Map\-It}}\label{classThreadData__t_a33b51bf837061adf532cc348db222b87}
+
+\end{DoxyCompactItemize}
+\subsection*{Private Attributes}
+\begin{DoxyCompactItemize}
+\item 
+\hypertarget{classThreadData__t_ac8e6170984be28f9e57e90beed9a82d4}{\hyperlink{classLabel}{Label} $\ast$ {\bfseries m\-\_\-cur\-Lable}}\label{classThreadData__t_ac8e6170984be28f9e57e90beed9a82d4}
+
+\item 
+\hypertarget{classThreadData__t_acd83394e85e1fa4bb1b59a21d786e3ef}{A\-D\-D\-R\-I\-N\-T {\bfseries m\-\_\-stack\-Base\-Address}}\label{classThreadData__t_acd83394e85e1fa4bb1b59a21d786e3ef}
+
+\item 
+\hypertarget{classThreadData__t_a641efc9b509cb1c13db730b0ab15cb06}{A\-D\-D\-R\-I\-N\-T {\bfseries m\-\_\-stack\-End\-Address}}\label{classThreadData__t_a641efc9b509cb1c13db730b0ab15cb06}
+
+\item 
+\hypertarget{classThreadData__t_a7125562cbda6e795f70585a96cc46fc4}{A\-D\-D\-R\-I\-N\-T {\bfseries m\-\_\-stack\-Current\-Frame\-Base\-Address}}\label{classThreadData__t_a7125562cbda6e795f70585a96cc46fc4}
+
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+
+
+Definition at line 313 of file omp\-\_\-datarace\-\_\-client.\-cpp.
+
+
+
+The documentation for this class was generated from the following files\-:\begin{DoxyCompactItemize}
+\item 
+tests/omp\-\_\-datarace\-\_\-client.\-cpp\item 
+tests/value\-Num.\-cpp\end{DoxyCompactItemize}

@@ -597,6 +597,8 @@ BOOST_PATH
 SPARSEHASH_PATH
 PIN_ROOT
 PIN_PATH
+OPT_USE_BOOST_FALSE
+OPT_USE_BOOST_TRUE
 OPT_ENABLE_DEVELOP_FALSE
 OPT_ENABLE_DEVELOP_TRUE
 RANLIB
@@ -623,6 +625,9 @@ CPPFLAGS
 LDFLAGS
 CXXFLAGS
 CXX
+MAINT
+MAINTAINER_MODE_FALSE
+MAINTAINER_MODE_TRUE
 AM_BACKSLASH
 AM_DEFAULT_VERBOSITY
 AM_DEFAULT_V
@@ -692,6 +697,7 @@ ac_subst_files=''
 ac_user_opts='
 enable_option_checking
 enable_silent_rules
+enable_maintainer_mode
 enable_dependency_tracking
 enable_develop
 with_libelf
@@ -1326,6 +1332,9 @@ Optional Features:
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --enable-silent-rules   less verbose build output (undo: "make V=1")
   --disable-silent-rules  verbose build output (undo: "make V=0")
+  --enable-maintainer-mode
+                          enable make rules and dependencies not useful (and
+                          sometimes confusing) to the casual installer
   --enable-dependency-tracking
                           do not reject slow dependency extractors
   --disable-dependency-tracking
@@ -2472,6 +2481,30 @@ END
     as_fn_error $? "Your 'rm' program is bad, sorry." "$LINENO" 5
   fi
 fi
+# Using adepricated macro to workaround the timestamp issue
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether to enable maintainer-specific portions of Makefiles" >&5
+$as_echo_n "checking whether to enable maintainer-specific portions of Makefiles... " >&6; }
+    # Check whether --enable-maintainer-mode was given.
+if test "${enable_maintainer_mode+set}" = set; then :
+  enableval=$enable_maintainer_mode; USE_MAINTAINER_MODE=$enableval
+else
+  USE_MAINTAINER_MODE=no
+fi
+
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $USE_MAINTAINER_MODE" >&5
+$as_echo "$USE_MAINTAINER_MODE" >&6; }
+   if test $USE_MAINTAINER_MODE = yes; then
+  MAINTAINER_MODE_TRUE=
+  MAINTAINER_MODE_FALSE='#'
+else
+  MAINTAINER_MODE_TRUE='#'
+  MAINTAINER_MODE_FALSE=
+fi
+
+  MAINT=$MAINTAINER_MODE_TRUE
+
+
 ac_config_headers="$ac_config_headers src/config.h"
 
 ac_ext=cpp
@@ -3999,6 +4032,7 @@ fi
 $as_echo_n "checking whether DEVELOP mode is enabled... " >&6; }
 
 OPT_ENABLE_DEVELOP=no
+OPT_USE_BOOST=no
 
 # Check whether --enable-develop was given.
 if test "${enable_develop+set}" = set; then :
@@ -4025,7 +4059,7 @@ fi
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -std=c++11"
+CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
@@ -4090,13 +4124,22 @@ if test "${with_boost+set}" = set; then :
        as_fn_error $? "--with-boost requires absolute path as argument; given '${withval}'" "$LINENO" 5
      fi
      BOOST_PATH=${withval}
+     CCTLIB_EXTRA_CXXFLAGS+=" -DUSE_BOOST"
+     OPT_USE_BOOST="yes"
 
 fi
 
 
-if test "$BOOST_PATH" = "" ; then
-as_fn_error $? "--with-boost requires absolute path as argument; given '${withval}'" "$LINENO" 5
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${OPT_USE_BOOST}" >&5
+$as_echo "${OPT_USE_BOOST}" >&6; }
+ if test "${OPT_USE_BOOST}" = "yes"; then
+  OPT_USE_BOOST_TRUE=
+  OPT_USE_BOOST_FALSE='#'
+else
+  OPT_USE_BOOST_TRUE='#'
+  OPT_USE_BOOST_FALSE=
 fi
+
 
 
 # Check whether --with-sparse-hash was given.
@@ -4265,6 +4308,10 @@ else
   am__EXEEXT_FALSE=
 fi
 
+if test -z "${MAINTAINER_MODE_TRUE}" && test -z "${MAINTAINER_MODE_FALSE}"; then
+  as_fn_error $? "conditional \"MAINTAINER_MODE\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${AMDEP_TRUE}" && test -z "${AMDEP_FALSE}"; then
   as_fn_error $? "conditional \"AMDEP\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
@@ -4279,6 +4326,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${OPT_ENABLE_DEVELOP_TRUE}" && test -z "${OPT_ENABLE_DEVELOP_FALSE}"; then
   as_fn_error $? "conditional \"OPT_ENABLE_DEVELOP\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${OPT_USE_BOOST_TRUE}" && test -z "${OPT_USE_BOOST_FALSE}"; then
+  as_fn_error $? "conditional \"OPT_USE_BOOST\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

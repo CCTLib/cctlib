@@ -1,37 +1,7 @@
-// * BeginRiceCopyright *****************************************************
-//
-// Copyright ((c)) 2002-2014, Rice University
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-// * Redistributions of source code must retain the above copyright
-//   notice, this list of conditions and the following disclaimer.
-//
-// * Redistributions in binary form must reproduce the above copyright
-//   notice, this list of conditions and the following disclaimer in the
-//   documentation and/or other materials provided with the distribution.
-//
-// * Neither the name of Rice University (RICE) nor the names of its
-//   contributors may be used to endorse or promote products derived from
-//   this software without specific prior written permission.
-//
-// This software is provided by RICE and contributors "as is" and any
-// express or implied warranties, including, but not limited to, the
-// implied warranties of merchantability and fitness for a particular
-// purpose are disclaimed. In no event shall RICE or contributors be
-// liable for any direct, indirect, incidental, special, exemplary, or
-// consequential damages (including, but not limited to, procurement of
-// substitute goods or services; loss of use, data, or profits; or
-// business interruption) however caused and on any theory of liability,
-// whether in contract, strict liability, or tort (including negligence
-// or otherwise) arising in any way out of the use of this software, even
-// if advised of the possibility of such damage.
-//
-// ******************************************************* EndRiceCopyright *
-
+// @COPYRIGHT@
+// Licensed under MIT license.
+// See LICENSE.TXT file in the project root for more information.
+// ==============================================================
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -181,7 +151,7 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
       ContextHandle_t ctxthndl = GetContextHandle(id, 0);
       *metric = &(hmap_vector[id])[ctxthndl];
       (hmap_vector[id])[ctxthndl].addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (hmap_vector[id])[ctxthndl].accessNum+=1;//refSize;
+      (hmap_vector[id])[ctxthndl].accessNum+=refSize;
       
       // check how many times write to a shared address
       // shared means that this address is read/write before this write
@@ -190,7 +160,7 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
     }
     else {
       (static_cast<struct node_metric_t*>(*metric))->addressSet.insert(Addr|(((uint64_t)refSize)<<48));
-      (static_cast<struct node_metric_t*>(*metric))->accessNum+=1;//refSize;
+      (static_cast<struct node_metric_t*>(*metric))->accessNum+=refSize;
       if (!rwFlag && (*prevFlag))// && CheckDependence((uint64_t)addr, *prevAddr))
         (static_cast<struct node_metric_t*>(*metric))->dependentNum+=refSize;
     }
@@ -277,7 +247,7 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %lu Bytes, #distinct memory access is %ld, reuse is %ld, write dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).fpNum, (*ListIt).dependentNum);
+        fprintf(gTraceFile, "Footprint is %lu Bytes, #distinct memory access is %ld, reuse is %ld, write dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }

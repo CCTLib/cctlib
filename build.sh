@@ -1,3 +1,8 @@
+# @COPYRIGHT@
+# Licensed under MIT license.
+# See LICENSE.TXT file in the project root for more information.
+# ==============================================================
+
 set -ex
 #PATH_TO_PIN=/home/scratch/xl10/support/pin-2.14-71313-gcc.4.4.7-linux
 CUR_DIR=`pwd`
@@ -74,7 +79,7 @@ rm -rf $CUR_DIR/boost_1_56_0-install/
 cd boost_1_56_0
 sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_56_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11"
 ./b2 -j 4
-./b2 install
+./b2 filesystem install
 #### CCTLib #############################################
 cd $CUR_DIR/
 

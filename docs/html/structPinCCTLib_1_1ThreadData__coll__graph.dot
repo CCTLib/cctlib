@@ -1,0 +1,20 @@
+digraph "PinCCTLib::ThreadData"
+{
+ // INTERACTIVE_SVG=YES
+  edge [fontname="Helvetica",fontsize="10",labelfontname="Helvetica",labelfontsize="10"];
+  node [fontname="Helvetica",fontsize="10",shape=record];
+  rankdir="LR";
+  Node1 [label="PinCCTLib::ThreadData",height=0.2,width=0.4,color="black", fillcolor="grey75", style="filled" fontcolor="black"];
+  Node2 -> Node1 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" tlsLongJmpMap" ,fontname="Helvetica"];
+  Node2 [label="sparse_hash_map\< ADDRINT,\l PinCCTLib::IPNode * \>",height=0.2,width=0.4,color="grey75", fillcolor="white", style="filled"];
+  Node3 -> Node1 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" tlsCurrentChildIPs\ntlsRootIPNode\ntlsCurrentIPNode\ntlsExceptionHandlerIPNode\ntlsParentThreadIPNode" ,fontname="Helvetica"];
+  Node3 [label="PinCCTLib::IPNode",height=0.2,width=0.4,color="black", fillcolor="white", style="filled",URL="$structPinCCTLib_1_1IPNode.html"];
+  Node4 -> Node3 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" parentTraceNode" ,fontname="Helvetica"];
+  Node4 [label="PinCCTLib::TraceNode",height=0.2,width=0.4,color="black", fillcolor="white", style="filled",URL="$structPinCCTLib_1_1TraceNode.html"];
+  Node3 -> Node4 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" callerIPNode\nchildIPs" ,fontname="Helvetica"];
+  Node5 -> Node3 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" calleeTraceNodes" ,fontname="Helvetica"];
+  Node5 [label="PinCCTLib::TraceSplay",height=0.2,width=0.4,color="black", fillcolor="white", style="filled",URL="$structPinCCTLib_1_1TraceSplay.html"];
+  Node4 -> Node5 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" value" ,fontname="Helvetica"];
+  Node5 -> Node5 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" right\nleft" ,fontname="Helvetica"];
+  Node4 -> Node1 [dir="back",color="darkorchid3",fontsize="10",style="dashed",label=" tlsCurrentTraceNode\ntlsExceptionHandlerTraceNode\ntlsRootTraceNode\ntlsParentThreadTraceNode" ,fontname="Helvetica"];
+}
