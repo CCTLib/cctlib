@@ -12,13 +12,9 @@ CCTLib is a library to ubiquitously collect calling contexts as well as attribut
 
 0. Ensure you have g++ 4.8.2 or higher as the default compiler and make sure you compile everything with -std=c++11 flag
 
-1. Download and install the latest Pin framework matching your platform from
+1. Download and install the latest Pin framework 2.14 rev 71313 matching your platform from
 http://www.pintool.org/downloads.html. In case you don't download Pin, our build script has an option to automatically download from WWW.
-* I have tested the current release only on Pin 2.14 rev 67254 *
-
-
-Note:  CCTLib *NOW* redestributes google hash tables (Sparsehash) source from
-http://code.google.com/p/sparsehash/, Boost C++ library version 1_56_0 and libelf.
+Our current release is tested on http://software.intel.com/sites/landingpage/pintool/downloads/pin-2.14-71313-gcc.4.4.7-linux.tar.gz
 
 --------------------------------------------------
 	Compiling
@@ -32,7 +28,7 @@ http://code.google.com/p/sparsehash/, Boost C++ library version 1_56_0 and libel
 To build, simply type "sh build.sh"
 This will configure, make, and check CCTLib. 
 
-This produces libcctlib.a and libcctlib_tree_based.a in the src directory (refer to http://www.cs.rice.edu/~mc29/Milind/Publications_files/paper.pdf for details).
+This produces libcctlib.a and libcctlib_tree_based.a in the src directory (refer to http://dl.acm.org/citation.cfm?id=2544164 for details).
 libcctlib.a is CCTLib with shadow memory-based data-centric attribution.
 libcctlib_tree_based.a is CCTLib with balanced binary tree based data-centric attribution.
 
@@ -135,12 +131,14 @@ Documentation of CCTLib's key APIs
 Example uses of CCTLib	
 --------------------------------------------------
 
-The "tests" directory contains several example uses of CCTLib.
+The "tests" directory contains several simple example uses of CCTLib.
 
 cct_client.cpp is a simple tool that gathers calling context on each instruction.
 cct_client_mem_only.cpp is a simple tool that gathers calling context on each memory access.
 cct_data_centric_client.cpp is a simple tool that associates each memory access to its associated data object via shadow memory technique.
 cct_data_centric_client_tree_based.cpp is a simple tool that associates each memory access to its associated data object via balanced binary tree technique.
+
+The "clients" directory contains advanced example uses of CCTLib.
 deadspy_client.cpp is an implementation of DeadSpy that uses CCTLib and serializes the CCT.
 cctlib_reader.cpp reads the serialized CCT and build back the CCT for postmortem analysis.
 
@@ -200,10 +198,6 @@ Some useful control flags / macros
 --------------------------------------------------
 FAQs: Frequently asked questions
 --------------------------------------------------
-Q. Compiling CCTLib fails with "error: 'PIN_GetLock' was not declared in this scope" or "error: 'PIN_ReleaseLock' was not declared in this scope"
-A: You must be using a version of Pin which is Pin 2.12 / 58423 or older. If you want to stay with the older version, replace  'PIN_GetLock' with 'GetLock' and 'PIN_ReleaseLock' with 'ReleaseLock'.
-
-
 Q: How can I compile CCTLib for development?
 A: Pass --enable-develop switch to the ./configure step.
 
