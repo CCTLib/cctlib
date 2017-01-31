@@ -137,5 +137,5 @@ AC_MSG_NOTICE([  Boost:         ${BOOST_PATH}])
 AC_MSG_NOTICE([  Libelf:         ${LIBELF_PATH}])
 
 # Write generated configuration file
-AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile clients/Makefile apps/Makefile])
 AC_OUTPUT
