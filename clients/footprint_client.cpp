@@ -119,7 +119,7 @@ struct UnrolledConjunction<end , end , incr>{
     }
 };
 
-INT32 Usage2() {
+static INT32 Usage() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
@@ -453,7 +453,7 @@ static VOID FiniFunc(INT32 code, VOID *v) {
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))
-        return Usage2();
+        return Usage();
     
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();

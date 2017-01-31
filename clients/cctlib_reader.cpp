@@ -16,7 +16,7 @@
 using namespace std;
 using namespace PinCCTLib;
 
-INT32 Usage2() {
+static INT32 Usage() {
     PIN_ERROR("DeadSPy is a PinTool which tracks each memory access and reports dead writes.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
@@ -56,7 +56,7 @@ void ClientInit(int argc, char* argv[]) {
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))
-        return Usage2();
+        return Usage();
 
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();

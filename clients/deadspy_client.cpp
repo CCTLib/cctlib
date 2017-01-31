@@ -1429,11 +1429,6 @@ VOID Fini(INT32 code, VOID* v) {
 }
 
 
-INT32 Usage() {
-    PIN_ERROR("DeadSPy is a PinTool which tracks each memory access and reports dead writes.\n" + KNOB_BASE::StringKnobSummary() + "\n");
-    return -1;
-}
-
 // When we make System calls we need to update the shadow regions with the effect of the system call
 // TODO: handle other system calls. Currently only SYS_write is handled.
 
@@ -1651,7 +1646,7 @@ void InitDeadSpy(int argc, char* argv[]) {
 #endif //end   GATHER_STATS
 }
 
-INT32 Usage2() {
+static INT32 Usage() {
     PIN_ERROR("DeadSPy is a PinTool which tracks each memory access and reports dead writes.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
@@ -1670,7 +1665,7 @@ static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) 
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))
-        return Usage2();
+        return Usage();
 
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();

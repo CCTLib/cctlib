@@ -23,7 +23,7 @@
 using namespace std;
 using namespace PinCCTLib;
 
-INT32 Usage2() {
+static INT32 Usage() {
     PIN_ERROR("CCTLib client Pin tool to gather calling context on each instruction.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
@@ -106,7 +106,7 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))
-        return Usage2();
+        return Usage();
 
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();

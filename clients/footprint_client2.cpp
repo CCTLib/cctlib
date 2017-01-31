@@ -68,7 +68,7 @@ struct sort_format_t {
 #define THREAD_MAX (1024)
 unordered_map<uint32_t, struct node_metric_t> hmap_vector[THREAD_MAX];
 
-INT32 Usage2() {
+static INT32 Usage() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
@@ -284,7 +284,7 @@ int main(int argc, char* argv[]) {
     gettimeofday(&tv1, NULL);
     // Initialize PIN
     if(PIN_Init(argc, argv))
-        return Usage2();
+        return Usage();
 
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();

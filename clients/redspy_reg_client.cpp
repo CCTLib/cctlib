@@ -70,7 +70,7 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 }
 
 
-INT32 Usage2() {
+static INT32 Usage() {
     PIN_ERROR("Pin tool to gather calling context on each load and store.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
@@ -446,7 +446,7 @@ static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) 
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))
-        return Usage2();
+        return Usage();
     
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();

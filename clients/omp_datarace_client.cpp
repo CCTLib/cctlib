@@ -948,7 +948,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
 
 
 
-INT32 Usage() {
+static INT32 Usage() {
     PIN_ERROR("PinTool for datarace detection.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }

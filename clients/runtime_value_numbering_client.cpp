@@ -1434,8 +1434,8 @@ VOID RegDeadFini(INT32 code, VOID * v){
     fprintf(gTraceFile,"\nfinish");    
 }
 
-INT32 Usage() {
-    PIN_ERROR("PinTool for dynamic valueNumbering.\n" + KNOB_BASE::StringKnobSummary() + "\n");
+static INT32 Usage() {
+    PIN_ERROR("PinTool for runtime value numbering (RVN).\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
 
