@@ -38,13 +38,13 @@ $(OBJDIR)redspy_client$(OBJ_SUFFIX): redspy_client.cpp ../src/cctlib.H
 $(OBJDIR)redspy_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
-$(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX): redspy_temporal_client.cpp ../src/cctlib.H
+$(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX): redspy_temporal_client.cpp ../src/cctlib.H ../src/shadow_memory.H
 	$(CXX) -mavx -DENABLE_SAMPLING -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)redspy_temporal_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
-$(OBJDIR)omp_datarace_client$(OBJ_SUFFIX): omp_datarace_client.cpp ../src/cctlib.H shadow_memory.cpp
+$(OBJDIR)omp_datarace_client$(OBJ_SUFFIX): omp_datarace_client.cpp ../src/cctlib.H ../src/shadow_memory.H
 	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)omp_datarace_client$(PINTOOL_SUFFIX): $(OBJDIR)omp_datarace_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)

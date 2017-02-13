@@ -21,6 +21,7 @@
 #include <list>
 #include "pin.H"
 #include "cctlib.H"
+#include "shadow_memory.H"
 #include <xmmintrin.h>
 #include <immintrin.h>
 
@@ -36,28 +37,6 @@ using google::dense_hash_map;
 
 using namespace std;
 using namespace PinCCTLib;
-
-/* infrastructure for shadow memory */
-/* MACROs */
-// 64KB shadow pages
-#define PAGE_OFFSET_BITS (16LL)
-#define PAGE_OFFSET(addr) ( addr & 0xFFFF)
-#define PAGE_OFFSET_MASK ( 0xFFFF)
-
-#define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
-
-// 2 level page table
-#define PTR_SIZE (sizeof(struct Status *))
-#define LEVEL_1_PAGE_TABLE_BITS  (20)
-#define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
-#define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )
-
-#define LEVEL_2_PAGE_TABLE_BITS  (12)
-#define LEVEL_2_PAGE_TABLE_ENTRIES  (1 << LEVEL_2_PAGE_TABLE_BITS )
-#define LEVEL_2_PAGE_TABLE_SIZE  (LEVEL_2_PAGE_TABLE_ENTRIES * PTR_SIZE )
-
-#define LEVEL_1_PAGE_TABLE_SLOT(addr) (((addr) >> (LEVEL_2_PAGE_TABLE_BITS + PAGE_OFFSET_BITS)) & 0xfffff)
-#define LEVEL_2_PAGE_TABLE_SLOT(addr) (((addr) >> (PAGE_OFFSET_BITS)) & 0xFFF)
 
 
 // have R, W representative macros
@@ -214,7 +193,7 @@ static INT32 Usage() {
 
 // Main for RedSpy, initialize the tool, register instrumentation functions and call the target program.
 static FILE* gTraceFile;
-static uint8_t ** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
+static  ConcurrentShadowMemory<ContextHandle_t> sm;
 
 // Initialized the needed data structures before launching the target program
 static void ClientInit(int argc, char* argv[]) {
@@ -242,19 +221,6 @@ static void ClientInit(int argc, char* argv[]) {
     fprintf(gTraceFile, "\n");
 }
 
-
-/* helper functions for shadow memory */
-static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
-    uint8_t *shadowPage;
-    uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
-    if(*l1Ptr == 0) {
-        *l1Ptr = (uint8_t **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-    } else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-    }
-    return shadowPage;
-}
 
 static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_READ_ACTION, /*2 byte */ TWO_BYTE_READ_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_READ_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_READ_ACTION};
 static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
@@ -1247,7 +1213,7 @@ struct UnrolledLoop{
         UnrolledLoop<start+incr, end, incr, conditional, approx>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
     }
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){
-        uint8_t * status = GetOrCreateShadowBaseAddress((uint64_t)addr + start);
+        uint8_t * status = (uint8_t *) sm.GetOrCreateShadowBaseAddress((uint64_t)addr + start);
         ContextHandle_t * prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + start)) * sizeof(ContextHandle_t));
         if (conditional) {
             // report in RedTable
@@ -1436,7 +1402,7 @@ struct RedSpyAnalysis{
 
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
-        uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+        uint8_t* status = (uint8_t *) sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
         ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
         const bool isAccessWithinPageBoundary = IS_ACCESS_WITHIN_PAGE_BOUNDARY( (uint64_t)addr, AccessLen);
         if(isRedundantWrite) {
@@ -1492,12 +1458,12 @@ struct RedSpyAnalysis{
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
         UINT32 const interv = sizeof(T);
-        uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+        uint8_t* status = (uint8_t *)  sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
         ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
         
         if(isRedundantWrite){
             for(UINT32 index = 0 ; index < AccessLen; index+=interv){
-                status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
+                status = (uint8_t *)  sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index);
                 prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
                 // report in RedTable
                 AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), interv, threadId);
@@ -1506,7 +1472,7 @@ struct RedSpyAnalysis{
             }
         }else{
             for(UINT32 index = 0 ; index < AccessLen; index+=interv){
-                status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
+                status = (uint8_t *) sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index);
                 prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
                 // report in RedTable
                 AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), interv, threadId);
@@ -1531,12 +1497,12 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
     void * addr = tData->buffer[bufferOffset].address;
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
     
-    uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
+    uint8_t* status = (uint8_t *) sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
     ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
     if(memcmp( & (tData->buffer[bufferOffset].value), addr, accessLen) == 0){
         // redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
-            status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
+            status = (uint8_t *) sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index);
             prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
             // report in RedTable
             AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), 1, threadId);
@@ -1546,7 +1512,7 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
     }else{
         // Not redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
-            status = GetOrCreateShadowBaseAddress((uint64_t)addr + index);
+            status = (uint8_t *) sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index);
             prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
             // Update context
             prevIP[0] = curCtxtHandle;

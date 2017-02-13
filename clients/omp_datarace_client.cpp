@@ -33,7 +33,7 @@
 #include <pthread.h>
 #include "pin.H"
 #include "cctlib.H"
-#include "shadow_memory.cpp"
+#include "shadow_memory.H"
 
 using namespace std;
 using namespace PinCCTLib;
@@ -137,7 +137,7 @@ typedef struct DataraceInfo_t{
     ContextHandle_t  write1Context;
 }DataraceInfo_t;
 
-ShadowMemory<DataraceInfo_t> sm;
+ConcurrentShadowMemory<DataraceInfo_t> sm;
 
 // This is just a wrapper for a piece of Label along with a pointer to the location of the shadow memory.
 // This is used for updating the shadow memory after reading from it.
