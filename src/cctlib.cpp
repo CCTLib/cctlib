@@ -115,8 +115,11 @@ namespace PinCCTLib {
 #define CACHE_LINE_SIZE (128)
 
 
-#define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ((ContextHandle_t) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 ))
-#define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
+#define GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(node) ((ContextHandle_t) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 ))
+#define GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
+
+#define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ((ContextHandle_t) ((node) - GLOBAL_STATE.preAllocatedContextBuffer))
+#define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) (GLOBAL_STATE.preAllocatedContextBuffer + handle) 
 #define IS_VALID_CONTEXT(c) (c != 0)
 
 
@@ -3669,7 +3672,7 @@ NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t pare
 
   NewIPNode* curIP = new NewIPNode();
   curIP->parentIPNode = parentIP;
-  curIP->IPAddress = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE(oldIPNode));
+  curIP->IPAddress = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(oldIPNode));
   curIP->parentID = parentID;
   curIP->tmpSplay = oldIPNode-> calleeTraceNodes;
 #ifdef HAVE_METRIC_PER_IPNODE
@@ -3692,11 +3695,11 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t 
   tranverseIPs(curIPNode, childCtxtStartIdx->left, nodeCount);
 
   for (i = 0; i < tNode->nSlots; i++) {
-    NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx + i));
+    NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i));
     if (sameIP) {
-      mergeIP(sameIP, GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx + i), nodeCount);
+      mergeIP(sameIP, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), nodeCount);
     } else {
-      NewIPNode* nNode = constructIPNode(curIPNode, GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx + i), curIPNode->ID, nodeCount);
+      NewIPNode* nNode = constructIPNode(curIPNode, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), curIPNode->ID, nodeCount);
       curIPNode->childIPNodes.push_back(nNode);
 
       if (nNode->tmpSplay) {
@@ -3712,7 +3715,7 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t 
 // Check to see whether another IPNode has the same address under the same parent
 NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
   size_t i;
-  ADDRINT address = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE(node));
+  ADDRINT address = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(node));
 
   for (i = 0; i < nodes.size(); i++) {
 
@@ -3802,11 +3805,11 @@ static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode **
 
   for (i = 0; i < tNode->nSlots; i++) {
     if (GetIPFromInfo((tNode->childCtxtStartIdx + i)) == GLOBAL_STATE.mainIP) {
-      *mainNode = GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx + i);
+      *mainNode = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i);
       return;
     }
-    if (GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx + i)->calleeTraceNodes) {
-        findMain(GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx + i), GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childCtxtStartIdx +i)->calleeTraceNodes, mainNode);
+    if (GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i)->calleeTraceNodes) {
+        findMain(GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx +i)->calleeTraceNodes, mainNode);
     }
   }
   findMain(curIPNode, childCtxtStartIdx->right, mainNode);
@@ -3859,7 +3862,7 @@ int newCCT_hpcrun_write(THREADID threadid) {
   IPNode *mainNode = NULL;
   if (GLOBAL_STATE.skip) {
     for(i = 0; i < cctlib->nSlots; i++) {
-      findMain(GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childCtxtStartIdx + i), GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childCtxtStartIdx +i)->calleeTraceNodes, &mainNode);
+      findMain(GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx +i)->calleeTraceNodes, &mainNode);
     }
   }
 
@@ -3871,12 +3874,12 @@ int newCCT_hpcrun_write(THREADID threadid) {
     cctlib->childCtxtStartIdx = mainNode->parentTraceNode->callerCtxtHndl;
     SetIPFromInfo(cctlib->childCtxtStartIdx, 0x0); // dummy root should have 0 ip
 #ifdef HAVE_METRIC_PER_IPNODE
-    GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childCtxtStartIdx)->metric = NULL;
+    GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx)->metric = NULL;
 #endif
   }
   
   for(i = 0; i < cctlib->nSlots; i++) {
-    NewIPNode* nIP = constructIPNode(NULL, GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childCtxtStartIdx + i), 0, &tdata->nodeCount);
+    NewIPNode* nIP = constructIPNode(NULL, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), 0, &tdata->nodeCount);
     IPHandle.push_back(nIP);
 
     if(nIP->tmpSplay) {
