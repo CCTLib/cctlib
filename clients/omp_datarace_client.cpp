@@ -37,7 +37,6 @@
 
 using namespace std;
 using namespace PinCCTLib;
-using namespace ShadowMemory;
 
 // All globals
 #define MAX_FILE_PATH   (200)
@@ -137,6 +136,8 @@ typedef struct DataraceInfo_t{
     // Last writer's CCT id
     ContextHandle_t  write1Context;
 }DataraceInfo_t;
+
+ShadowMemory<DataraceInfo_t> sm;
 
 // This is just a wrapper for a piece of Label along with a pointer to the location of the shadow memory.
 // This is used for updating the shadow memory after reading from it.
@@ -669,7 +670,7 @@ static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, 
     if (myLabel == NULL)
         return;
     
-    DataraceInfo_t * status = GetOrCreateShadowBaseAddress<DataraceInfo_t>(addr);
+    DataraceInfo_t * status = sm.GetOrCreateShadowBaseAddress((size_t)addr);
     int overflow = (int)(PAGE_OFFSET((uint64_t)addr)) -  (int)((PAGE_OFFSET_MASK - (accessLen-1)));
     status += PAGE_OFFSET((uint64_t)addr);
     
@@ -686,7 +687,7 @@ static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, 
             ExecuteOffsetSpanPhaseProtocol(&status[nonOverflowBytes], myLabel, accessType, opaqueHandle, threadId);
         }
         // Execute the protocol for each byte of the memory accessed in the next page
-        status = GetOrCreateShadowBaseAddress<DataraceInfo_t>(((char *)addr) + accessLen); // +accessLen so that we get next page
+        status = sm.GetOrCreateShadowBaseAddress((size_t)(((char *)addr) + accessLen)); // +accessLen so that we get next page
         for( int i = 0; i < overflow; i++){
             ExecuteOffsetSpanPhaseProtocol(&status[i], myLabel, accessType, opaqueHandle, threadId);
         }

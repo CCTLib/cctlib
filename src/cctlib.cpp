@@ -116,6 +116,7 @@ namespace PinCCTLib {
 
 #define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ((ContextHandle_t) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 ))
 #define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
+#define IS_VALID_CONTEXT(c) (c != 0)
 
 
 #define BREAK_HERE raise(SIGINT)
@@ -153,8 +154,8 @@ namespace PinCCTLib {
     typedef set<varType> varSet;
 #endif
 
-    static inline ADDRINT GetIPFromInfo(IPNode*);
-    static inline void SetIPFromInfo(IPNode* ipNode, ADDRINT val);
+    static inline ADDRINT GetIPFromInfo(ContextHandle_t);
+    static inline void SetIPFromInfo(ContextHandle_t ipNode, ADDRINT val);
     static inline const string& GetModulePathFromInfo(IPNode* ipNode);
     static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath);
 
@@ -173,8 +174,8 @@ namespace PinCCTLib {
 
     /******** Data structures **********/
     struct TraceNode {
-        IPNode* callerIPNode;
-        IPNode*   childIPs;
+        ContextHandle_t callerIPNode;
+        ContextHandle_t childIPs;
         uint32_t traceKey; // max of 2^32 traces allowed
         uint32_t nSlots;
     };
@@ -224,25 +225,25 @@ namespace PinCCTLib {
 #endif
 
         uint32_t tlsThreadId; // useful only during deserialization
-        struct IPNode* tlsCurrentIPNode;
-        struct IPNode* tlsCurrentChildIPs;
+        ContextHandle_t tlsCurrentIPNode;
+        ContextHandle_t tlsCurrentChildIPs;
         struct TraceNode* tlsCurrentTraceNode;
-        struct IPNode* tlsRootIPNode;
+        ContextHandle_t tlsRootIPNode;
         struct TraceNode* tlsRootTraceNode;
         bool tlsInitiatedCall;
 
         struct TraceNode* tlsParentThreadTraceNode;
-        struct IPNode* tlsParentThreadIPNode;
+        ContextHandle_t tlsParentThreadIPNode;
 
 
-        sparse_hash_map<ADDRINT, IPNode*> tlsLongJmpMap;
+        sparse_hash_map<ADDRINT, ContextHandle_t> tlsLongJmpMap;
         ADDRINT tlsLongJmpHoldBuf;
 
         uint32_t curSlotNo;
 
         // The caller that can handle the current exception
         struct TraceNode* tlsExceptionHandlerTraceNode;
-        struct IPNode* tlsExceptionHandlerIPNode;
+        ContextHandle_t tlsExceptionHandlerIPNode;
         void* tlsStackBase;
         void*   tlsStackEnd;
 
@@ -355,7 +356,7 @@ namespace PinCCTLib {
         volatile uint64_t threadCreateCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
         volatile uint64_t threadCaptureCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
         volatile TraceNode* threadCreatorTraceNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        volatile IPNode* threadCreatorIPNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        volatile ContextHandle_t threadCreatorIPNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
         volatile bool DSLock;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         //Data centric support
@@ -411,7 +412,7 @@ namespace PinCCTLib {
         ThreadData* tData = CCTLibGetTLS(id);
         fprintf(stderr, "\n slot =%u, max = %u\n", slot, tData->tlsCurrentTraceNode->nSlots);
         PIN_LockClient();
-        ContextHandle_t h = &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
+        ContextHandle_t h = tData->tlsCurrentTraceNode->childIPs + slot;
         fprintf(stderr, "\n");
         vector<Context> contextVec;
         GetFullCallingContext(h, contextVec);
@@ -452,7 +453,7 @@ namespace PinCCTLib {
     }
 #endif
 
-    static inline void UpdateCurTraceAndIp(ThreadData* tData, TraceNode* const trace, IPNode* const ipNode) {
+    static inline void UpdateCurTraceAndIp(ThreadData* tData, TraceNode* const trace, ContextHandle_t const ipNode) {
         tData->tlsCurrentTraceNode = trace;
         tData->tlsCurrentChildIPs = trace->childIPs;
         tData->tlsCurrentIPNode = ipNode;
@@ -485,7 +486,7 @@ namespace PinCCTLib {
         ThreadData* tData = CCTLibGetTLS(threadId);
         assert(tData->tlsLongJmpHoldBuf);
         tData->tlsCurrentIPNode = tData->tlsLongJmpMap[tData->tlsLongJmpHoldBuf];
-        UpdateCurTraceOnly(tData, tData->tlsCurrentIPNode->parentTraceNode);
+        UpdateCurTraceOnly(tData, GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentIPNode)->parentTraceNode);
         tData->tlsLongJmpHoldBuf = 0; // reset so that next time we can check if it was set correctly.
         //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n RestoreSigLongJmpCtxt2 tlsLongJmpHoldBuf = %lu",tData->tlsLongJmpHoldBuf);
     }
@@ -547,7 +548,7 @@ namespace PinCCTLib {
             if(curTrace == tData->tlsRootTraceNode)
                 break;
 
-            curTrace = curTrace->callerIPNode->parentTraceNode;
+            curTrace = GLOBAL_STATE.preAllocatedContextBuffer[curTrace->callerIPNode].parentTraceNode;
             //printf("\n did not find so far %d", i++);
         }
 
@@ -572,7 +573,7 @@ namespace PinCCTLib {
         // Record the caller that can handle the exception.
         uint32_t ipSlot;
         tData->tlsExceptionHandlerTraceNode  = FindNearestCallerCoveringIP(exceptionCallerReturnAddrIP, &ipSlot, tData);
-        tData->tlsExceptionHandlerIPNode = &(tData->tlsExceptionHandlerTraceNode->childIPs[ipSlot]);
+        tData->tlsExceptionHandlerIPNode = tData->tlsExceptionHandlerTraceNode->childIPs + ipSlot;
     }
 
 
@@ -644,7 +645,7 @@ namespace PinCCTLib {
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, no parent ");
         } else {
             tdata->tlsParentThreadTraceNode = (TraceNode*) GLOBAL_STATE.threadCreatorTraceNode;
-            tdata->tlsParentThreadIPNode = (IPNode*) GLOBAL_STATE.threadCreatorIPNode;
+            tdata->tlsParentThreadIPNode = GLOBAL_STATE.threadCreatorIPNode;
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, parent Trace = %p, parent ip = %p", GLOBAL_STATE.threadCreatorTraceNode, GLOBAL_STATE.threadCreatorIPNode);
             GLOBAL_STATE.threadCaptureCount++;
         }
@@ -653,7 +654,7 @@ namespace PinCCTLib {
     }
 
 
-    static inline IPNode* GetNextIPVecBuffer(uint32_t num) {
+    static inline ContextHandle_t GetNextIPVecBuffer(uint32_t num) {
         uint64_t  oldBufIndex = __sync_fetch_and_add(&GLOBAL_STATE.curPreAllocatedContextBufferIndex, num);
 
         if(oldBufIndex + num  >= MAX_IPNODES) {
@@ -662,7 +663,7 @@ namespace PinCCTLib {
             PIN_ExitProcess(-1);
         }
 
-        return (GLOBAL_STATE.preAllocatedContextBuffer + oldBufIndex);
+        return (ContextHandle_t) oldBufIndex;
     }
 
      /*
@@ -694,18 +695,19 @@ namespace PinCCTLib {
         t->callerIPNode = 0;
         t->nSlots = 1;
         t->childIPs = GetNextIPVecBuffer(1);
-        t->childIPs[0].parentTraceNode = t;
+        IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(t->childIPs);
+        ipNode->parentTraceNode = t;
 #ifdef USE_SPLAY_TREE
-        t->childIPs[0].calleeTraceNodes = 0;
+        ipNode->calleeTraceNodes = 0;
 #else
-        t->childIPs[0].calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*> ();
+        ipNode->calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*> ();
 #endif
 #ifdef HAVE_METRIC_PER_IPNODE
-        t->childIPs[0].metric = NULL;
+        ipNode->metric = NULL;
 #endif
         tdata->tlsThreadId = threadId;
         tdata->tlsRootTraceNode = t;
-        tdata->tlsRootIPNode = &(t->childIPs[0]);
+        tdata->tlsRootIPNode = t->childIPs;
         UpdateCurTraceAndIp(tdata, t);
         tdata->tlsParentThreadIPNode = 0;
         tdata->tlsParentThreadTraceNode = 0;
@@ -750,7 +752,7 @@ namespace PinCCTLib {
     static inline VOID SetCallInitFlag(uint32_t slot, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
         tData->tlsInitiatedCall = true;
-        tData->tlsCurrentIPNode = &(tData->tlsCurrentChildIPs[slot]);
+        tData->tlsCurrentIPNode = tData->tlsCurrentChildIPs + slot;
 #if 0
         ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
         printf("\n Calling from IP = %p", tracesIPs[slot]);
@@ -768,7 +770,7 @@ namespace PinCCTLib {
         }
 
         tData->tlsCurrentIPNode = tData->tlsCurrentTraceNode->callerIPNode;
-        UpdateCurTraceOnly(tData, tData->tlsCurrentIPNode->parentTraceNode);
+        UpdateCurTraceOnly(tData, GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentIPNode)->parentTraceNode);
         // RET & CALL end a trace hence the target should trigger a new trace entry for us ... pray pray.
 #if 0
         ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
@@ -922,11 +924,11 @@ namespace PinCCTLib {
 
         // if the current trace is a child of currentIPNode, then let's set ourselves to that
 #ifdef USE_SPLAY_TREE
-        TraceSplay* found    = splay(tData->tlsCurrentIPNode->calleeTraceNodes, traceKey);
+        TraceSplay* found    = splay(GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentIPNode)->calleeTraceNodes, traceKey);
 
         // Check if a trace node with traceKey already exists under this context node
         if(found && (traceKey == found->key)) {
-            tData->tlsCurrentIPNode->calleeTraceNodes = found;
+            GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentIPNode)->calleeTraceNodes = found;
             // already present, so set current trace to it
             UpdateCurTraceAndIp(tData, found->value);
         } else {
@@ -946,13 +948,14 @@ namespace PinCCTLib {
             if(numInterestingInstInTrace) {
                 // if CONTINUOUS_DEADINFO is set, then all ip vecs come from a fixed 4GB buffer
                 // might need a lock in MT case
-                newChild->childIPs  = (IPNode*)GetNextIPVecBuffer(numInterestingInstInTrace);
+                newChild->childIPs  = GetNextIPVecBuffer(numInterestingInstInTrace);
                 newChild->nSlots = numInterestingInstInTrace;
+                IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(newChild->childIPs);
 
                 //cerr<<"\n***:"<<numInterestingInstInTrace;
                 for(uint32_t i = 0 ; i < numInterestingInstInTrace ; i++) {
-                    newChild->childIPs[i].parentTraceNode = newChild;
-                    newChild->childIPs[i].calleeTraceNodes = 0;
+                    ipNode[i].parentTraceNode = newChild;
+                    ipNode[i].calleeTraceNodes = 0;
                 }
             } else {
                 // This can happen since we may hot a trace with 0 interesting instructions.
@@ -964,7 +967,7 @@ namespace PinCCTLib {
             TraceSplay* newNode = new TraceSplay();
             newNode->key = traceKey;
             newNode->value = newChild;
-            tData->tlsCurrentIPNode->calleeTraceNodes = newNode;
+            GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentIPNode)->calleeTraceNodes = newNode;
 
             if(!found) {
                 newNode->left = NULL;
@@ -983,43 +986,7 @@ namespace PinCCTLib {
         }
 
 #else
-
-        // TODO: Delete me .. not maintianed
-
-        // Check if a trace node with currentIp already exists under this context node
-        if((tData->gTraceIter = (tData->tlsCurrentIPNode->calleeTraceNodes->find(currentIp))) != tData->tlsCurrentIPNode->calleeTraceNodes->end()) {
-            // already present, so set current trace to it
-            tData->tlsCurrentTraceNode = tData->gTraceIter->second;
-            tData->tlsCurrentIPNode = tData->tlsCurrentTraceNode->childIPs;
-        } else {
-            // Create new trace node and insert under the IPNode.
-            TraceNode* newChild = new TraceNode();
-            newChild->callerIPNode = tData->tlsCurrentIPNode;
-            newChild->address = currentIp;
-
-            if(numInterestingInstInTrace) {
-                // if CONTINUOUS_DEADINFO is set, then all ip vecs come from a fixed 4GB buffer
-                // might need a lock in MT case
-                newChild->childIPs  = (IPNode*)GetNextIPVecBuffer(numInterestingInstInTrace);
-                newChild->nSlots = numInterestingInstInTrace;
-
-                //cerr<<"\n***:"<<numInterestingInstInTrace;
-                for(uint32_t i = 0 ; i < numInterestingInstInTrace ; i++) {
-                    newChild->childIPs[i].parentTraceNode = newChild;
-                    newChild->childIPs[i].calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*>();
-                }
-            } else {
-                // This can happen since we may hot a trace with 0 interesting instructions.
-                //assert(0 && "I never expect traces to have 0 instructions");
-                newChild->nSlots = 0;
-                newChild->childIPs = 0;
-            }
-
-            (*(tData->tlsCurrentIPNode->calleeTraceNodes))[currentIp] = newChild;
-            tData->tlsCurrentTraceNode = newChild;
-            tData->tlsCurrentIPNode = newChild->childIPs;
-        }
-
+     assert 0 && "not maintained");
 #endif
     }
 
@@ -1066,35 +1033,35 @@ namespace PinCCTLib {
         ThreadData* tData = CCTLibGetTLS(id);
         uint32_t slot = tData->curSlotNo;
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
-        return &(tData->tlsCurrentTraceNode->childIPs[slot]);
+        return GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentTraceNode->childIPs + slot);
     }
 
 
     IPNode* GetPINCCTCurrentContextWithSlot(THREADID id, uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
-        return &(tData->tlsCurrentTraceNode->childIPs[slot]);
+        return GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentTraceNode->childIPs + slot);
     }
 
     ContextHandle_t GetContextHandle(const THREADID id, const uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
-        return &(tData->tlsCurrentTraceNode->childIPs[slot]) - GLOBAL_STATE.preAllocatedContextBuffer;
+        return tData->tlsCurrentTraceNode->childIPs + slot;
     }
 
 #ifdef HAVE_METRIC_PER_IPNODE
     void** GetIPNodeMetric(const THREADID id, const uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
-        return &(tData->tlsCurrentTraceNode->childIPs[slot].metric);
+        return &(GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentTraceNode->childIPs + slot)->metric);
     }
 #endif
 
-    uint32_t GetPINCCT32BitContextIndex(IPNode* node) {
+    ContextHandle_t GetPINCCT32BitContextIndex(IPNode* node) {
         return node - GLOBAL_STATE.preAllocatedContextBuffer;
     }
 
-    IPNode* GetPINCCTContextFrom32BitIndex(uint32_t index) {
+    inline IPNode* GetPINCCTContextFrom32BitIndex(ContextHandle_t index) {
         return  &GLOBAL_STATE.preAllocatedContextBuffer[index];
     }
 
@@ -1179,22 +1146,23 @@ namespace PinCCTLib {
     static uint32_t NO_MORE_TRACE_NODES_IN_SPLAY_TREE = UINT_MAX;
 
     static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp) {
-        SerializedTraceNode serializedTraceNode = {traceNode->traceKey, traceNode->nSlots, GET_CONTEXT_HANDLE_FROM_IP_NODE(traceNode->childIPs) };
+        SerializedTraceNode serializedTraceNode = {traceNode->traceKey, traceNode->nSlots, traceNode->childIPs };
         fwrite(&serializedTraceNode, sizeof(SerializedTraceNode), 1, fp);
 
         // Iterate over all IPNodes
+        IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childIPs);
         for(uint32_t i = 0 ; i < traceNode->nSlots; i++) {
-            if((traceNode->childIPs[i]).calleeTraceNodes == NULL) {
+            if((ipNode[i]).calleeTraceNodes == NULL) {
                 fwrite(&NO_MORE_TRACE_NODES_IN_SPLAY_TREE, sizeof(NO_MORE_TRACE_NODES_IN_SPLAY_TREE), 1, fp);
             } else {
                 // Iterate over all decendent TraceNode of traceNode->childIPs[i]
-                VisitAllNodesOfSplayTree((traceNode->childIPs[i]).calleeTraceNodes, fp);
+                VisitAllNodesOfSplayTree((ipNode[i]).calleeTraceNodes, fp);
                 fwrite(&NO_MORE_TRACE_NODES_IN_SPLAY_TREE, sizeof(NO_MORE_TRACE_NODES_IN_SPLAY_TREE), 1, fp);
             }
         }
     }
 
-    static TraceNode* DeserializeCCTNode(IPNode* parentIPNode, FILE* const fp) {
+    static TraceNode* DeserializeCCTNode(ContextHandle_t parentIPNode, FILE* const fp) {
         uint32_t noMoreTrace;
 
         if(fread(&noMoreTrace, sizeof(noMoreTrace), 1, fp) != 1) {
@@ -1218,15 +1186,16 @@ namespace PinCCTLib {
         TraceNode* traceNode = new TraceNode();
         traceNode->traceKey = serializedTraceNode.traceKey;
         traceNode->nSlots = serializedTraceNode.nSlots;
-        traceNode->childIPs = GET_IPNODE_FROM_CONTEXT_HANDLE(serializedTraceNode.childIPs);
+        traceNode->childIPs = serializedTraceNode.childIPs;
         traceNode->callerIPNode = parentIPNode;
 
         // Iterate over all IPNodes
+        IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childIPs); 
         for(uint32_t i = 0 ; i < traceNode->nSlots; i++) {
-            traceNode->childIPs[i].parentTraceNode = traceNode;
+            ipNode[i].parentTraceNode = traceNode;
 
             while(1) {
-                TraceNode* childTrace =  DeserializeCCTNode(&traceNode->childIPs[i], fp);
+                TraceNode* childTrace =  DeserializeCCTNode(traceNode->childIPs + i, fp);
 
                 if(childTrace == NULL)
                     break;
@@ -1237,12 +1206,13 @@ namespace PinCCTLib {
                 newNode->value = childTrace;
 
                 // if no children
-                if(traceNode->childIPs[i].calleeTraceNodes == NULL) {
-                    traceNode->childIPs[i].calleeTraceNodes = newNode;
+                IPNode * childIPNode  = GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childIPs + i);
+                if(childIPNode->calleeTraceNodes == NULL) {
+                    childIPNode->calleeTraceNodes = newNode;
                     newNode->left = NULL;
                     newNode->right = NULL;
                 } else {
-                    TraceSplay* found    = splay(traceNode->childIPs[i].calleeTraceNodes, childTrace->traceKey);
+                    TraceSplay* found    = splay(childIPNode->calleeTraceNodes, childTrace->traceKey);
 
                     if(childTrace->traceKey < found->key) {
                         newNode->left = found->left;
@@ -1277,7 +1247,7 @@ namespace PinCCTLib {
             uint32_t threadId = tData->tlsThreadId;
             fwrite(&threadId, sizeof(tData->tlsThreadId), 1, fp);
             // record path of the parent
-            ContextHandle_t parentIpHandle = GET_CONTEXT_HANDLE_FROM_IP_NODE(tData->tlsParentThreadIPNode);
+            ContextHandle_t parentIpHandle = tData->tlsParentThreadIPNode;
             fwrite(&parentIpHandle, sizeof(ContextHandle_t), 1, fp);
             SerializeCCTNode(tData->tlsRootTraceNode, fp);
             fclose(fp);
@@ -1337,7 +1307,7 @@ namespace PinCCTLib {
                 PIN_ExitProcess(-1);
             }
 
-            TraceNode*  rootTrace = DeserializeCCTNode(GET_IPNODE_FROM_CONTEXT_HANDLE(parentIpHandle), fp);
+            TraceNode*  rootTrace = DeserializeCCTNode(parentIpHandle, fp);
 #ifndef NDEBUG
             // we should be at the end of file now
             uint8_t dummy;
@@ -1348,7 +1318,7 @@ namespace PinCCTLib {
             ThreadData tdata;
             //bzero(&tdata, sizeof(tdata));
             tdata.tlsThreadId = threadId;
-            tdata.tlsParentThreadIPNode = GET_IPNODE_FROM_CONTEXT_HANDLE(parentIpHandle);
+            tdata.tlsParentThreadIPNode = parentIpHandle;
             tdata.tlsRootTraceNode = rootTrace;
             tdata.tlsRootIPNode = rootTrace->childIPs;
             GLOBAL_STATE.deserializedCCTs.push_back(tdata);
@@ -1402,7 +1372,7 @@ namespace PinCCTLib {
         for(uint32_t i = 0 ; i < traceNode->nSlots; i++) {
             // Iterate over all decendent TraceNode of traceNode->childIPs[i]
             //DottifyAllNodesOfSplayTree((traceNode->childIPs[i]).calleeTraceNodes, childTraceDotId, fp);
-            ListAllNodesOfSplayTree((traceNode->childIPs[i]).calleeTraceNodes, childTraces);
+            ListAllNodesOfSplayTree(GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childIPs + i)->calleeTraceNodes, childTraces);
         }
 
         for(vector<TraceNode*>::iterator it = childTraces.begin(); it != childTraces.end(); it++) {
@@ -1630,31 +1600,24 @@ namespace PinCCTLib {
     }
 
 // Given a pointer (i.e. slot) within a trace node, returns the IP corresponding to that slot
-    static inline ADDRINT GetIPFromInfo(IPNode* ipNode) {
-        TraceNode* traceNode = ipNode->parentTraceNode;
+    static inline ADDRINT GetIPFromInfo(ContextHandle_t ipNode) {
+        TraceNode* traceNode = GET_IPNODE_FROM_CONTEXT_HANDLE(ipNode)->parentTraceNode;
+        assert(ipNode >= traceNode->childIPs);
+        assert(ipNode < traceNode->childIPs + traceNode->childIPs);
         // what is my slot id ?
-        uint32_t slotNo = 0;
-
-        for(; slotNo < traceNode->nSlots; slotNo++) {
-            if(&traceNode->childIPs[slotNo] == ipNode)
-                break;
-        }
+        uint32_t slotNo = ipNode - traceNode->childIPs;
 
         ADDRINT* ip = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
         return ip[slotNo];
     }
 // Given a pointer (i.e. slot) within a trace node, set the IP corresponding to that slot
 // Used for creating dummy root by eliding all frames above "main"
-    static inline void SetIPFromInfo(IPNode* ipNode, ADDRINT val) {
-        TraceNode* traceNode = ipNode->parentTraceNode;
+    static inline void SetIPFromInfo(ContextHandle_t ipNode, ADDRINT val) {
+        TraceNode* traceNode = GET_IPNODE_FROM_CONTEXT_HANDLE(ipNode)->parentTraceNode;
+        assert(ipNode >= traceNode->childIPs);
+        assert(ipNode < traceNode->childIPs + traceNode->childIPs);
         // what is my slot id ?
-        uint32_t slotNo = 0;
-
-        for(; slotNo < traceNode->nSlots; slotNo++) {
-            if(&traceNode->childIPs[slotNo] == ipNode)
-                break;
-        }
-
+        uint32_t slotNo = ipNode - traceNode->childIPs;
         ADDRINT* ip = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
         ip[slotNo] = val;
     }
@@ -1735,7 +1698,7 @@ namespace PinCCTLib {
 
 #define NOT_ROOT_CTX (-1)
 // Return true if the given ContextNode is one of the root context nodes
-    static int IsARootIPNode(IPNode* curIPNode) {
+    static int IsARootIPNode(ContextHandle_t curIPNode) {
         // if it is runing monitoring we will use CCTLibGetTLS
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_COLLECTION) {
             for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
@@ -1840,13 +1803,8 @@ namespace PinCCTLib {
     }
 #endif
 
-    static VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec);
 
-    VOID GetFullCallingContext(const ContextHandle_t ctxtHandle, vector<Context>& contextVec) {
-        GetFullCallingContext(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
-    }
-
-    static VOID GetFullCallingContextInSitu(IPNode* curIPNode, vector<Context>& contextVec) {
+    static VOID GetFullCallingContextInSitu(ContextHandle_t curIPNode, vector<Context>& contextVec) {
         int depth = 0;
 #ifdef MULTI_THREADED
         int root;
@@ -1856,13 +1814,13 @@ namespace PinCCTLib {
         sigaction(SIGSEGV, &GLOBAL_STATE.sigAct, &old);
 
         // Dont print if the depth is more than MAX_CCT_PRINT_DEPTH since files become too large
-        while(curIPNode && (depth ++ < MAX_CCT_PRINT_DEPTH)) {
+        while(IS_VALID_CONTEXT(curIPNode) && (depth ++ < MAX_CCT_PRINT_DEPTH)) {
             int threadCtx = 0;
 
             if((threadCtx = IsARootIPNode(curIPNode)) != NOT_ROOT_CTX) {
                 // if the thread has a parent, recur over it.
-                IPNode* parentThreadIPNode = CCTLibGetTLS(threadCtx)->tlsParentThreadIPNode;
-                Context ctxt = {"THREAD[" +  std::to_string(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                ContextHandle_t parentThreadIPNode = CCTLibGetTLS(threadCtx)->tlsParentThreadIPNode;
+                Context ctxt = {"THREAD[" +  std::to_string(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curIPNode /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
                 contextVec.push_back(ctxt);
 
                 if(parentThreadIPNode)
@@ -1886,23 +1844,23 @@ namespace PinCCTLib {
                                     uint32_t lineNo;
                                     GetLineFromInfo(ip, lineNo, filePath);
                                     GetDecodedInstFromIP(ip);
-                                    Context ctxt = {PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE)  /*functionName*/, filePath/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, lineNo /*lineNo*/, ip /*ip*/};
+                                    Context ctxt = {PIN_UndecorateSymbolName(RTN_FindNameByAddress(loc), UNDECORATION_COMPLETE)  /*functionName*/, filePath/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, curIPNode /*ctxtHandle*/, lineNo /*lineNo*/, ip /*ip*/};
                                     contextVec.push_back(ctxt);
                                 } else {
                                     GetDecodedInstFromIP(ip);
-                                    Context ctxt = {"IN PLT BUT NOT VALID GOT"  /*functionName*/, ""/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                                    Context ctxt = {"IN PLT BUT NOT VALID GOT"  /*functionName*/, ""/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, curIPNode /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
                                     contextVec.push_back(ctxt);
                                 }
                             } else {
                                 GetDecodedInstFromIP(ip);
-                                Context ctxt = {"UNRECOGNIZED PLT SIGNATURE"  /*functionName*/, ""/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                                Context ctxt = {"UNRECOGNIZED PLT SIGNATURE"  /*functionName*/, ""/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, curIPNode /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
                                 contextVec.push_back(ctxt);
                                 //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n plt plt plt %x", * ((UINT32*)curContext->address));
                                 //for(int i = 1; i < 4 ; i++)
                                 //      fprintf(GLOBAL_STATE.CCTLibLogFile," %x",  ((UINT32 *)curContext->address)[i]);
                             }
                         } else {
-                            Context ctxt = {"CRASHED !!"  /*functionName*/, ""/*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                            Context ctxt = {"CRASHED !!"  /*functionName*/, ""/*filePath */, "" /*disassembly*/, curIPNode /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
                             contextVec.push_back(ctxt);
                         }
                     } else {
@@ -1915,16 +1873,16 @@ namespace PinCCTLib {
                                 ne.c_str());
 #else
                         // also print the IPNode handle so that I can debug deserialization
-                        Context ctxt = {PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE)  /*functionName*/, filePath/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, lineNo /*lineNo*/, ip /*ip*/};
+                        Context ctxt = {PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE)  /*functionName*/, filePath/*filePath */, string(GLOBAL_STATE.disassemblyBuff) /*disassembly*/, curIPNode /*ctxtHandle*/, lineNo /*lineNo*/, ip /*ip*/};
                         contextVec.push_back(ctxt);
 #endif
                     }
                 } else {
-                    Context ctxt = {"BAD IP !!"  /*functionName*/, ""/*filePath */, "" /*disassembly*/, GET_CONTEXT_HANDLE_FROM_IP_NODE(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
+                    Context ctxt = {"BAD IP !!"  /*functionName*/, ""/*filePath */, "" /*disassembly*/, curIPNode /*ctxtHandle*/, 0 /*lineNo*/, ip /*ip*/};
                     contextVec.push_back(ctxt);
                 }
 
-                curIPNode = curIPNode->parentTraceNode->callerIPNode;
+                curIPNode = GET_IPNODE_FROM_CONTEXT_HANDLE(curIPNode)->parentTraceNode->callerIPNode;
             }
         }
 
@@ -1934,7 +1892,7 @@ namespace PinCCTLib {
 
 
 
-    static VOID GetFullCallingContextPostmortem(IPNode* curIPNode, vector<Context>& contextVec) {
+    static VOID GetFullCallingContextPostmortem(ContextHandle_t curIPNode, vector<Context>& contextVec) {
 #ifndef USE_BOOST
         fprintf(stderr, "\n GetFullCallingContextPostmortem should not be called when USE_BOOST is not set\n");
         PIN_ExitProcess(-1);
@@ -1948,14 +1906,14 @@ namespace PinCCTLib {
         sigaction(SIGSEGV, &GLOBAL_STATE.sigAct, &old);
 
         // Dont print if the depth is more than MAX_CCT_PRINT_DEPTH since files become too large
-        while(curIPNode && (depth ++ < MAX_CCT_PATH_DEPTH)) {
+        while(IS_VALID_CONTEXT(curIPNode) && (depth ++ < MAX_CCT_PATH_DEPTH)) {
             int threadCtx = 0;
 
             if((threadCtx = IsARootIPNode(curIPNode)) != NOT_ROOT_CTX) {
-                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, GetPINCCT32BitContextIndex(curIPNode) /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curIPNode /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
                 contextVec.push_back(ctxt);
                 // if the thread has a parent, recurse over it.
-                IPNode* parentThreadIPNode = GLOBAL_STATE.deserializedCCTs[threadCtx].tlsParentThreadIPNode;
+                ContextHandle_t parentThreadIPNode = GLOBAL_STATE.deserializedCCTs[threadCtx].tlsParentThreadIPNode;
 
                 if(parentThreadIPNode)
                     GetFullCallingContextPostmortem(parentThreadIPNode, contextVec);
@@ -1963,7 +1921,7 @@ namespace PinCCTLib {
                 break;
             } else {
                 ADDRINT ip = GetIPFromInfo(curIPNode);
-                const string& modulePath = GetModulePathFromInfo(curIPNode);
+                const string& modulePath = GetModulePathFromInfo(GET_IPNODE_FROM_CONTEXT_HANDLE(curIPNode));
                 std::stringstream command;
                 command << "addr2line -C -f -e " << modulePath << " " << std::hex << ip;
                 FILE* fp = popen(command.str().c_str(), "r");
@@ -2005,11 +1963,11 @@ namespace PinCCTLib {
                 boost::algorithm::trim(fnName);
                 string flName(fileName);
                 boost::algorithm::trim(flName);
-                Context ctxt = {fnName/*functionName*/, flName /*filePath */, "TODO-Disassmebly" /*disassembly*/, GetPINCCT32BitContextIndex(curIPNode) /*ctx
+                Context ctxt = {fnName/*functionName*/, flName /*filePath */, "TODO-Disassmebly" /*disassembly*/, curIPNode /*ctx
 tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                                };
                 contextVec.push_back(ctxt);
-                curIPNode = curIPNode->parentTraceNode->callerIPNode;
+                curIPNode = GET_IPNODE_FROM_CONTEXT_HANDLE(curIPNode)->parentTraceNode->callerIPNode;
             }
         }
 
@@ -2019,7 +1977,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
 
-    static VOID GetFullCallingContext(IPNode* curIPNode, vector<Context>& contextVec) {
+    VOID GetFullCallingContext(ContextHandle_t curIPNode, vector<Context>& contextVec) {
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM)
             GetFullCallingContextPostmortem(curIPNode, contextVec);
         else
@@ -2030,9 +1988,9 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         vector<Context> contextVec;
 
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM)
-            GetFullCallingContextPostmortem(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
+            GetFullCallingContextPostmortem(ctxtHandle, contextVec);
         else
-            GetFullCallingContextInSitu(GLOBAL_STATE.preAllocatedContextBuffer + ctxtHandle, contextVec);
+            GetFullCallingContextInSitu(ctxtHandle, contextVec);
 
         for(uint32_t i = 0 ; i < contextVec.size(); i++) {
             fprintf(GLOBAL_STATE.CCTLibLogFile, "\n%u:%p:%s:%s:%s:%u", contextVec[i].ctxtHandle, (void*) contextVec[i].ip, contextVec[i].disassembly.c_str(), contextVec[i].functionName.c_str(), contextVec[i].filePath.c_str(), contextVec[i].lineNo);
@@ -3031,16 +2989,16 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
           return;
         }
         for(uint32_t i = 0 ; i < node->nSlots; i++) {
-            if((node->childIPs[i]).calleeTraceNodes) {
+            if(GET_IPNODE_FROM_CONTEXT_HANDLE(node->childIPs + i)->calleeTraceNodes) {
                 // Iterate over all decendent TraceNode of traceNode->childIPs[i]
-                BottomUpTraverseHelper((node->childIPs[i]).calleeTraceNodes, opFunc, threadid);
+                BottomUpTraverseHelper(GET_IPNODE_FROM_CONTEXT_HANDLE(node->childIPs + i)->calleeTraceNodes, opFunc, threadid);
             }
             // do anything here
            assert(node->callerIPNode);
            if( node->callerIPNode) {
-               ContextHandle_t myHandle = GetPINCCT32BitContextIndex(&(node->childIPs[i]));
-               ContextHandle_t parentHandle = GetPINCCT32BitContextIndex(node->callerIPNode);
-               opFunc(threadid, myHandle, parentHandle, &(node->childIPs[i].metric), &(node->callerIPNode->metric));
+               ContextHandle_t myHandle = node->childIPs + i;
+               ContextHandle_t parentHandle = node->callerIPNode;
+               opFunc(threadid, myHandle, parentHandle, &(GET_IPNODE_FROM_CONTEXT_HANDLE(node->childIPs + i)->metric), &(GET_IPNODE_FROM_CONTEXT_HANDLE(node->callerIPNode)->metric));
            }
         }
     }
@@ -3054,8 +3012,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     bool HaveSameCallerPrefix(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
          if (ctxt1 == ctxt2)
              return true;
-         IPNode* t1 = GetPINCCTContextFrom32BitIndex(ctxt1)->parentTraceNode->callerIPNode;
-         IPNode* t2 = GetPINCCTContextFrom32BitIndex(ctxt2)->parentTraceNode->callerIPNode;
+         ContextHandle_t t1 = GET_IPNODE_FROM_CONTEXT_HANDLE(ctxt1)->parentTraceNode->callerIPNode;
+         ContextHandle_t t2 = GET_IPNODE_FROM_CONTEXT_HANDLE(ctxt2)->parentTraceNode->callerIPNode;
          return t1 == t2;
     }
 
@@ -3063,8 +3021,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
          if (ctxt1 == ctxt2)
              return true;
           
-         ADDRINT ip1 = GetIPFromInfo(GetPINCCTContextFrom32BitIndex(ctxt1));
-         ADDRINT ip2 = GetIPFromInfo(GetPINCCTContextFrom32BitIndex(ctxt2));
+         ADDRINT ip1 = GetIPFromInfo(ctxt1);
+         ADDRINT ip2 = GetIPFromInfo(ctxt2);
 
          if (ip1 == ip2)
              return true;
@@ -3793,7 +3751,7 @@ NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t pare
 
   NewIPNode* curIP = new NewIPNode();
   curIP->parentIPNode = parentIP;
-  curIP->IPAddress = GetIPFromInfo(oldIPNode);
+  curIP->IPAddress = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE(oldIPNode));
   curIP->parentID = parentID;
   curIP->tmpSplay = oldIPNode-> calleeTraceNodes;
 #ifdef HAVE_METRIC_PER_IPNODE
@@ -3816,11 +3774,11 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childIPs, uint64_t *nodeCoun
   tranverseIPs(curIPNode, childIPs->left, nodeCount);
 
   for (i = 0; i < tNode->nSlots; i++) {
-    NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, &(tNode->childIPs[i]));
+    NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs + i));
     if (sameIP) {
-      mergeIP(sameIP, &(tNode->childIPs[i]), nodeCount);
+      mergeIP(sameIP, GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs + i), nodeCount);
     } else {
-      NewIPNode* nNode = constructIPNode(curIPNode, &(tNode->childIPs[i]), curIPNode->ID, nodeCount);
+      NewIPNode* nNode = constructIPNode(curIPNode, GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs + i), curIPNode->ID, nodeCount);
       curIPNode->childIPNodes.push_back(nNode);
 
       if (nNode->tmpSplay) {
@@ -3836,7 +3794,7 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childIPs, uint64_t *nodeCoun
 // Check to see whether another IPNode has the same address under the same parent
 NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
   size_t i;
-  ADDRINT address = GetIPFromInfo(node);
+  ADDRINT address = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE(node));
 
   for (i = 0; i < nodes.size(); i++) {
 
@@ -3925,12 +3883,12 @@ static void findMain(IPNode* curIPNode, TraceSplay* childIPs, IPNode **mainNode)
   findMain(curIPNode, childIPs->left, mainNode);
 
   for (i = 0; i < tNode->nSlots; i++) {
-    if (GetIPFromInfo(&(tNode->childIPs[i])) == GLOBAL_STATE.mainIP) {
-      *mainNode = &(tNode->childIPs[i]);
+    if (GetIPFromInfo((tNode->childIPs + i)) == GLOBAL_STATE.mainIP) {
+      *mainNode = GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs + i);
       return;
     }
-    if (tNode->childIPs[i].calleeTraceNodes) {
-        findMain(&(tNode->childIPs[i]), tNode->childIPs[i].calleeTraceNodes, mainNode);
+    if (GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs + i)->calleeTraceNodes) {
+        findMain(GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs + i), GET_IPNODE_FROM_CONTEXT_HANDLE(tNode->childIPs +i)->calleeTraceNodes, mainNode);
     }
   }
   findMain(curIPNode, childIPs->right, mainNode);
@@ -3983,7 +3941,7 @@ int newCCT_hpcrun_write(THREADID threadid) {
   IPNode *mainNode = NULL;
   if (GLOBAL_STATE.skip) {
     for(i = 0; i < cctlib->nSlots; i++) {
-      findMain(&(cctlib->childIPs[i]), cctlib->childIPs[i].calleeTraceNodes, &mainNode);
+      findMain(GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childIPs + i), GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childIPs +i)->calleeTraceNodes, &mainNode);
     }
   }
 
@@ -3995,12 +3953,12 @@ int newCCT_hpcrun_write(THREADID threadid) {
     cctlib->childIPs = mainNode->parentTraceNode->callerIPNode;
     SetIPFromInfo(cctlib->childIPs, 0x0); // dummy root should have 0 ip
 #ifdef HAVE_METRIC_PER_IPNODE
-    cctlib->childIPs->metric = NULL;
+    GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childIPs)->metric = NULL;
 #endif
   }
   
   for(i = 0; i < cctlib->nSlots; i++) {
-    NewIPNode* nIP = constructIPNode(NULL, &(cctlib->childIPs[i]), 0, &tdata->nodeCount);
+    NewIPNode* nIP = constructIPNode(NULL, GET_IPNODE_FROM_CONTEXT_HANDLE(cctlib->childIPs + i), 0, &tdata->nodeCount);
     IPHandle.push_back(nIP);
 
     if(nIP->tmpSplay) {
