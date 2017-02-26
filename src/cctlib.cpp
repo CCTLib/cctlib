@@ -309,6 +309,8 @@ namespace PinCCTLib {
 
 // Information about loaded images.
     struct ModuleInfo {
+        // a ID used for hpcrun format
+        uint16_t id;
         // name
         string moduleName;
         //Offset from the image's link-time address to its load-time address.
@@ -821,6 +823,10 @@ namespace PinCCTLib {
     static inline VOID CCTLibInstrumentImageLoad(IMG img, VOID* v) {
         UINT32 id = IMG_Id(img);
         ModuleInfo mi;
+        if (IMG_IsMainExecutable(img))
+          mi.id = 1;
+        else
+          mi.id = 0;
         mi.moduleName = IMG_Name(img);
         mi.imgLoadOffset = IMG_LoadOffset(img);
         GLOBAL_STATE.ModuleInfoMap[id] = mi;
@@ -3514,18 +3520,16 @@ FILE* lazy_open_data_file(int tID, std::string *filename){
 }
 
 int hpcrun_fmt_loadmap_fwrite(FILE* fs, std::string filename) {
-  uint16_t num = 1;
+  uint16_t num = 2;
   // Write loadmap size
   hpcfmt_int4_fwrite((uint32_t)GLOBAL_STATE.ModuleInfoMap.size(), fs); // Write loadmap size
 
   unordered_map<UINT32, ModuleInfo>::iterator it, ito;
   // First print out the load module of the executable binary
   for (it=GLOBAL_STATE.ModuleInfoMap.begin(); it!= GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
-    if (it->second.moduleName.find(filename) != std::string::npos) {
-      ito = it;
-
+    if (it->second.id == 1) {
       // Write loadmap information
-      hpcfmt_int2_fwrite(num++, fs); // Write loadmap id
+      hpcfmt_int2_fwrite(1, fs); // Write loadmap id of the main executbale
       hpcfmt_str_fwrite(it->second.moduleName.c_str(), fs); // Write loadmap name
       hpcfmt_int8_fwrite((uint64_t)0, fs); // Write loadmap flags
       break;
@@ -3535,11 +3539,12 @@ int hpcrun_fmt_loadmap_fwrite(FILE* fs, std::string filename) {
   // write other load modules
   for (it=GLOBAL_STATE.ModuleInfoMap.begin(); it!= GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
     // currently only print out the load module of the executable binary
-    if (it == ito) {
+    if (it->second.id == 1) {
       continue;
     }
 
-    // Write loadmap information
+    // Write loadmap information of other modules
+    it->second.id = num;
     hpcfmt_int2_fwrite(num++, fs); // Write loadmap id
     hpcfmt_str_fwrite(it->second.moduleName.c_str(), fs); // Write loadmap name
     hpcfmt_int8_fwrite((uint64_t)0, fs); // Write loadmap flags
@@ -3759,11 +3764,16 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
   if (!node) return;
   hpcfmt_int4_fwrite(node->ID, fs);
   hpcfmt_int4_fwrite(node->parentID, fs);
-  if (node->IPAddress == 0)
+  IMG im = IMG_FindByAddress(node->IPAddress);
+  if (node->IPAddress == 0 || IMG_Id(im) == 0) {
     hpcfmt_int2_fwrite(0, fs);
-  else
-  hpcfmt_int2_fwrite(1, fs); // Set loadmodule id to 1
-  hpcfmt_int8_fwrite(node->IPAddress, fs);
+    hpcfmt_int8_fwrite(node->IPAddress, fs);
+  }
+  else {
+    hpcfmt_int2_fwrite(GLOBAL_STATE.ModuleInfoMap[IMG_Id(im)].id, fs); // Set loadmodule id to 1
+    // normalize the IP offset to the beginning of the load module and write out
+    hpcfmt_int8_fwrite(node->IPAddress-GLOBAL_STATE.ModuleInfoMap[IMG_Id(im)].imgLoadOffset, fs);
+  }
 
   uint64_t metricVal = 0;
 #ifdef HAVE_METRIC_PER_IPNODE 
