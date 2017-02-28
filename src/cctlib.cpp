@@ -3727,7 +3727,8 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         if (NULL == oldIPNode) return NULL;
         NewIPNode* curIP = new NewIPNode();
         curIP->parentIPNode = parentIP;
-        curIP->IPAddress = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(oldIPNode));
+        if (parentIP) curIP->IPAddress = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(oldIPNode));
+        else curIP->IPAddress = 0x0;
         curIP->parentID = parentID;
         ContextHandle_t h = GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(oldIPNode);
         ListAllNodesOfSplayTree(GET_TRACE_NODE_FROM_CTXT_HANDLE(h)->calleeTraceNodes,  h /* filter */, curIP->childTraceNodes);
