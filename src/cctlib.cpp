@@ -3852,7 +3852,7 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         return;
     }
     
-    static IPNode * findMain(TraceNode* tNode);
+    static IPNode * findMain(TraceNode* tNode, TraceNode* rootTraceNode=NULL);
     
     static IPNode * findMain(TraceSplay* sNode) {
         if(!sNode) return NULL;
@@ -3863,10 +3863,13 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         return findMain(sNode->right);
     }
     
-    static IPNode * findMain(TraceNode* tNode) {
-        for (uint32_t i = 0; i < tNode->nSlots; i++) {
-            if (GetIPFromInfo((tNode->childCtxtStartIdx + i)) == GLOBAL_STATE.mainIP) {
-                return GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i);
+    static IPNode * findMain(TraceNode* tNode, TraceNode* rootTraceNode) {
+        // Skip the root trace which is dummy
+        if(tNode != rootTraceNode) {
+            for (uint32_t i = 0; i < tNode->nSlots; i++) {
+                if (GetIPFromInfo((tNode->childCtxtStartIdx + i)) == GLOBAL_STATE.mainIP) {
+                    return GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i);
+                }
             }
         }
         
@@ -3918,7 +3921,7 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         // find the main node (the entry point by the programmer)
         IPNode *mainNode = NULL;
         if (GLOBAL_STATE.skip) {
-            mainNode = findMain(cctlib);
+            mainNode = findMain(cctlib, cctlib);
         }
         
         // only keep the main subtree
