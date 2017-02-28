@@ -92,7 +92,7 @@ namespace PinCCTLib {
 #define MAX_IPNODES (1L << 32)
 #elif defined(TARGET_IA32)
     // 1M IPNODES
-#define MAX_IPNODES (1L << 20)
+#define MAX_IPNODES (1L << 30)
 #else
     "SHOULD NEVER REACH HERE"
 #endif
@@ -131,21 +131,13 @@ namespace PinCCTLib {
     
 #define GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(node) ((ContextHandle_t) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 ))
 #define GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
-    
 #define GET_CONTEXT_HANDLE_FROM_IP_NODE(node) ((ContextHandle_t) ((node) - GLOBAL_STATE.preAllocatedContextBuffer))
 #define GET_IPNODE_FROM_CONTEXT_HANDLE(handle) (GLOBAL_STATE.preAllocatedContextBuffer + handle)
 #define IS_VALID_CONTEXT(c) (c != 0)
-    
-    
 #define GET_TRACE_IDX_FROM_TRACE_NODE(node) ((uint32_t) ((node) - GLOBAL_STATE.curPreAllocatedTraceNodeBuffer))
 #define GET_TRACE_NODE_FROM_TRACE_IDX(handle) (GLOBAL_STATE.curPreAllocatedTraceNodeBuffer + handle)
-
-    
 #define GET_TRACE_NODE_FROM_CTXT_HANDLE(handle) (GLOBAL_STATE.curPreAllocatedTraceNodeBuffer + GLOBAL_STATE.preAllocatedContextBuffer[handle].parentTraceNodeIdx)
-    
 #define TRACE_ID_AND_CALLER_CONTEXT_64_BIT_KEY(a, b) ((((uint64_t) (a)) << 32) | (b))
-    
-    
 #define BREAK_HERE raise(SIGINT)
     
     //Serialization related macros
@@ -277,7 +269,6 @@ namespace PinCCTLib {
         struct ConcurrentReaderWriterTree_t* tlsLatestConcurrentTree;
         volatile uint8_t tlsMallocDSAccessStatus;
 #endif
-        // TODO .. identify why perf screws up w/o this buffer
         uint32_t DUMMY_HELPS_PERF  __attribute__((aligned(CACHE_LINE_SIZE)));
         // For hpcrun format -- report the number of new CCT nodes
         uint64_t nodeCount;
@@ -3094,7 +3085,7 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         ADDRINT IPAddress;
         uint32_t parentID;
         uint32_t ID;
-        TraceSplay* tmpSplay;
+        vector<TraceNode*> childTraceNodes;
         void* metric;
     };
     
@@ -3277,7 +3268,7 @@ __sync_val_compare_and_swap(addr, oldval, newval)
     
     // ****************Merge splay trees **************************************************
     NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t parentID, uint64_t *nodeCount);
-    void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t *nodeCount);
+    void tranverseIPs(NewIPNode* curIPNode, vector<TraceNode*> & childTraces, uint64_t *nodeCount);
     NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node);
     void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount);
     uint32_t GetID(void);
@@ -3735,48 +3726,42 @@ __sync_val_compare_and_swap(addr, oldval, newval)
     NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t parentID, uint64_t* nodeCount) {
         if (NULL == oldIPNode) return NULL;
         NewIPNode* curIP = new NewIPNode();
-#if DISCUSS_WITH_XU
         curIP->parentIPNode = parentIP;
         curIP->IPAddress = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(oldIPNode));
         curIP->parentID = parentID;
-        curIP->tmpSplay = oldIPNode->calleeTraceNodes;
+        ContextHandle_t h = GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(oldIPNode);
+        ListAllNodesOfSplayTree(GET_TRACE_NODE_FROM_CTXT_HANDLE(h)->calleeTraceNodes,  h /* filter */, curIP->childTraceNodes);
 #ifdef HAVE_METRIC_PER_IPNODE
         curIP->metric = oldIPNode->metric;
 #endif
         
-        if (curIP->tmpSplay) curIP->ID = GetID();
+        if (! curIP->childTraceNodes.empty()) curIP->ID = GetID();
         else curIP->ID = -GetID();
         
         (*nodeCount)++;
-#else
-        assert(0 && "NYI");
-#endif
         return curIP;
     }
     
     // Inorder tranversal of the previous splay tree and create the new tree
-    void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t *nodeCount) {
-        if(NULL == childCtxtStartIdx) return;
-        
-        TraceNode* tNode = childCtxtStartIdx->value;
-        uint32_t i;
-        tranverseIPs(curIPNode, childCtxtStartIdx->left, nodeCount);
-        
-        for (i = 0; i < tNode->nSlots; i++) {
-            NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i));
-            if (sameIP) {
-                mergeIP(sameIP, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), nodeCount);
-            } else {
-                NewIPNode* nNode = constructIPNode(curIPNode, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), curIPNode->ID, nodeCount);
-                curIPNode->childIPNodes.push_back(nNode);
-                
-                if (nNode->tmpSplay) {
-                    tranverseIPs(nNode, nNode->tmpSplay, nodeCount);
+    void tranverseIPs(NewIPNode* curIPNode, vector<TraceNode*> & childTraces, uint64_t *nodeCount) {
+        if(childTraces.empty())
+            return;
+        for(uint32_t idx = 0 ; idx < childTraces.size(); idx++) {
+            TraceNode* tNode = childTraces[idx];
+            uint32_t i;
+            for (i = 0; i < tNode->nSlots; i++) {
+                NewIPNode* sameIP = findSameIP(curIPNode->childIPNodes, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i));
+                if (sameIP) {
+                    mergeIP(sameIP, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), nodeCount);
+                } else {
+                    NewIPNode* nNode = constructIPNode(curIPNode, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), curIPNode->ID, nodeCount);
+                    curIPNode->childIPNodes.push_back(nNode);
+                    if (!nNode->childTraceNodes.empty()) {
+                        tranverseIPs(nNode, nNode->childTraceNodes, nodeCount);
+                    }
                 }
             }
         }
-        tranverseIPs(curIPNode, childCtxtStartIdx->right, nodeCount);
-        return;
     }
     
     
@@ -3807,14 +3792,13 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         }
 #endif
 
-#if DISCUSS_WITH_XU
-        if (cur->calleeTraceNodes) {
-            tranverseIPs(prev, cur->calleeTraceNodes, nodeCount);
-        }
-#else
-        assert(0 && "NYI");
-#endif
+        ContextHandle_t h = GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(cur);
+        vector<TraceNode*> childTraces;
+        ListAllNodesOfSplayTree(GET_TRACE_NODE_FROM_CTXT_HANDLE(h)->calleeTraceNodes,  h /* filter */, childTraces);
         
+        if (!childTraces.empty()) {
+            tranverseIPs(prev, childTraces, nodeCount);
+        }
         return;
     }
     
@@ -3950,9 +3934,8 @@ __sync_val_compare_and_swap(addr, oldval, newval)
         for(i = 0; i < cctlib->nSlots; i++) {
             NewIPNode* nIP = constructIPNode(NULL, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), 0, &tdata->nodeCount);
             IPHandle.push_back(nIP);
-            
-            if(nIP->tmpSplay) {
-                tranverseIPs(nIP, nIP->tmpSplay, &tdata->nodeCount);
+            if(!nIP->childTraceNodes.empty()) {
+                tranverseIPs(nIP, nIP->childTraceNodes, &tdata->nodeCount);
             }
             
         }
