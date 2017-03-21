@@ -289,7 +289,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
         if (iclassType >= XED_ICLASS_F2XM1 && iclassType <=XED_ICLASS_FYL2XP1) {
             return true;
         }
-        if (iclassType >= XED_ICLASS_VEXTRACTF128 && iclassType <=XED_ICLASS_VINSERTI128) {
+        if (iclassType >= XED_ICLASS_VBROADCASTSD && iclassType <= XED_ICLASS_VDPPS) {
             return true;
         }
         if (iclassType >= XED_ICLASS_VRCPPS && iclassType <= XED_ICLASS_VSQRTSS) {
