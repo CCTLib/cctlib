@@ -3,7 +3,7 @@
 CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
 include $(CONFIG_ROOT)/makefile.config
 
-TEST_TOOL_ROOTS =  deadspy_client redspy_client redspy_temporal_client redspy_spatial_userdefine_client cct_metric_client cctlib_reader footprint_client footprint_client2 runtime_value_numbering_client omp_datarace_client cache_client
+TEST_TOOL_ROOTS =  deadspy_client redspy_client loadspy_client redspy_temporal_client redspy_spatial_userdefine_client cct_metric_client cctlib_reader footprint_client footprint_client2 runtime_value_numbering_client omp_datarace_client cache_client
 APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
@@ -36,6 +36,12 @@ $(OBJDIR)redspy_client$(OBJ_SUFFIX): redspy_client.cpp ../src/cctlib.H
 	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)redspy_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
+
+$(OBJDIR)loadspy_client$(OBJ_SUFFIX): loadspy_client.cpp ../src/cctlib.H
+	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+
+$(OBJDIR)loadspy_client$(PINTOOL_SUFFIX): $(OBJDIR)loadspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 $(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX): redspy_temporal_client.cpp ../src/cctlib.H ../src/shadow_memory.H
