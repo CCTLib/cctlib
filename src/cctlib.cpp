@@ -2125,7 +2125,7 @@ namespace PinCCTLib {
         uint32_t numInited = 0;
         
         for(uint64_t curAddr = (uint64_t)addr; curAddr < endAddr; curAddr += SHADOW_PAGE_SIZE) {
-            DataHandle_t* status = sm.GetOrCreateShadowAddress((size_t)curAddr);
+            DataHandle_t* status = GetOrCreateShadowAddress<0>(sm, (size_t)curAddr);
             int maxBytesInThisPage  = SHADOW_PAGE_SIZE - PAGE_OFFSET((uint64_t)addr);
             
             for(int i = 0 ; (i < maxBytesInThisPage) && numInited < accessLen; numInited++, i++) {
@@ -2144,7 +2144,7 @@ namespace PinCCTLib {
             return dataHandle;
         }
         
-        dataHandle = *(sm.GetOrCreateShadowAddress((size_t)addr));
+        dataHandle = *(GetOrCreateShadowAddress<0>(sm, (size_t)addr));
         return dataHandle;
     }
     
