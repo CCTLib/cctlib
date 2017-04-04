@@ -670,7 +670,7 @@ static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, 
     if (myLabel == NULL)
         return;
     
-    DataraceInfo_t * status = sm.GetOrCreateShadowBaseAddress((size_t)addr);
+    DataraceInfo_t * status = get<0>(sm.GetOrCreateShadowBaseAddress((size_t)addr));
     int overflow = (int)(PAGE_OFFSET((uint64_t)addr)) -  (int)((PAGE_OFFSET_MASK - (accessLen-1)));
     status += PAGE_OFFSET((uint64_t)addr);
     
@@ -687,7 +687,7 @@ static inline VOID CheckRace( VOID * addr, uint32_t accessLen, bool accessType, 
             ExecuteOffsetSpanPhaseProtocol(&status[nonOverflowBytes], myLabel, accessType, opaqueHandle, threadId);
         }
         // Execute the protocol for each byte of the memory accessed in the next page
-        status = sm.GetOrCreateShadowBaseAddress((size_t)(((char *)addr) + accessLen)); // +accessLen so that we get next page
+        status = get<0>(sm.GetOrCreateShadowBaseAddress((size_t)(((char *)addr) + accessLen))); // +accessLen so that we get next page
         for( int i = 0; i < overflow; i++){
             ExecuteOffsetSpanPhaseProtocol(&status[i], myLabel, accessType, opaqueHandle, threadId);
         }
