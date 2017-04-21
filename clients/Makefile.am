@@ -39,7 +39,7 @@ $(OBJDIR)redspy_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_client$(OBJ_SUFFIX) $(C
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 $(OBJDIR)loadspy_client$(OBJ_SUFFIX): loadspy_client.cpp ../src/cctlib.H
-	$(CXX) -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+	$(CXX) -mavx -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
 $(OBJDIR)loadspy_client$(PINTOOL_SUFFIX): $(OBJDIR)loadspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
