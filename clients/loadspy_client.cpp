@@ -290,8 +290,8 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
             default: return false;
         }
     }else {
-     //   assert(0 && "failed to disassemble instruction");
-	printf("\n Diassembly failure\n");
+        assert(0 && "failed to disassemble instruction");
+//	printf("\n Diassembly failure\n");
         return false;
     }
 }
