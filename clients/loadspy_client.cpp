@@ -726,38 +726,6 @@ struct RedSpyAnalysis{
             }
         }
     }
-    static __attribute__((always_inline)) VOID ApproxCheckAfterRead(void* addr, uint32_t opaqueHandle, THREADID threadId){
-        RedSpyThreadData* const tData = ClientGetTLS(threadId);
-         
-        ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-        
-        UINT32 const interv = sizeof(T);
-        tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
-        ContextHandle_t * __restrict__ prevIP = &(get<1>(t)[PAGE_OFFSET((uint64_t)addr)]);
-        uint8_t* prevValue = &(get<0>(t)[PAGE_OFFSET((uint64_t)addr)]);
-
-        bool isRedundantRead = IsReadRedundant(addr, prevValue);
-        if(isRedundantRead){
-            for(UINT32 index = 0 ; index < AccessLen; index+=interv){
-
-                tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &tt = sm.GetOrCreateShadowBaseAddress((uint64_t)addr+index);
-                prevIP = &(get<1>(tt)[PAGE_OFFSET(((uint64_t)addr+index))]);
-                // report in RedTable
-                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), interv, threadId);
-                // Update context
-                prevIP[0] = curCtxtHandle;
-            }
-        }else{
-            for(UINT32 index = 0 ; index < AccessLen; index+=interv){
-                tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &tt = sm.GetOrCreateShadowBaseAddress((uint64_t)addr+index);
-                prevIP = &(get<1>(tt)[PAGE_OFFSET(((uint64_t)addr+index))]);
-                // report in RedTable
-                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), interv, threadId);
-                // Update context
-                prevIP[0] = curCtxtHandle;
-            }
-        }
-    }
 };
 
 
@@ -800,10 +768,6 @@ static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t op
 INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
 INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<T, (ACCESS_LEN), (IS_APPROX)>::CheckNByteValueAfterRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END)
 
-#define HANDLE_APPROX_CASE(T, ACCESS_LEN, IS_APPROX) \
-INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<T, (ACCESS_LEN), (IS_APPROX)>::ApproxCheckAfterRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END)
-
 #define HANDLE_LARGE() \
 INS_InsertIfPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
 INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckAfterLargeRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
@@ -812,9 +776,6 @@ INS_InsertThenPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckAfterLargeRead, 
 
 #define HANDLE_CASE(T, ACCESS_LEN, IS_APPROX) \
 INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<T, (ACCESS_LEN), (IS_APPROX)>::CheckNByteValueAfterRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END)
-
-#define HANDLE_APPROX_CASE(T, ACCESS_LEN, IS_APPROX) \
-INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) RedSpyAnalysis<T, (ACCESS_LEN), (IS_APPROX)>::ApproxCheckAfterRead, IARG_MEMORYOP_EA, memOp, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_INST_PTR,IARG_END)
 
 #define HANDLE_LARGE() \
 INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) CheckAfterLargeRead, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
@@ -844,20 +805,20 @@ struct LoadSpyInstrument{
             switch(refSize) {
                 case 1:
                 case 2: assert(0 && "memory read floating data with unexptected small size");
-                case 4: HANDLE_APPROX_CASE(float, 4, true); break;
-                case 8: HANDLE_APPROX_CASE(double, 8, true); break;
-                case 10: HANDLE_APPROX_CASE(uint8_t, 10, true); break;
+                case 4: HANDLE_CASE(float, 4, true); break;
+                case 8: HANDLE_CASE(double, 8, true); break;
+                case 10: HANDLE_CASE(uint8_t, 10, true); break;
                 case 16: {
                     switch (operSize) {
-                        case 4: HANDLE_APPROX_CASE(float, 16, true); break;
-                        case 8: HANDLE_APPROX_CASE(double, 16, true); break;
+                        case 4: HANDLE_CASE(float, 16, true); break;
+                        case 8: HANDLE_CASE(double, 16, true); break;
                         default: assert(0 && "handle large mem read with unexpected operand size\n"); break;
                     }
                 }break;
                 case 32: {
                     switch (operSize) {
-                        case 4: HANDLE_APPROX_CASE(float, 32, true); break;
-                        case 8: HANDLE_APPROX_CASE(double, 32, true); break;
+                        case 4: HANDLE_CASE(float, 32, true); break;
+                        case 8: HANDLE_CASE(double, 32, true); break;
                         default: assert(0 && "handle large mem read with unexpected operand size\n"); break;
                     }
                 }break;
