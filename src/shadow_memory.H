@@ -32,6 +32,8 @@
 #define SHADOW_STRUCT_SIZE (sizeof (T))
 using namespace std;
 
+#define PIN_ExitProcess(a) exit(a)
+
 /*
 template <typename... Ts>
 struct ShadowType {
@@ -208,17 +210,18 @@ typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(S
 }
 //#define ConcurrentShadowMemory ShadowMemory
 
-#if 0
+#if 1
 ShadowMemory<int> s;
 ConcurrentShadowMemory <int> cs;
 int main(){
     
+for(int i = 0; i < 0xffff; i++){
     GetOrCreateShadowAddress<0>(s, 0x12345678)[0] = 1234;
     int j = GetOrCreateShadowAddress<0>(s, 0x12345678)[0];
 
     GetOrCreateShadowAddress<0>(cs, 0x12345678)[0] = 1234;
     j = GetOrCreateShadowAddress<0>(cs, 0x12345678)[0];
-
+}
     return 0;
 }
 #endif

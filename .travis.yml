@@ -1,0 +1,13 @@
+language: cpp
+compiler: gcc
+before_script: echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+script: ./build.sh < 1.txt
+matrix:
+  include:
+    - os: linux
+      compiler: gcc
+      addons:
+        apt:
+          sources: ['ubuntu-toolchain-r-test']
+          packages: ['g++-4.9']
+      env: COMPILER=g++-4.9
