@@ -7,7 +7,7 @@ matrix:
         apt:
           sources: ['ubuntu-toolchain-r-test']
           packages: ['g++-4.9']
-      env: CXX=g++-4.9
+      env: COMPILER=g++-4.9
 
 before_script: echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-script: ./build.sh < 1.txt
+script: CXX=$COMPILER ./build.sh < 1.txt
