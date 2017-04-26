@@ -257,7 +257,7 @@ struct RedSpyAnalysis{
                 if( (!WAS_DIFFERENT(addr + AccessLen - 1)) && IsPartialWriteRedundant(lastCacheLineStart, lastCacheLineAccessLength, threadId)){
                     WAS_DIFFERENT(addr + AccessLen - 1) = true;
                 }
-                for(int startOffset = firstCacheLineAccessLength ;  startOffset < lastCacheLineStart; startOffset += CACHE_LINE_SZ){
+                for(size_t startOffset = firstCacheLineAccessLength ;  startOffset < lastCacheLineStart; startOffset += CACHE_LINE_SZ){
                     if((!WAS_DIFFERENT(addr + startOffset)) && IsPartialWriteRedundant(startOffset, CACHE_LINE_SZ, threadId))
                         WAS_DIFFERENT(addr + startOffset) = true;
                 }
