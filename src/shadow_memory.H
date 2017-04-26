@@ -210,7 +210,7 @@ typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(S
 }
 //#define ConcurrentShadowMemory ShadowMemory
 
-#if 1
+#if 0
 ShadowMemory<int> s;
 ConcurrentShadowMemory <int> cs;
 int main(){
