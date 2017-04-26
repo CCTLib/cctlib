@@ -1,7 +1,7 @@
 language: cpp
 compiler: gcc
 before_script: echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-script: ./build.sh < 1.txt
+script: CXX=$COMPILER ./build.sh < 1.txt
 matrix:
   include:
     - os: linux
