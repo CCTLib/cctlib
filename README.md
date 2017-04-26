@@ -4,7 +4,7 @@ CCTLib is a library to ubiquitously collect calling contexts as well as attribut
 
 
 --------------------------------------------------
-	Supported platform
+	Supported platforms
 --------------------------------------------------
 1. Linux x86_64
 
