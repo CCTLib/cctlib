@@ -214,6 +214,7 @@ Publications based on CCTLib
 2. Milind Chabbi, Wim Lavrijsen, Wibe de Jong, Koushik Sen, John Mellor-Crummey, and Costin Iancu. 2015. Barrier elision for production parallel programs. In Proceedings of the 20th ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming (PPoPP 2015). ACM, New York, NY, USA, 109-119. DOI=http://dx.doi.org/10.1145/2688500.2688502
 3. Milind Chabbi and John Mellor-Crummey. 2012. DeadSpy: a tool to pinpoint program inefficiencies. In Proceedings of the Tenth International Symposium on Code Generation and Optimization (CGO '12). ACM, New York, NY, USA, 124-134. DOI=http://dx.doi.org/10.1145/2259016.2259033
 4. Shasha Wen, Xu Liu, Milind Chabbi, "Runtime Value Numbering: A Profiling Technique to Pinpoint Redundant Computations"  The 24th International Conference on Parallel Architectures and Compilation Techniques (PACT'15), Oct 18-21, 2015, San Francisco, California, USA
+5. Shasha Wen, Milind Chabbi, and Xu Liu. 2017. REDSPY: Exploring Value Locality in Software. In Proceedings of the Twenty-Second International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS '17). ACM, New York, NY, USA, 47-61. DOI: https://doi.org/10.1145/3037697.3037729
 
 
 
