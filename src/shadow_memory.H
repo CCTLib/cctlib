@@ -135,7 +135,7 @@ public:
 
 
 template<int I, typename... Ts>
-    typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(ConcurrentShadowMemory<Ts...> & sm, const size_t address) {
+    inline __attribute__((always_inline)) typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(ConcurrentShadowMemory<Ts...> & sm, const size_t address) {
  auto  shadowPage = sm.GetOrCreateShadowBaseAddress(address);
  return &(get<I>(shadowPage)[PAGE_OFFSET((uint64_t)address)]);
 }
@@ -204,7 +204,7 @@ public:
 };
 
 template<int I, typename... Ts>
-typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(ShadowMemory<Ts...> & sm, const size_t address) {
+inline __attribute__((always_inline)) typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(ShadowMemory<Ts...> & sm, const size_t address) {
     auto  shadowPage = sm.GetOrCreateShadowBaseAddress(address);
     return &(get<I>(shadowPage)[PAGE_OFFSET((uint64_t)address)]);
 }
