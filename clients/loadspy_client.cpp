@@ -1094,9 +1094,16 @@ static void PrintRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesLoad);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
+    vector<HPCRunCCT_t*> HPCRunNodes;
     int cntxtNum = 0;
     for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
         if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
+            HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
+            HPCRunNode->ctxtHandle1 = (*listIt).dead;
+            HPCRunNode->ctxtHandle2 = (*listIt).kill;
+            HPCRunNode->metric = (void *) (*listIt).frequency;
+            HPCRunNodes.push_back(HPCRunNode);
+
             fprintf(gTraceFile, "\n======= (%f) %% ======\n", (*listIt).frequency * 100.0 / grandTotalRedundantBytes);
             if ((*listIt).dead == 0) {
                 fprintf(gTraceFile, "\n Prepopulated with  by OS\n");
@@ -1111,6 +1118,8 @@ static void PrintRedundancyPairs(THREADID threadId) {
         }
         cntxtNum++;
     }
+    hpcrun_build_CCT(HPCRunNodes, threadId);
+    newCCT_hpcrun_selection_write(threadId);
 }
 
 static void PrintApproximationRedundancyPairs(THREADID threadId) {
@@ -1187,6 +1196,7 @@ static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
     THREADID  threadid =  PIN_ThreadId();
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
+    if (RedMap[threadid].empty() && ApproxRedMap[threadid].empty()) return;
     // Update gTotalInstCount first
     PIN_LockClient();
     PrintRedundancyPairs(threadid);
@@ -1249,6 +1259,23 @@ static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) 
 #endif
 }
 
+// user-defined function for metric merging
+void mergeFunc(void *des, void *src)
+{
+#if 0
+    uint64_t *m = (uint64_t *)des;
+    uint64_t *n = (uint64_t *)src;
+    *m += *n;
+#endif
+}
+
+// user-defined function for metric computation
+// hpcviewer can only show the numbers for the metric
+uint64_t computeMetricVal(void *metric)
+{
+    if (!metric) return 0;
+    return (uint64_t)metric;
+}
 
 int main(int argc, char* argv[]) {
     // Initialize PIN
@@ -1263,6 +1290,8 @@ int main(int argc, char* argv[]) {
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
     
+    // Init hpcrun format output
+    init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
     
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);

@@ -49,6 +49,11 @@ namespace PinCCTLib {
         ADDRINT ip;
     } Context;
 
+    typedef struct HPCRunCCT_t {
+        ContextHandle_t ctxtHandle1;
+        ContextHandle_t ctxtHandle2;
+        void* metric;
+    } HPCRunCCT_t;
 
     // Client callback function to determine if it wants to track a given INS
     typedef BOOL (* IsInterestingInsFptr)(INS ins);
@@ -174,8 +179,10 @@ namespace PinCCTLib {
 #endif
 
     // write the output into hpcviewer's format
-    int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src), uint64_t (*computeMetricVal)(void *metric), bool skip=false);
+    int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src)=NULL, uint64_t (*computeMetricVal)(void *metric)=NULL, bool skip=false);
     int newCCT_hpcrun_write(THREADID threadid);
+    uint64_t hpcrun_build_CCT(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
+    int newCCT_hpcrun_selection_write(THREADID threadid);
 }
 
 #endif
