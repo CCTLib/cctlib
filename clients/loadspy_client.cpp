@@ -1118,8 +1118,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
         }
         cntxtNum++;
     }
-    hpcrun_build_CCT(HPCRunNodes, threadId);
-    newCCT_hpcrun_selection_write(threadId);
+    newCCT_hpcrun_selection_write(HPCRunNodes, threadId);
 }
 
 static void PrintApproximationRedundancyPairs(THREADID threadId) {

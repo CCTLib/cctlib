@@ -3034,8 +3034,8 @@ struct NewIPNode {
 	vector<NewIPNode*> childIPNodes;
 	NewIPNode* parentIPNode;
 	ADDRINT IPAddress;
-	uint32_t parentID;
-	uint32_t ID;
+	int32_t parentID;
+	int32_t ID;
 	TraceSplay* tmpSplay;
 	void* metric;
 };
@@ -3766,6 +3766,9 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
   if (!node) return;
   hpcfmt_int4_fwrite(node->ID, fs);
   hpcfmt_int4_fwrite(node->parentID, fs);
+  // adjust the IPaddress to point to return address of the callsite (internal nodes) for hpcrun requirement
+  if (node->ID > 0) node->IPAddress++;
+
   IMG im = IMG_FindByAddress(node->IPAddress);
   if (node->IPAddress == 0 || IMG_Id(im) == 0) {
     hpcfmt_int2_fwrite(0, fs);
@@ -3825,6 +3828,82 @@ static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode **
   }
   findMain(curIPNode, childCtxtStartIdx->right, mainNode);
   return;
+}
+
+NewIPNode* findSameIPbyIP(vector<NewIPNode*> nodes, ADDRINT address) {
+  size_t i;
+  for (i = 0; i < nodes.size(); i++) {
+    if (nodes.at(i)->IPAddress == address) return nodes.at(i);
+  }
+  return NULL;
+}
+
+// Construct NewIPNode
+NewIPNode* constructIPNodeFromIP(NewIPNode* parentIP, ADDRINT address, uint64_t* nodeCount) {
+  NewIPNode* curIP = new NewIPNode();
+  curIP->childIPNodes.clear();
+  curIP->parentIPNode = parentIP;
+  curIP->IPAddress = address;
+  curIP->parentID = parentIP->ID;
+  curIP->tmpSplay = NULL;
+  curIP->ID = GetID();
+  parentIP->childIPNodes.push_back(curIP);
+
+  (*nodeCount)++;
+  return curIP;
+}
+
+void hpcrun_insert_path(NewIPNode *root, HPCRunCCT_t *HPCRunNode, uint64_t *nodeCount) {
+  vector<Context> contextVec1, contextVec2;
+
+  if (HPCRunNode->ctxtHandle1 == 0) return;
+
+  GetFullCallingContextInSitu(HPCRunNode->ctxtHandle1, contextVec1);
+  GetFullCallingContextInSitu(HPCRunNode->ctxtHandle2, contextVec2);
+
+  NewIPNode *tmp;
+  NewIPNode *cur = root;
+  for(int32_t i = contextVec1.size()-1; i>=0; i--) {
+    tmp = findSameIPbyIP(cur->childIPNodes, contextVec1[i].ip);
+    if (!tmp) {
+      NewIPNode* nIP = constructIPNodeFromIP(cur, contextVec1[i].ip, nodeCount);
+      cur = nIP;
+    }
+    else {
+      cur = tmp;
+    }
+  } 
+
+#if 0
+  //add a join node
+  tmp = findSameIPbyIP(cur->childIPNodes, (ADDRINT)KILLED_BY);
+  if (!tmp) cur = constructIPNodeFromIP(cur, (ADDRINT)KILLED_BY, nodeCount);
+  else cur = tmp;
+#endif
+
+  if (HPCRunNode->ctxtHandle2 != 0) {
+    // concatenate the two contexts
+    for(int32_t i = contextVec2.size()-1; i>=0; i--) {
+      tmp = findSameIPbyIP(cur->childIPNodes, contextVec2[i].ip);
+      if (!tmp) {
+        NewIPNode* nIP = constructIPNodeFromIP(cur, contextVec2[i].ip, nodeCount);
+        cur = nIP;
+      }
+      else {
+        cur = tmp;
+      }
+    } 
+  }
+  // metrics only associated with leaves
+  // if the path already exists, just merge the metrics
+  if (cur->ID < 0) {
+    // TODO: use mergeFunc in the future
+    cur->metric = (void*)((uint64_t)cur->metric + (uint64_t)HPCRunNode->metric);
+  }
+  else {
+    cur->metric = HPCRunNode->metric;
+    cur->ID = -cur->ID;
+  }
 }
 
 /*======APIs to support hpcviewer format======*/
@@ -3905,69 +3984,11 @@ int newCCT_hpcrun_write(THREADID threadid) {
   return 0;
 }
 
-NewIPNode* findSameIPbyIP(vector<NewIPNode*> nodes, ADDRINT address) {
-  size_t i;
-  for (i = 0; i < nodes.size(); i++) {
-    if (nodes.at(i)->IPAddress == address) return nodes.at(i);
-  }
-  return NULL;
-}
 
-// Construct NewIPNode
-NewIPNode* constructIPNodeFromIP(NewIPNode* parentIP, ADDRINT address, uint64_t* nodeCount) {
-  NewIPNode* curIP = new NewIPNode();
-  curIP->childIPNodes.clear();
-  curIP->parentIPNode = parentIP;
-  curIP->IPAddress = address;
-  curIP->parentID = parentIP->ID;
-  curIP->tmpSplay = NULL;
-  curIP->ID = GetID();
-  parentIP->childIPNodes.push_back(curIP);
+// This API is used to output a hpcrun CCT with selected call paths
+int newCCT_hpcrun_selection_write(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid) {
 
-  (*nodeCount)++;
-  return curIP;
-}
-
-void hpcrun_insert_path(NewIPNode *root, HPCRunCCT_t *HPCRunNode, uint64_t *nodeCount) {
-  vector<Context> contextVec1, contextVec2;
-
-  if (HPCRunNode->ctxtHandle1 == 0) return;
-
-  GetFullCallingContextInSitu(HPCRunNode->ctxtHandle1, contextVec1);
-  GetFullCallingContextInSitu(HPCRunNode->ctxtHandle2, contextVec2);
-
-  NewIPNode *tmp;
-  NewIPNode *cur = root;
-  for(int32_t i = contextVec1.size()-1; i>=0; i--) {
-    tmp = findSameIPbyIP(cur->childIPNodes, contextVec1[i].ip);
-    if (!tmp) {
-      NewIPNode* nIP = constructIPNodeFromIP(cur, contextVec1[i].ip, nodeCount);
-      cur = nIP;
-    }
-    else {
-      cur = tmp;
-    }
-  } 
-  if (HPCRunNode->ctxtHandle2 != 0) {
-    // concatenate the two contexts
-    for(int32_t i = contextVec2.size()-1; i>=0; i--) {
-      tmp = findSameIPbyIP(cur->childIPNodes, contextVec2[i].ip);
-      if (!tmp) {
-        NewIPNode* nIP = constructIPNodeFromIP(cur, contextVec2[i].ip, nodeCount);
-        cur = nIP;
-      }
-      else {
-        cur = tmp;
-      }
-    } 
-  }
-  // metrics only associated with leaves
-  cur->metric = HPCRunNode->metric;
-  cur->ID = -cur->ID;
-}
-
-// return the number of nodes in the CCT
-uint64_t hpcrun_build_CCT(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid) {
+  // build the hpcrun-style CCT
   ThreadData* tdata = CCTLibGetTLS(threadid);
   // initialize the root node (dummy node)
   tdata->tlsHPCRunCCTRoot = new NewIPNode();
@@ -3984,17 +4005,11 @@ uint64_t hpcrun_build_CCT(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid) {
     hpcrun_insert_path(root, *it, &tdata->nodeCount);
   }
   
-  return tdata->nodeCount;
-}
-
-int newCCT_hpcrun_selection_write(THREADID threadid) {
-
-  
+  // output the CCT
   FILE *fs = lazy_open_data_file(int (threadid), filename); 
   if(!fs) return -1;
 
   uint32_t i;
-  ThreadData* tdata = CCTLibGetTLS(threadid);
   NewIPNode* cctlib = tdata->tlsHPCRunCCTRoot;
   vector<NewIPNode*> IPHandle;
   

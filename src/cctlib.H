@@ -181,8 +181,7 @@ namespace PinCCTLib {
     // write the output into hpcviewer's format
     int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src)=NULL, uint64_t (*computeMetricVal)(void *metric)=NULL, bool skip=false);
     int newCCT_hpcrun_write(THREADID threadid);
-    uint64_t hpcrun_build_CCT(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
-    int newCCT_hpcrun_selection_write(THREADID threadid);
+    int newCCT_hpcrun_selection_write(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
 }
 
 #endif
