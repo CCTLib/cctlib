@@ -1094,16 +1094,9 @@ static void PrintRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesLoad);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
-    vector<HPCRunCCT_t*> HPCRunNodes;
     int cntxtNum = 0;
     for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
         if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
-            HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
-            HPCRunNode->ctxtHandle1 = (*listIt).dead;
-            HPCRunNode->ctxtHandle2 = (*listIt).kill;
-            HPCRunNode->metric = (void *) (*listIt).frequency;
-            HPCRunNodes.push_back(HPCRunNode);
-
             fprintf(gTraceFile, "\n======= (%f) %% ======\n", (*listIt).frequency * 100.0 / grandTotalRedundantBytes);
             if ((*listIt).dead == 0) {
                 fprintf(gTraceFile, "\n Prepopulated with  by OS\n");
@@ -1118,7 +1111,6 @@ static void PrintRedundancyPairs(THREADID threadId) {
         }
         cntxtNum++;
     }
-    newCCT_hpcrun_selection_write(HPCRunNodes, threadId);
 }
 
 static void PrintApproximationRedundancyPairs(THREADID threadId) {
@@ -1190,6 +1182,34 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
     }
 }
 
+static void HPCRunRedundancyPairs(THREADID threadId) {
+    vector<RedundacyData> tmpList;
+    vector<RedundacyData>::iterator tmpIt;
+    
+    for (dense_hash_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+    }
+    
+    sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
+    vector<HPCRunCCT_t*> HPCRunNodes;
+    int cntxtNum = 0;
+    for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
+        if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
+            HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
+            HPCRunNode->ctxtHandle1 = (*listIt).dead;
+            HPCRunNode->ctxtHandle2 = (*listIt).kill;
+            HPCRunNode->metric = (void *) (*listIt).frequency;
+            HPCRunNodes.push_back(HPCRunNode);
+        }
+        else {
+            break;
+        }
+        cntxtNum++;
+    }
+    newCCT_hpcrun_selection_write(HPCRunNodes, threadId);
+}
+
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
@@ -1209,6 +1229,9 @@ static VOID ImageUnload(IMG img, VOID* v) {
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
     
     __sync_fetch_and_add(&grandTotBytesLoad, ClientGetTLS(threadid)->bytesLoad);
+    
+    // output the CCT for hpcviewer format
+    HPCRunRedundancyPairs(threadid);
 }
 
 static VOID FiniFunc(INT32 code, VOID *v) {
