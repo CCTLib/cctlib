@@ -1213,7 +1213,35 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
         cntxtNum++;
     }
     newCCT_hpcrun_build_cct(HPCRunNodes, threadId);
-    newCCT_hpcrun_selection_write(threadId);
+}
+
+static void HPCRunApproxRedundancyPairs(THREADID threadId) {
+    vector<RedundacyData> tmpList;
+    vector<RedundacyData>::iterator tmpIt;
+    
+    for (dense_hash_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+    }
+    
+    sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
+    vector<HPCRunCCT_t*> HPCRunNodes;
+    int cntxtNum = 0;
+    for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
+        if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
+            HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
+            HPCRunNode->ctxtHandle1 = (*listIt).dead;
+            HPCRunNode->ctxtHandle2 = (*listIt).kill;
+            HPCRunNode->metric = (*listIt).frequency;
+            HPCRunNode->metric_id = redload_approx_metric_id;
+            HPCRunNodes.push_back(HPCRunNode);
+        }
+        else {
+            break;
+        }
+        cntxtNum++;
+    }
+    newCCT_hpcrun_build_cct(HPCRunNodes, threadId);
 }
 
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
@@ -1238,6 +1266,8 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, V
     
     // output the CCT for hpcviewer format
     HPCRunRedundancyPairs(threadid);
+    HPCRunApproxRedundancyPairs(threadid);
+    newCCT_hpcrun_selection_write(threadid);
 }
 
 static VOID FiniFunc(INT32 code, VOID *v) {
@@ -1321,6 +1351,7 @@ int main(int argc, char* argv[]) {
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
     redload_metric_id = hpcrun_create_metric("RED_LOAD");
+    redload_approx_metric_id = hpcrun_create_metric("RED_LOAD_APPROX");
     
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);

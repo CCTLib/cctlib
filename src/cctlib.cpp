@@ -3444,7 +3444,6 @@ void
 hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE* fs)
 {
   // Write out the number of metric table in the program 
-  hpcfmt_int4_fwrite((uint32_t) 1, fs);  // 1 metric table
   metric_desc_t mdesc = metricDesc_NULL;
   mdesc.flags = hpcrun_metricFlags_NULL;
 
@@ -3522,6 +3521,9 @@ FILE* lazy_open_data_file(int tID, std::string *filename){
   hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_traceMinTime, traceMinTimeStr);
   hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_traceMaxTime, traceMaxTimeStr);
   hpcrun_fmt_epochHdr_fwrite(fs, epoch_flags, default_measurement_granularity, default_ra_to_callsite_distance);
+  // log the number of metrics
+  hpcfmt_int4_fwrite((uint32_t) GLOBAL_STATE.nmetric-1, fs); 
+  // log each metric
   for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
     hpcrun_set_metric_info_w_fn(i, GLOBAL_STATE.metrics[i], 1, fs);
   hpcrun_fmt_loadmap_fwrite(fs, *filename);
