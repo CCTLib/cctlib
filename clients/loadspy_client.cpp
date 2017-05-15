@@ -1350,6 +1350,7 @@ int main(int argc, char* argv[]) {
     
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
+    // Create new metrics
     redload_metric_id = hpcrun_create_metric("RED_LOAD");
     redload_approx_metric_id = hpcrun_create_metric("RED_LOAD_APPROX");
     
