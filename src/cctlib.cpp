@@ -320,7 +320,8 @@ namespace PinCCTLib {
     };
 
     /******** Globals variables **********/
-
+#define MAX_METRICS (10)
+#define MAX_LEN (128)
 
     struct CCT_LIB_GLOBAL_STATE {
         // record the IP of the first instruction in main
@@ -328,6 +329,8 @@ namespace PinCCTLib {
         void (*mergeFunc)(void *des, void *src); // merge metrics in nodes
         uint64_t (*computeMetricVal)(void *metric); // convert the metric pointer to a value
         ADDRINT mainIP;
+        int nmetric;
+        char metrics[MAX_METRICS][MAX_LEN];
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
         bool applicationStarted ; // false by default
@@ -720,6 +723,8 @@ namespace PinCCTLib {
         tdata->tlsParentThreadTraceNode = 0;
         tdata->tlsInitiatedCall = true;
         tdata->curSlotNo = 0;
+        // init the dummy root for hpcrun format
+        tdata->tlsHPCRunCCTRoot = NULL;
 
         // Set stack sizes if data-centric is needed
         if(GLOBAL_STATE.doDataCentric) {
@@ -3038,6 +3043,7 @@ struct NewIPNode {
 	int32_t ID;
 	TraceSplay* tmpSplay;
 	void* metric;
+        uint64_t *metricVal;
 };
 
 typedef uint16_t size_t;
@@ -3516,7 +3522,8 @@ FILE* lazy_open_data_file(int tID, std::string *filename){
   hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_traceMinTime, traceMinTimeStr);
   hpcrun_fmt_hdr_fwrite(fs, HPCRUN_FMT_NV_traceMaxTime, traceMaxTimeStr);
   hpcrun_fmt_epochHdr_fwrite(fs, epoch_flags, default_measurement_granularity, default_ra_to_callsite_distance);
-  hpcrun_set_metric_info_w_fn(1, "METRIC_DUMMY", 1, fs);
+  for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
+    hpcrun_set_metric_info_w_fn(i, GLOBAL_STATE.metrics[i], 1, fs);
   hpcrun_fmt_loadmap_fwrite(fs, *filename);
   return fs;
 }
@@ -3780,12 +3787,8 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
     hpcfmt_int8_fwrite(node->IPAddress-GLOBAL_STATE.ModuleInfoMap[IMG_Id(im)].imgLoadOffset, fs);
   }
 
-  uint64_t metricVal = 0;
-//#ifdef HAVE_METRIC_PER_IPNODE 
-  if (GLOBAL_STATE.computeMetricVal)
-    metricVal = GLOBAL_STATE.computeMetricVal(node->metric);
-//#endif
-  hpcfmt_int8_fwrite(metricVal, fs);
+  for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
+    hpcfmt_int8_fwrite(node->metricVal[i], fs);
   return;
 }
 
@@ -3847,6 +3850,9 @@ NewIPNode* constructIPNodeFromIP(NewIPNode* parentIP, ADDRINT address, uint64_t*
   curIP->parentID = parentIP->ID;
   curIP->tmpSplay = NULL;
   curIP->ID = GetID();
+  curIP->metricVal = new uint64_t[GLOBAL_STATE.nmetric];
+  for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
+    curIP->metricVal[i] = 0;
   parentIP->childIPNodes.push_back(curIP);
 
   (*nodeCount)++;
@@ -3897,11 +3903,10 @@ void hpcrun_insert_path(NewIPNode *root, HPCRunCCT_t *HPCRunNode, uint64_t *node
   // metrics only associated with leaves
   // if the path already exists, just merge the metrics
   if (cur->ID < 0) {
-    // TODO: use mergeFunc in the future
-    cur->metric = (void*)((uint64_t)cur->metric + (uint64_t)HPCRunNode->metric);
+    cur->metricVal[HPCRunNode->metric_id] += HPCRunNode->metric;
   }
   else {
-    cur->metric = HPCRunNode->metric;
+    cur->metricVal[HPCRunNode->metric_id] = HPCRunNode->metric;
     cur->ID = -cur->ID;
   }
 }
@@ -3930,7 +3935,18 @@ int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void
  
   GLOBAL_STATE.mergeFunc = mergeFunc;
   GLOBAL_STATE.computeMetricVal = computeMetricVal;
+  // the current metric cursor is set to 1
+  GLOBAL_STATE.nmetric = 1;
   return 0;
+}
+
+/*
+ * API to create metrics
+ */
+int hpcrun_create_metric(const char *name){
+  int t = GLOBAL_STATE.nmetric;
+  strcpy(GLOBAL_STATE.metrics[GLOBAL_STATE.nmetric++], name);
+  return t;
 }
   
 /*
@@ -3986,29 +4002,38 @@ int newCCT_hpcrun_write(THREADID threadid) {
 
 
 // This API is used to output a hpcrun CCT with selected call paths
-int newCCT_hpcrun_selection_write(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid) {
+int newCCT_hpcrun_build_cct(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid) {
 
   // build the hpcrun-style CCT
   ThreadData* tdata = CCTLibGetTLS(threadid);
   // initialize the root node (dummy node)
-  tdata->tlsHPCRunCCTRoot = new NewIPNode();
-  tdata->tlsHPCRunCCTRoot->childIPNodes.clear();
-  tdata->tlsHPCRunCCTRoot->IPAddress = 0;
-  tdata->tlsHPCRunCCTRoot->ID = 0;
-  tdata->tlsHPCRunCCTRoot->tmpSplay = NULL;
-  tdata->tlsHPCRunCCTRoot->metric = NULL;
-  NewIPNode *root = tdata->tlsHPCRunCCTRoot;
-  tdata->nodeCount = 0;
+  if (!tdata->tlsHPCRunCCTRoot) {
+    tdata->tlsHPCRunCCTRoot = new NewIPNode();
+    tdata->tlsHPCRunCCTRoot->childIPNodes.clear();
+    tdata->tlsHPCRunCCTRoot->IPAddress = 0;
+    tdata->tlsHPCRunCCTRoot->ID = 0;
+    tdata->tlsHPCRunCCTRoot->tmpSplay = NULL;
+    tdata->tlsHPCRunCCTRoot->metric = NULL;
+    tdata->tlsHPCRunCCTRoot->metricVal = new uint64_t[GLOBAL_STATE.nmetric];
+    for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
+      tdata->tlsHPCRunCCTRoot->metricVal[i] = 0;
+    tdata->nodeCount = 0;
+  }
 
+  NewIPNode *root = tdata->tlsHPCRunCCTRoot;
   vector<HPCRunCCT_t *>::iterator it;
   for (it = OldNodes.begin(); it != OldNodes.end(); ++it) {
     hpcrun_insert_path(root, *it, &tdata->nodeCount);
   }
+  return 0;
+}
   
-  // output the CCT
+// output the CCT
+int newCCT_hpcrun_selection_write(THREADID threadid) {
   FILE *fs = lazy_open_data_file(int (threadid), filename); 
   if(!fs) return -1;
 
+  ThreadData* tdata = CCTLibGetTLS(threadid);
   uint32_t i;
   NewIPNode* cctlib = tdata->tlsHPCRunCCTRoot;
   vector<NewIPNode*> IPHandle;

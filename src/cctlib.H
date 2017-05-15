@@ -52,7 +52,8 @@ namespace PinCCTLib {
     typedef struct HPCRunCCT_t {
         ContextHandle_t ctxtHandle1;
         ContextHandle_t ctxtHandle2;
-        void* metric;
+        uint64_t metric;
+        int metric_id;
     } HPCRunCCT_t;
 
     // Client callback function to determine if it wants to track a given INS
@@ -180,8 +181,10 @@ namespace PinCCTLib {
 
     // write the output into hpcviewer's format
     int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src)=NULL, uint64_t (*computeMetricVal)(void *metric)=NULL, bool skip=false);
+    int hpcrun_create_metric(const char *name);
     int newCCT_hpcrun_write(THREADID threadid);
-    int newCCT_hpcrun_selection_write(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
+    int newCCT_hpcrun_build_cct(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
+    int newCCT_hpcrun_selection_write(THREADID threadid);
 }
 
 #endif

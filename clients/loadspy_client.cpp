@@ -126,6 +126,10 @@ struct RedSpyThreadData{
     bool sampleFlag;
 };
 
+// for metric logging
+int redload_metric_id = 0;
+int redload_approx_metric_id = 0;
+
 //for statistics result
 uint64_t grandTotBytesLoad;
 uint64_t grandTotBytesRedLoad;
@@ -1199,7 +1203,8 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
             HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
             HPCRunNode->ctxtHandle1 = (*listIt).dead;
             HPCRunNode->ctxtHandle2 = (*listIt).kill;
-            HPCRunNode->metric = (void *) (*listIt).frequency;
+            HPCRunNode->metric = (*listIt).frequency;
+            HPCRunNode->metric_id = redload_metric_id;
             HPCRunNodes.push_back(HPCRunNode);
         }
         else {
@@ -1207,7 +1212,8 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
         }
         cntxtNum++;
     }
-    newCCT_hpcrun_selection_write(HPCRunNodes, threadId);
+    newCCT_hpcrun_build_cct(HPCRunNodes, threadId);
+    newCCT_hpcrun_selection_write(threadId);
 }
 
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
@@ -1314,6 +1320,7 @@ int main(int argc, char* argv[]) {
     
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
+    redload_metric_id = hpcrun_create_metric("RED_LOAD");
     
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
