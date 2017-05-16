@@ -1317,16 +1317,6 @@ static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) 
 #endif
 }
 
-// user-defined function for metric merging
-void mergeFunc(void *des, void *src)
-{
-#if 0
-    uint64_t *m = (uint64_t *)des;
-    uint64_t *n = (uint64_t *)src;
-    *m += *n;
-#endif
-}
-
 // user-defined function for metric computation
 // hpcviewer can only show the numbers for the metric
 uint64_t computeMetricVal(void *metric)
@@ -1349,7 +1339,7 @@ int main(int argc, char* argv[]) {
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
     
     // Init hpcrun format output
-    init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
+    init_hpcrun_format(argc, argv, NULL, NULL, false);
     // Create new metrics
     redload_metric_id = hpcrun_create_metric("RED_LOAD");
     redload_approx_metric_id = hpcrun_create_metric("RED_LOAD_APPROX");

@@ -33,6 +33,7 @@ static INT32 Usage() {
 FILE* gTraceFile;
 
 long mm[MAX_THREADS];
+int ins_metric_id = 0;
 
 // Initialized the needed data structures before launching the target program
 void ClientInit(int argc, char* argv[]) {
@@ -115,7 +116,8 @@ int main(int argc, char* argv[]) {
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
     // Init hpcrun format output
-    init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, true);
+    init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, false);
+    ins_metric_id = hpcrun_create_metric("TOT_INS");
     
     // Collete data for visualization
     PIN_AddThreadStartFunction(ThreadStartFunc, 0);

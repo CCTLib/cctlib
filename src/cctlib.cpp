@@ -3789,8 +3789,15 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
     hpcfmt_int8_fwrite(node->IPAddress-GLOBAL_STATE.ModuleInfoMap[IMG_Id(im)].imgLoadOffset, fs);
   }
 
-  for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
-    hpcfmt_int8_fwrite(node->metricVal[i], fs);
+  // this uses .metric field in the NewIPNode, which means we have per IPNode metric
+  // for this case, by default, we only have one metric
+  if (GLOBAL_STATE.computeMetricVal) {
+    hpcfmt_int8_fwrite(GLOBAL_STATE.computeMetricVal(node->metric), fs);
+  }
+  else { // not necessarily have per IPNode metric
+    for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
+      hpcfmt_int8_fwrite(node->metricVal[i], fs);
+  }
   return;
 }
 
@@ -3852,6 +3859,7 @@ NewIPNode* constructIPNodeFromIP(NewIPNode* parentIP, ADDRINT address, uint64_t*
   curIP->parentID = parentIP->ID;
   curIP->tmpSplay = NULL;
   curIP->ID = GetID();
+  curIP->metric = NULL;
   curIP->metricVal = new uint64_t[GLOBAL_STATE.nmetric];
   for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
     curIP->metricVal[i] = 0;
