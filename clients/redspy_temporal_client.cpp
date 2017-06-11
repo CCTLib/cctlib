@@ -1474,8 +1474,6 @@ struct RedSpyAnalysis{
             for(UINT32 index = 0 ; index < AccessLen; index+=interv){
                 status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index));
                 prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
-                // report in RedTable
-                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), interv, threadId);
                 // Update context
                 prevIP[0] = curCtxtHandle;
             }
