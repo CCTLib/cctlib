@@ -189,15 +189,15 @@ static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYT
 static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
 static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
 
-static dense_hash_map<uint64_t, uint64_t> RedMap[THREAD_MAX];
-static dense_hash_map<uint64_t, uint64_t> ApproxRedMap[THREAD_MAX];
+static unordered_map<uint64_t, uint64_t> RedMap[THREAD_MAX];
+static unordered_map<uint64_t, uint64_t> ApproxRedMap[THREAD_MAX];
 
 static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadId) __attribute__((always_inline,flatten));
 static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadId) {
 #ifdef MULTI_THREADED
     LOCK_RED_MAP();
 #endif
-    dense_hash_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].find(key);
+    unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].find(key);
     if ( it  == RedMap[threadId].end()) {
         RedMap[threadId][key] = value;
     } else {
@@ -213,7 +213,7 @@ static inline void AddToApproximateRedTable(uint64_t key,  uint16_t value, THREA
 #ifdef MULTI_THREADED
     LOCK_RED_MAP();
 #endif
-    dense_hash_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].find(key);
+    unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].find(key);
     if ( it  == ApproxRedMap[threadId].end()) {
         ApproxRedMap[threadId][key] = value;
     } else {
@@ -1057,7 +1057,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
     
 #ifdef MERGING
-    for (dense_hash_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+    for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         ContextHandle_t dead = DECODE_DEAD((*it).first);
         ContextHandle_t kill = DECODE_KILL((*it).first);
         
@@ -1086,7 +1086,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
         }
     }
 #else
-    for (dense_hash_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+    for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
         tmpList.push_back(tmp);
         grandTotalRedundantBytes += tmp.frequency;
@@ -1125,7 +1125,7 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile, "*************** Dump Data(delta=%.2f%%) from Thread %d ****************\n", delta*100,threadId);
     
 #ifdef MERGING
-    for (dense_hash_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
+    for (unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
         ContextHandle_t dead = DECODE_DEAD((*it).first);
         ContextHandle_t kill = DECODE_KILL((*it).first);
         
@@ -1155,7 +1155,7 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
         }
     }
 #else
-    for (dense_hash_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
+    for (unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
         RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
         tmpList.push_back(tmp);
         grandTotalRedundantBytes += tmp.frequency;
@@ -1190,7 +1190,7 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
     vector<RedundacyData>::iterator tmpIt;
     
-    for (dense_hash_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+    for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
         tmpList.push_back(tmp);
     }
@@ -1219,7 +1219,7 @@ static void HPCRunApproxRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
     vector<RedundacyData>::iterator tmpIt;
     
-    for (dense_hash_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
+    for (unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
         RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
         tmpList.push_back(tmp);
     }
@@ -1275,7 +1275,7 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     uint64_t redReadTmp = 0;
     uint64_t approxRedReadTmp = 0;
     for(int i = 0; i < THREAD_MAX; ++i){
-        dense_hash_map<uint64_t, uint64_t>::iterator it;
+        unordered_map<uint64_t, uint64_t>::iterator it;
         if(!RedMap[i].empty()){
             for (it = RedMap[i].begin(); it != RedMap[i].end(); ++it) {
                 redReadTmp += (*it).second;
@@ -1300,10 +1300,11 @@ static void InitThreadData(RedSpyThreadData* tdata){
     tdata->bytesLoad = 0;
     tdata->sampleFlag = true;
     tdata->numIns = 0;
-    for (int i = 0; i < THREAD_MAX; ++i) {
+/*    for (int i = 0; i < THREAD_MAX; ++i) {
         RedMap[i].set_empty_key(0);
         ApproxRedMap[i].set_empty_key(0);
     }
+*/
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
