@@ -822,7 +822,7 @@ static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t op
         // Not redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
             // Update context
-            prevIP[0] = curCtxtHandle;
+            prevIP[index] = curCtxtHandle;
         }
     }
     
