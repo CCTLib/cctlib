@@ -179,6 +179,9 @@ namespace PinCCTLib {
 #define USE_SHADOW_FOR_DATA_CENTRIC
 #endif
 
+void AppendLoadModulesToStream(iostream &ios);
+void LogContexts(iostream & ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2);
+
     // write the output into hpcviewer's format
     int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src)=NULL, uint64_t (*computeMetricVal)(void *metric)=NULL, bool skip=false);
     int hpcrun_create_metric(const char *name);

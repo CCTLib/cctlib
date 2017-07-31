@@ -501,6 +501,20 @@ namespace PinCCTLib {
         //fprintf(GLOBAL_STATE.CCTLibLogFile,"\n RestoreSigLongJmpCtxt2 tlsLongJmpHoldBuf = %lu",tData->tlsLongJmpHoldBuf);
     }
 
+    static int GetInstructionLength(ADDRINT ip) {
+        // Get the instruction in a string
+        xed_decoded_inst_t      xedd;
+        /// XED state
+        xed_state_t  xed_state;
+        xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+
+        if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
+             return xed_decoded_inst_get_length(&xedd);
+        } else {
+            assert(0 && "failed to disassemble instruction");
+            return 0;
+        }
+    }
 
     static bool IsCallInstruction(ADDRINT ip) {
         // Get the instruction in a string
@@ -2013,6 +2027,64 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         }
     }
 
+    void AppendLoadModulesToStream(iostream &ios){
+        unordered_map<UINT32, ModuleInfo>::iterator it;
+        for(it = GLOBAL_STATE.ModuleInfoMap.begin(); it != GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
+            ios<<"\n"<<it->first<<":"<<(void*)((it->second).imgLoadOffset)<<","<<(it->second).moduleName;
+        }
+    }
+    struct NormalizedIP{
+        int lm_id;
+        ADDRINT offset;
+    };
+
+    static void GetNormalizedIpVectorClippedToMainOneAheadIp(vector<NormalizedIP> & ctxt, ContextHandle_t curCtxtHndle){
+            int depth = 0;
+            // Dont print if the depth is more than MAX_CCT_PRINT_DEPTH since files become too large
+            while(IS_VALID_CONTEXT(curCtxtHndle) && (depth ++ < MAX_CCT_PRINT_DEPTH)) {
+                    int threadCtx = 0;
+                    if((threadCtx = IsARootIPNode(curCtxtHndle)) != NOT_ROOT_CTX) {
+                	// if the thread has a parent, recur over it.
+                	ContextHandle_t parentThreadCtxtHndl = CCTLibGetTLS(threadCtx)->tlsParentThreadCtxtHndl;
+                	if(parentThreadCtxtHndl) {
+                            fprintf(stderr, "\n Multi threading not supported for this prototype feature. Exiting\n" );
+                            PIN_ExitProcess(-1);
+                        }
+                       break;
+                    } else {
+                            TraceNode* traceNode = GET_IPNODE_FROM_CONTEXT_HANDLE(curCtxtHndle)->parentTraceNode;
+                            // what is my slot id ?
+                            uint32_t slotNo = curCtxtHndle - traceNode->childCtxtStartIdx;
+
+                            ADDRINT* ptr = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
+                            UINT32 moduleId = ptr[-1]; // module id is stored one behind.
+                            ADDRINT ip =  ptr[slotNo];
+                            ip += GetInstructionLength(ip);
+                            NormalizedIP nip;
+                            nip.lm_id=moduleId;
+                            nip.offset = ip - GLOBAL_STATE.ModuleInfoMap[moduleId].imgLoadOffset;
+                            ctxt.push_back(nip);
+
+                            // if we are already in main, we are done
+                            RTN r = RTN_FindByAddress(ip);
+                            if(RTN_Invalid() != r && RTN_Name(r) == "main")
+                                return;
+                    }
+                    curCtxtHndle = GET_IPNODE_FROM_CONTEXT_HANDLE(curCtxtHndle)->parentTraceNode->callerCtxtHndl;
+            }
+    }
+
+    void LogContexts(iostream & ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2){
+         vector<NormalizedIP> c1;
+         vector<NormalizedIP> c2;
+         GetNormalizedIpVectorClippedToMainOneAheadIp(c1, ctxt1);
+         GetNormalizedIpVectorClippedToMainOneAheadIp(c2, ctxt2);
+         for(uint32_t i = 0; i < c1.size(); i++)
+                ios<<c1[i].lm_id<<"-"<<(void*)c1[i].offset<<",";
+         ios<<"SEP";
+         for(uint32_t i = 0; i < c2.size(); i++)
+                ios<<","<<c2[i].lm_id<<"-"<<(void*)c2[i].offset;
+    }
 
 // Initialize the needed data structures before launching the target program
     static void InitBuffers() {

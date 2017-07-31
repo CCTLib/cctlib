@@ -33,6 +33,7 @@
 #include <string.h>
 #include <setjmp.h>
 #include <sstream>
+#include <fstream> 
 // Need GOOGLE sparse hash tables
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
@@ -1592,6 +1593,27 @@ VOID ImageUnload(IMG img, VOID* v) {
         deads++;
     }
 
+static bool done = false;
+if(!done){
+done = true;
+    // Produce a log of Top 10
+    dipIter = deadList.begin();
+     
+     std::fstream ios;
+     ios.open ("test.topn", std::fstream::out | std::fstream::trunc);
+
+
+     ios<<"<LOADMODULES>";
+     AppendLoadModulesToStream(ios);
+     ios<<"\n</LOADMODULES>\n<TOPN>";
+    for(int topN = 0; dipIter != deadList.end() && (topN <10) ; dipIter++, topN++) {
+     ios <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 100.0 / measurementBaseCount<<":";
+     LogContexts(ios, (*dipIter).pMergedDeadInfo->context1, (*dipIter).pMergedDeadInfo->context2);
+    }
+     ios<<"\n</TOPN>";
+
+     ios.close();
+}
     PrintEachSizeWrite();
 #ifdef TESTING_BYTES
     PrintInstructionBreakdown();
