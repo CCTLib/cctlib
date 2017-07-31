@@ -505,8 +505,7 @@ namespace PinCCTLib {
         // Get the instruction in a string
         xed_decoded_inst_t      xedd;
         /// XED state
-        xed_state_t  xed_state;
-        xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+        xed_decoded_inst_zero_set_mode(&xedd, &GLOBAL_STATE.cct_xed_state);
 
         if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
              return xed_decoded_inst_get_length(&xedd);
@@ -520,8 +519,7 @@ namespace PinCCTLib {
         // Get the instruction in a string
         xed_decoded_inst_t      xedd;
         /// XED state
-        xed_state_t  xed_state;
-        xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+        xed_decoded_inst_zero_set_mode(&xedd, &GLOBAL_STATE.cct_xed_state);
 
         if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
             if(XED_CATEGORY_CALL == xed_decoded_inst_get_category(&xedd))

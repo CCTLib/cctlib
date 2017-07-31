@@ -1607,8 +1607,8 @@ done = true;
      AppendLoadModulesToStream(ios);
      ios<<"\n</LOADMODULES>\n<TOPN>";
     for(int topN = 0; dipIter != deadList.end() && (topN <10) ; dipIter++, topN++) {
-     ios <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 100.0 / measurementBaseCount<<":";
-     LogContexts(ios, (*dipIter).pMergedDeadInfo->context1, (*dipIter).pMergedDeadInfo->context2);
+     ios <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 1.0 / measurementBaseCount<<":";
+     LogContexts(ios, (*dipIter).pMergedDeadInfo->context2 /* kill first*/, (*dipIter).pMergedDeadInfo->context1);
     }
      ios<<"\n</TOPN>";
 
