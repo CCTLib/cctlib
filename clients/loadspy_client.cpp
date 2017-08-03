@@ -96,6 +96,13 @@ using namespace PinCCTLib;
  ************************************************/
 ConcurrentShadowMemory<uint8_t, ContextHandle_t> sm;
 
+struct{
+    char dummy1[128];
+    xed_state_t  xedState;
+    char dummy2[128];
+} LoadSpyGlobals;
+
+
 #if 0
 uint8_t** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 
@@ -182,6 +189,10 @@ static void ClientInit(int argc, char* argv[]) {
     }
     
     fprintf(gTraceFile, "\n");
+
+    // Init Xed
+    // Init XED for decoding instructions
+    xed_state_init(&LoadSpyGlobals.xedState, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
 }
 
 
@@ -237,8 +248,7 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 static inline bool IsFloatInstruction(ADDRINT ip) {
     xed_decoded_inst_t  xedd;
-    xed_state_t  xed_state;
-    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    xed_decoded_inst_zero_set_mode(&xedd, &LoadSpyGlobals.xedState);
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
@@ -302,8 +312,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
 
 static inline bool IsFloatInstructionOld(ADDRINT ip) {
     xed_decoded_inst_t  xedd;
-    xed_state_t  xed_state;
-    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    xed_decoded_inst_zero_set_mode(&xedd, &LoadSpyGlobals.xedState);
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_iclass_enum_t iclassType = xed_decoded_inst_get_iclass(&xedd);
@@ -517,8 +526,7 @@ static inline bool IsFloatInstructionOld(ADDRINT ip) {
 /*
  static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
  xed_decoded_inst_t  xedd;
- xed_state_t  xed_state;
- xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+ xed_decoded_inst_zero_set_mode(&xedd, &LoadSpyGlobals.xedState);
  
  if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
  xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,oper);
@@ -533,8 +541,7 @@ static inline bool IsFloatInstructionOld(ADDRINT ip) {
 
 static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
     xed_decoded_inst_t  xedd;
-    xed_state_t  xed_state;
-    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    xed_decoded_inst_zero_set_mode(&xedd, &LoadSpyGlobals.xedState);
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,oper);
