@@ -130,6 +130,7 @@ uint64_t gPartiallyDeadBytesLarge;
 
 struct DeadInfo;
 FILE* gTraceFile;
+std::fstream topnStream;
 
 
 struct MergedDeadInfo;
@@ -157,6 +158,16 @@ struct DeadInfo {
 
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY client_tls_key;
+
+struct{
+    char dummy1[128];
+    string topNLogFileName;
+    char dummy2[128];
+} DeadSpyGlobals;
+
+
+
+KNOB<UINT32> KnobTopN(KNOB_MODE_WRITEONCE, "pintool", "d", "0", "how many top contexts to log");
 
 
 // function to access thread-specific data
@@ -1427,6 +1438,8 @@ VOID Fini(INT32 code, VOID* v) {
 #endif // end MULTI_THREADED
     fprintf(gTraceFile, "\n#eof");
     fclose(gTraceFile);
+    if(KnobTopN.Value())
+        topnStream.close();
 }
 
 
@@ -1594,25 +1607,18 @@ VOID ImageUnload(IMG img, VOID* v) {
     }
 
 static bool done = false;
-if(!done){
+if(KnobTopN.Value() && (!done)){
 done = true;
     // Produce a log of Top 10
     dipIter = deadList.begin();
-     
-     std::fstream ios;
-     ios.open ("test.topn", std::fstream::out | std::fstream::trunc);
-
-
-     ios<<"<LOADMODULES>";
-     AppendLoadModulesToStream(ios);
-     ios<<"\n</LOADMODULES>\n<TOPN>";
-    for(int topN = 0; dipIter != deadList.end() && (topN <10) ; dipIter++, topN++) {
-     ios <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 1.0 / measurementBaseCount<<":";
-     LogContexts(ios, (*dipIter).pMergedDeadInfo->context2 /* kill first*/, (*dipIter).pMergedDeadInfo->context1);
+     topnStream<<"<LOADMODULES>";
+     AppendLoadModulesToStream(topnStream);
+     topnStream<<"\n</LOADMODULES>\n<TOPN>";
+    for(UINT32 topN = 0; dipIter != deadList.end() && (topN <KnobTopN.Value()) ; dipIter++, topN++) {
+     topnStream <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 1.0 / measurementBaseCount<<":";
+     LogContexts(topnStream, (*dipIter).pMergedDeadInfo->context2 /* kill first*/, (*dipIter).pMergedDeadInfo->context1);
     }
-     ios<<"\n</TOPN>";
-
-     ios.close();
+     topnStream<<"\n</TOPN>";
 }
     PrintEachSizeWrite();
 #ifdef TESTING_BYTES
@@ -1654,6 +1660,15 @@ void InitDeadSpy(int argc, char* argv[]) {
     }
 
     fprintf(gTraceFile, "\n");
+    if(KnobTopN.Value()) {
+       topnStream.open (string(name) + ".topn", std::fstream::out | std::fstream::trunc);
+       topnStream<<"\n";
+       for(int i = 0 ; i < argc; i++) {
+        topnStream << argv[i] << " ";
+       }
+       topnStream<<"\n";
+    }
+
 #ifdef GATHER_STATS
     string statFileName(name);
     statFileName += ".stats";

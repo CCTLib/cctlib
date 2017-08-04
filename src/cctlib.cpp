@@ -2028,7 +2028,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     void AppendLoadModulesToStream(iostream &ios){
         unordered_map<UINT32, ModuleInfo>::iterator it;
         for(it = GLOBAL_STATE.ModuleInfoMap.begin(); it != GLOBAL_STATE.ModuleInfoMap.end(); ++it) {
-            ios<<"\n"<<it->first<<":"<<(void*)((it->second).imgLoadOffset)<<","<<(it->second).moduleName;
+            ios<<"\n"<<it->first<<":"<<(void*)((it->second).imgLoadOffset)<<":"<<(it->second).moduleName;
         }
     }
     struct NormalizedIP{
