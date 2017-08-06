@@ -100,7 +100,9 @@ VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
-    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
+    // only count memory store instructions
+    if (INS_IsMemoryWrite(ins))
+      INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
 }
 
 
