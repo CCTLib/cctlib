@@ -1615,7 +1615,7 @@ done = true;
      AppendLoadModulesToStream(topnStream);
      topnStream<<"\n</LOADMODULES>\n<TOPN>";
     for(UINT32 topN = 0; dipIter != deadList.end() && (topN <KnobTopN.Value()) ; dipIter++, topN++) {
-     topnStream <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 1.0 / measurementBaseCount<<":";
+     topnStream <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 1.0 / gTotalDead<<":";
      LogContexts(topnStream, (*dipIter).pMergedDeadInfo->context2 /* kill first*/, (*dipIter).pMergedDeadInfo->context1);
     }
      topnStream<<"\n</TOPN>";
