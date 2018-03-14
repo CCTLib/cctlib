@@ -234,8 +234,27 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 #endif
 
+// Certain FP instructions should not be approximated
+static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
+     xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
+     xed_iclass_enum_t 	iclass = xed_decoded_inst_get_iclass (&xedd);
+     switch(iclass) {
+	case XED_ICLASS_FLDENV:
+	case XED_ICLASS_FNSTENV:
+	case XED_ICLASS_FNSAVE:
+	case XED_ICLASS_FLDCW:
+	case XED_ICLASS_FNSTCW:
+	case XED_ICLASS_FXRSTOR:
+	case XED_ICLASS_FXRSTOR64:
+	case XED_ICLASS_FXSAVE:
+	case XED_ICLASS_FXSAVE64:
+		return false;
+	default:
+		return true;
+     }
+}
 
-static inline bool IsFloatInstruction(ADDRINT ip) {
+static inline bool IsFloatInstructionAndOkToApproximate(ADDRINT ip) {
     xed_decoded_inst_t  xedd;
     xed_state_t  xed_state;
     xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
@@ -276,7 +295,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
                     case XED_OPERAND_ELEMENT_TYPE_DOUBLE:
                     case XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE:
                     case XED_OPERAND_ELEMENT_TYPE_LONGBCD:
-                        return true;
+                        return IsOkToApproximate(xedd);
                     default:
                         return false;
                 }
@@ -287,7 +306,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
                 //case XED_CATEGORY_LOGICAL_FP:
                 // assumption, the access length must be either 4 or 8 bytes else assert!!!
                 //assert(*accessLen == 4 || *accessLen == 8);
-                return true;
+                return IsOkToApproximate(xedd);
             case XED_CATEGORY_XSAVE:
             case XED_CATEGORY_AVX2GATHER:
             case XED_CATEGORY_STRINGOP:
@@ -867,7 +886,7 @@ struct LoadSpyInstrument{
     static __attribute__((always_inline)) void InstrumentReadValueBeforeAndAfterLoading(INS ins, UINT32 memOp, uint32_t opaqueHandle){
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
         
-        if (IsFloatInstruction(INS_Address(ins))) {
+        if (IsFloatInstructionAndOkToApproximate(INS_Address(ins))) {
             unsigned int operSize = FloatOperandSize(INS_Address(ins),INS_MemoryOperandIndexToOperandIndex(ins,memOp));
             switch(refSize) {
                 case 1:
