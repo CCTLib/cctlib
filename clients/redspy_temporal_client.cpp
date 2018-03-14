@@ -195,6 +195,12 @@ static INT32 Usage() {
 static FILE* gTraceFile;
 static  ConcurrentShadowMemory<ContextHandle_t> sm;
 
+struct{
+    char dummy1[128];
+    xed_state_t  xedState;
+    char dummy2[128];
+} RedSpyGlobals;
+
 // Initialized the needed data structures before launching the target program
 static void ClientInit(int argc, char* argv[]) {
     // Create output file
@@ -219,6 +225,10 @@ static void ClientInit(int argc, char* argv[]) {
     }
     
     fprintf(gTraceFile, "\n");
+
+    // Init Xed
+    // Init XED for decoding instructions
+    xed_state_init(&RedSpyGlobals.xedState, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
 }
 
 
@@ -281,8 +291,73 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 static inline bool IsFloatInstruction(ADDRINT ip) {
     xed_decoded_inst_t  xedd;
-    xed_state_t  xed_state;
-    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
+
+    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
+        xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
+        switch (cat) {
+            case XED_CATEGORY_AES:
+            case XED_CATEGORY_CONVERT:
+            case XED_CATEGORY_PCLMULQDQ:
+            case XED_CATEGORY_SSE:
+            case XED_CATEGORY_AVX2:
+            case XED_CATEGORY_AVX:
+            case XED_CATEGORY_MMX:
+            case XED_CATEGORY_DATAXFER: {
+                // Get the mem operand
+
+                const xed_inst_t* xi = xed_decoded_inst_inst(&xedd);
+                int  noperands = xed_inst_noperands(xi);
+                int memOpIdx = -1;
+                for( int i =0; i < noperands ; i++) {
+                    const xed_operand_t* op = xed_inst_operand(xi,i);
+                    xed_operand_enum_t op_name = xed_operand_name(op);
+                    if(XED_OPERAND_MEM0 == op_name) {
+                        memOpIdx = i;
+                        break;
+                    }
+                }
+                if(memOpIdx == -1) {
+                    return false;
+                }
+
+                // TO DO MILIND case XED_OPERAND_MEM1:
+                xed_operand_element_type_enum_t eType = xed_decoded_inst_operand_element_type(&xedd,memOpIdx);
+                switch (eType) {
+                    case XED_OPERAND_ELEMENT_TYPE_FLOAT16:
+                    case XED_OPERAND_ELEMENT_TYPE_SINGLE:
+                    case XED_OPERAND_ELEMENT_TYPE_DOUBLE:
+                    case XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE:
+                    case XED_OPERAND_ELEMENT_TYPE_LONGBCD:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+                break;
+            case XED_CATEGORY_X87_ALU:
+            case XED_CATEGORY_FCMOV:
+                //case XED_CATEGORY_LOGICAL_FP:
+                // assumption, the access length must be either 4 or 8 bytes else assert!!!
+                //assert(*accessLen == 4 || *accessLen == 8);
+                return true;
+            case XED_CATEGORY_XSAVE:
+            case XED_CATEGORY_AVX2GATHER:
+            case XED_CATEGORY_STRINGOP:
+            default: return false;
+        }
+    }else {
+        assert(0 && "failed to disassemble instruction");
+        //      printf("\n Diassembly failure\n");
+        return false;
+    }
+}
+
+
+
+static inline bool IsFloatInstructionOld(ADDRINT ip) {
+    xed_decoded_inst_t  xedd;
+    xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_iclass_enum_t iclassType = xed_decoded_inst_get_iclass(&xedd);
@@ -496,8 +571,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
 /*
 static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
     xed_decoded_inst_t  xedd;
-    xed_state_t  xed_state;
-    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,oper);
@@ -512,8 +586,7 @@ static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
 
 static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
     xed_decoded_inst_t  xedd;
-    xed_state_t  xed_state;
-    xed_decoded_inst_zero_set_mode(&xedd, &xed_state);
+    xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,oper);
