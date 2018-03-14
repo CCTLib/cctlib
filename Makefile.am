@@ -20,18 +20,18 @@ clean-local:
 check:
 	rm -f deadspy.out.* client.out.* 
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
-	@echo "-----Testing Pin---------" && $(PIN_ROOT)/pin.sh -- echo hi > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST1----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_client$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST2----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_client_mem_only$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST3----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
-	@echo "----------TEST4----------" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
+	@echo "-----Testing Pin---------" && $(PIN_ROOT)/pin.sh -ifeellucky -- echo hi > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST1----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t tests/$(OBJDIR)/cct_client$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST2----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t tests/$(OBJDIR)/cct_client_mem_only$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST3----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t tests/$(OBJDIR)/cct_data_centric_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
+	@echo "----------TEST4----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
 if OPT_USE_BOOST
-	@echo "----------TEST5----------" && $(PIN_ROOT)/pin.sh -t clients/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
-	@echo "----------TEST6----------" && $(PIN_ROOT)/pin.sh -t clients/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- apps/$(OBJDIR)/deadWrites > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----------TEST7----------" && $(PIN_ROOT)/pin.sh -t clients/$(OBJDIR)/cctlib_reader$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST5----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t clients/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)	
+	@echo "----------TEST6----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t clients/$(OBJDIR)/deadspy_client$(PINTOOL_SUFFIX)  -- apps/$(OBJDIR)/deadWrites > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----------TEST7----------" && $(PIN_ROOT)/pin.sh -ifeellucky -t clients/$(OBJDIR)/cctlib_reader$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 endif
-#	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/threaded > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -t clients/$(OBJDIR)/redspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+#	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -ifeellucky -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/threaded > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -ifeellucky -t clients/$(OBJDIR)/redspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "*************************************************"
 	@echo "************* ALL TESTS PASSED ******************"
 	@echo "*************************************************"
