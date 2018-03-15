@@ -943,6 +943,8 @@ static inline bool INS_IsIgnorable(INS ins){
         return true;
     else if(INS_IsBranch(ins) || INS_IsRDTSC(ins) || INS_IsNop(ins))
         return true;
+    else if(INS_IsPrefetch(ins)) // Prefetch instructions might access addresses which are invalid.
+        return true;
     return false;
 }
 
