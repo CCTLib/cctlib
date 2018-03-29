@@ -3186,6 +3186,7 @@ typedef struct metric_desc_t {
   metric_desc_properties_t properties;
   char* formula;
   char* format;
+  bool is_frequency_metric;
 } metric_desc_t;
 
 
@@ -3529,6 +3530,7 @@ hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE
   mdesc.flags.fields.valFmt    = valFmt;
   mdesc.formula = NULL;
   mdesc.format = NULL;
+  mdesc.is_frequency_metric = 0;
 
   hpcfmt_str_fwrite(mdesc.name, fs);
   hpcfmt_str_fwrite(mdesc.description, fs);
@@ -3536,6 +3538,13 @@ hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE
   hpcfmt_int8_fwrite(mdesc.period, fs);
   hpcfmt_str_fwrite(mdesc.formula, fs);
   hpcfmt_str_fwrite(mdesc.format, fs);
+  hpcfmt_int2_fwrite(mdesc.is_frequency_metric, fs);
+  
+  // write auxaliary description to the table.
+  // These values are only related to perf, not applicable to cctlib, so set all to 0
+  hpcfmt_int2_fwrite(0, fs);
+  hpcfmt_int8_fwrite(0, fs);
+  hpcfmt_int8_fwrite(0, fs);
 }
 
 // Get the filename from pathname
