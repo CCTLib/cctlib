@@ -1831,6 +1831,16 @@ namespace PinCCTLib {
     }
 #endif
 
+    VOID GetParentIPs(ContextHandle_t ctxtHandle, vector<ADDRINT>& parentIPs) {
+        int depth = 0;
+        while (IS_VALID_CONTEXT (ctxtHandle) && depth ++ < MAX_CCT_PRINT_DEPTH) {
+            ADDRINT ip = GetIPFromInfo(ctxtHandle);
+            if(IsValidIP(ip)) {
+                parentIPs.push_back(ip);
+            }
+            ctxtHandle = GET_IPNODE_FROM_CONTEXT_HANDLE(ctxtHandle)->parentTraceNode->callerCtxtHndl;
+        }
+    }
 
     static VOID GetFullCallingContextInSitu(ContextHandle_t curCtxtHndle, vector<Context>& contextVec) {
         int depth = 0;

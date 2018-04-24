@@ -188,6 +188,9 @@ void LogContexts(iostream & ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2);
     int newCCT_hpcrun_write(THREADID threadid);
     int newCCT_hpcrun_build_cct(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
     int newCCT_hpcrun_selection_write(THREADID threadid);
+
+
+void GetParentIPs(ContextHandle_t ctxtHandle, vector<ADDRINT>& parentIPs);
 }
 
 #endif
