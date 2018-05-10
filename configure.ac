@@ -57,6 +57,7 @@ PIN_ROOT=
 SPARSEHASH_PATH=
 BOOST_PATH=
 LIBELF_PATH=
+LIBXML2_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
 
@@ -73,6 +74,18 @@ if test "$LIBELF_PATH" = "" ; then
 AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
 fi
 
+AC_ARG_WITH([libxml2],
+  AS_HELP_STRING([--with-libxml2=PATH],
+                 [use given libxml2 installation (absolute path) with CCTLib]),
+   [if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       AC_MSG_ERROR([--with-libxml2 requires absolute path as argument; given '${withval}'])
+     fi
+     LIBXML2_PATH=${withval}
+   ])
+
+if test "$LIBXML2_PATH" = "" ; then 
+AC_MSG_ERROR([--with-libxml2 requires absolute path as argument; given '${withval}'])
+fi
 
 AC_ARG_WITH([Pin],
   AS_HELP_STRING([--with-Pin=PATH],
@@ -122,6 +135,7 @@ AC_SUBST([PIN_ROOT])
 AC_SUBST([SPARSEHASH_PATH])
 AC_SUBST([BOOST_PATH])
 AC_SUBST([LIBELF_PATH])
+AC_SUBST([LIBXML2_PATH])
 AC_SUBST([CXXFLAGS])
 AC_SUBST([CPPFLAGS])
 AC_SUBST([LDFLAGS])
@@ -135,6 +149,7 @@ AC_MSG_NOTICE([  Pin:         ${PIN_PATH}])
 AC_MSG_NOTICE([  Google sparse hash:         ${SPARSEHASH_PATH}])
 AC_MSG_NOTICE([  Boost:         ${BOOST_PATH}])
 AC_MSG_NOTICE([  Libelf:         ${LIBELF_PATH}])
+AC_MSG_NOTICE([  Libxml2:         ${LIBXML2_PATH}])
 
 # Write generated configuration file
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile clients/Makefile apps/Makefile])

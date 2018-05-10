@@ -89,9 +89,10 @@ PATH_TO_PIN=$PIN_ROOT
 PATH_TO_GOOGLE_SPARSE_HASH=$CUR_DIR/sparsehash-2.0.2-install/
 #PATH_TO_BOOST=$CUR_DIR/boost_1_56_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
+PATH_TO_LIBXML2=$CUR_DIR/libxml2-2.9.7-install/
 #develop is off by default
-#./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
-./configure --with-Pin=$PATH_TO_PIN --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF
+#./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --with-libxml2=$PATH_TO_LIBXML2 --enable-develop
+./configure --with-Pin=$PATH_TO_PIN --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --with-libxml2=$PATH_TO_LIBXML2
 make
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests

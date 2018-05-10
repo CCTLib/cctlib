@@ -3,12 +3,12 @@
 CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
 include $(CONFIG_ROOT)/makefile.config
 
-TEST_TOOL_ROOTS =  deadspy_client redspy_client loadspy_client redspy_temporal_client redspy_spatial_userdefine_client cct_metric_client cctlib_reader footprint_client footprint_client2 runtime_value_numbering_client omp_datarace_client cache_client
+TEST_TOOL_ROOTS =  deadspy_client loadspy_temporal_client loadspy_spatial_client redspy_client redspy_temporal_client redspy_spatial_userdefine_client cct_metric_client cctlib_reader footprint_client footprint_client2 runtime_value_numbering_client omp_datarace_client cache_client
 APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
 ALLOW_UNUSED_BUT_SET= -Wno-unused-but-set-variable
-CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
+CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I$(LIBXML2_PATH)/include/libxml2 -I../src/ $(ALLOW_UNUSED_BUT_SET)
 
 if OPT_USE_BOOST
 	CCTLIB_TEST_FLAGS +=  -I$(BOOST_PATH)/include 
@@ -18,9 +18,12 @@ endif
 
 LIBELF_LD_FLAGS= -L$(LIBELF_PATH)/lib -Wl,-rpath $(LIBELF_PATH)/lib
 LIBELF_LIBS = -lelf
-CLIENT_LD_FLAGS = $(BOOST_LD_FLAGS) $(LIBELF_LD_FLAGS)
-CLIENT_LIBS = $(BOOST_LIBS) $(LIBELF_LIBS)
 
+LIBXML2_LD_FLAGS= -L$(LIBXML2_PATH)/lib -Wl,-rpath $(LIBXML2_PATH)/lib
+LIBXML2_LIBS = -lxml2
+
+CLIENT_LD_FLAGS = $(BOOST_LD_FLAGS) $(LIBELF_LD_FLAGS) $(LIBXML2_LD_FLAGS)
+CLIENT_LIBS = $(BOOST_LIBS) $(LIBELF_LIBS) $(LIBXML2_LIBS)
 
 CCTLIB_SHADOW_BASED_LIBRARY=../src/$(OBJDIR)libcctlib$(LIB_SUFFIX)
 CCTLIB_TREE_BASED_LIBRARY=../src/$(OBJDIR)libcctlib_tree_based$(LIB_SUFFIX)
@@ -38,11 +41,17 @@ $(OBJDIR)redspy_client$(OBJ_SUFFIX): redspy_client.cpp ../src/cctlib.H
 $(OBJDIR)redspy_client$(PINTOOL_SUFFIX): $(OBJDIR)redspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
-$(OBJDIR)loadspy_client$(OBJ_SUFFIX): loadspy_client.cpp ../src/cctlib.H
+$(OBJDIR)loadspy_temporal_client$(OBJ_SUFFIX): loadspy_temporal_client.cpp ../src/cctlib.H
 	$(CXX) -mavx -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
 
-$(OBJDIR)loadspy_client$(PINTOOL_SUFFIX): $(OBJDIR)loadspy_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
+$(OBJDIR)loadspy_temporal_client$(PINTOOL_SUFFIX): $(OBJDIR)loadspy_temporal_client$(OBJ_SUFFIX) $(CCTLIB_SHADOW_BASED_LIBRARY)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
+
+$(OBJDIR)loadspy_spatial_client$(OBJ_SUFFIX): loadspy_spatial_client.cpp ../src/cctlib.H
+	$(CXX) -mavx -Wno-deprecated -DMULTI_THREADED $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<
+
+$(OBJDIR)loadspy_spatial_client$(PINTOOL_SUFFIX): $(OBJDIR)loadspy_spatial_client$(OBJ_SUFFIX) $(CCTLIB_TREE_WITH_ADDR_LIBRARY) 
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)  -lcctlib_tree_with_addr  $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 $(OBJDIR)redspy_temporal_client$(OBJ_SUFFIX): redspy_temporal_client.cpp ../src/cctlib.H ../src/shadow_memory.H
 	$(CXX) -mavx -DENABLE_SAMPLING -Wno-deprecated  $(CCTLIB_TEST_FLAGS)  $(COMP_OBJ)$@ $<

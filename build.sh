@@ -80,6 +80,14 @@ cd boost_1_56_0
 sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_56_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11"
 ./b2 -j 4
 ./b2 filesystem install
+#### libxml2 ##############################################
+cd $CUR_DIR/externals/
+tar xvf libxml2-2.9.7.tar.gz
+rm -rf $CUR_DIR/libxml2-2.9.7-install/
+cd libxml2-2.9.7
+./configure --prefix=$CUR_DIR/libxml2-2.9.7-install/ --with-python-install-dir=$CUR_DIR/libxml2-2.9.7-install 
+make -j 4
+make install
 #### CCTLib #############################################
 cd $CUR_DIR/
 
@@ -87,9 +95,10 @@ PATH_TO_PIN=$PIN_ROOT
 PATH_TO_GOOGLE_SPARSE_HASH=$CUR_DIR/sparsehash-2.0.2-install/
 PATH_TO_BOOST=$CUR_DIR/boost_1_56_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
+PATH_TO_LIBXML2=$CUR_DIR/libxml2-2.9.7-install/
 #develop is off by default
-#./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
-./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF
+#./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --with-libxml2=$PATH_TO_LIBXML2 --enable-develop
+./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --with-libxml2=$PATH_TO_LIBXML2
 make
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests

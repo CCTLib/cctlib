@@ -130,8 +130,21 @@ public:
         }
         return (*v2);
     }
-};
 
+    inline ShadowTuple<Ts...> * GetShadowBaseAddress(const size_t address) {       
+        
+        atomic< atomic< ShadowTuple<Ts...> *> *>  * l1Ptr = & pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
+        atomic< ShadowTuple<Ts...> *> * v1;
+        if ( (v1=l1Ptr->load(memory_order_consume)) == 0) return NULL;
+                 
+        atomic<ShadowTuple<Ts...> *>  * l2Ptr = & v1[LEVEL_2_PAGE_TABLE_SLOT(address)];
+        ShadowTuple<Ts...> * v2;
+        if( (v2=l2Ptr->load(memory_order_consume)) == 0 ) return NULL;
+                 
+        return (v2);
+    }
+
+};
 
 
 template<int I, typename... Ts>

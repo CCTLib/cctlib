@@ -592,6 +592,7 @@ LIBOBJS
 CCTLIB_EXTRA_CXXFLAGS
 CCTLIB_EXTRA_CPPFLAGS
 DEBUG
+LIBXML2_PATH
 LIBELF_PATH
 BOOST_PATH
 SPARSEHASH_PATH
@@ -701,6 +702,7 @@ enable_maintainer_mode
 enable_dependency_tracking
 enable_develop
 with_libelf
+with_libxml2
 with_Pin
 with_boost
 with_sparse_hash
@@ -1345,6 +1347,8 @@ Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-libelf=PATH      use given libelf installation (absolute path) with
+                          CCTLib
+  --with-libxml2=PATH     use given libxml2 installation (absolute path) with
                           CCTLib
   --with-Pin=PATH         use given Pin installation (absolute path) with
                           CCTLib
@@ -4081,6 +4085,7 @@ PIN_ROOT=
 SPARSEHASH_PATH=
 BOOST_PATH=
 LIBELF_PATH=
+LIBXML2_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
 
@@ -4099,6 +4104,20 @@ if test "$LIBELF_PATH" = "" ; then
 as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
 fi
 
+
+# Check whether --with-libxml2 was given.
+if test "${with_libxml2+set}" = set; then :
+  withval=$with_libxml2; if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       as_fn_error $? "--with-libxml2 requires absolute path as argument; given '${withval}'" "$LINENO" 5
+     fi
+     LIBXML2_PATH=${withval}
+
+fi
+
+
+if test "$LIBXML2_PATH" = "" ; then
+as_fn_error $? "--with-libxml2 requires absolute path as argument; given '${withval}'" "$LINENO" 5
+fi
 
 
 # Check whether --with-Pin was given.
@@ -4168,6 +4187,7 @@ fi
 
 
 
+
 #AC_SUBST([CCTLIB_INCLUDES])
 #AC_SUBST([CCTLIB_LIBRARIES])
 
@@ -4179,6 +4199,8 @@ $as_echo "$as_me:   Google sparse hash:         ${SPARSEHASH_PATH}" >&6;}
 $as_echo "$as_me:   Boost:         ${BOOST_PATH}" >&6;}
 { $as_echo "$as_me:${as_lineno-$LINENO}:   Libelf:         ${LIBELF_PATH}" >&5
 $as_echo "$as_me:   Libelf:         ${LIBELF_PATH}" >&6;}
+{ $as_echo "$as_me:${as_lineno-$LINENO}:   Libxml2:         ${LIBXML2_PATH}" >&5
+$as_echo "$as_me:   Libxml2:         ${LIBXML2_PATH}" >&6;}
 
 # Write generated configuration file
 ac_config_files="$ac_config_files Makefile src/Makefile tests/Makefile clients/Makefile apps/Makefile"
