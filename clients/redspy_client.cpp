@@ -99,6 +99,9 @@ struct RedSpyThreadData{
     uint64_t bytesWritten;
 };
 
+// for metric logging
+int redspy_metric_id = 0;
+
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY client_tls_key;
 
@@ -574,6 +577,35 @@ static void PrintRedundancyPairs(THREADID threadId) {
     }
 }
 
+static void HPCRunRedundancyPairs(THREADID threadId) {
+    vector<RedundacyData> tmpList;
+    vector<RedundacyData>::iterator tmpIt;
+    
+    for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+    }
+    
+    sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
+    vector<HPCRunCCT_t*> HPCRunNodes;
+    int cntxtNum = 0;
+    for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
+        if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
+            HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
+            HPCRunNode->ctxtHandle1 = (*listIt).dead;
+            HPCRunNode->ctxtHandle2 = (*listIt).kill;
+            HPCRunNode->metric = (*listIt).frequency;
+            HPCRunNode->metric_id = redspy_metric_id;
+            HPCRunNodes.push_back(HPCRunNode);
+        }
+        else {
+            break;
+        }
+        cntxtNum++;
+    }
+    newCCT_hpcrun_build_cct(HPCRunNodes, threadId);
+}
+
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");    
@@ -588,6 +620,9 @@ static VOID ImageUnload(IMG img, VOID* v) {
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
+    // output the CCT for hpcviewer format
+    HPCRunRedundancyPairs(threadid);
+    newCCT_hpcrun_selection_write(threadid);
 }
 
 static VOID FiniFunc(INT32 code, VOID *v) {
@@ -620,7 +655,11 @@ int main(int argc, char* argv[]) {
     // Intialize CCTLib
     PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
     
-    
+    // Init hpcrun format output
+    init_hpcrun_format(argc, argv, NULL, NULL, false);
+    // Create new metrics
+    redspy_metric_id = hpcrun_create_metric("RED_STORES");
+
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
