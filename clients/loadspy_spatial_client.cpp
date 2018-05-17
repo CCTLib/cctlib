@@ -1276,7 +1276,7 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
     
     for(unordered_map<uint64_t, unordered_map<uint64_t, RedundancyMetric>>::iterator it = ObjRedTable[threadId].begin(); it != ObjRedTable[threadId].end(); ++it) {
         for(unordered_map<uint64_t, RedundancyMetric>::iterator it2 = (*it).second.begin(); it2 != (*it).second.end(); ++it2) {
-            HPCRedundancyPair tmp = {DECODE_DEAD((*it2).first), DECODE_KILL((*it).first), (*it).second.bytes};
+            HPCRedundancyPair tmp = {DECODE_DEAD((*it2).first), DECODE_KILL((*it2).first), (*it2).second.bytes};
             tmpList.push_back(tmp);
         } 
     }
@@ -1285,7 +1285,7 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
     vector<HPCRunCCT_t*> HPCRunNodes;
     int cntxtNum = 0;
     for(vector<HPCRedundancyPair>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
-        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_TO_LOG) break;
+        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_PER_OBJ_TO_LOG) break;
             
         HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
         HPCRunNode->ctxtHandle1 = (*listIt).dead;
@@ -1304,7 +1304,7 @@ static void HPCRunApproxRedundancyPairs(THREADID threadId) {
     
     for(unordered_map<uint64_t, unordered_map<uint64_t, RedundancyMetric>>::iterator it = ObjApproxRedTable[threadId].begin(); it != ObjApproxRedTable[threadId].end(); ++it) {
         for(unordered_map<uint64_t, RedundancyMetric>::iterator it2 = (*it).second.begin(); it2 != (*it).second.end(); ++it2) {
-            HPCRedundancyPair tmp = {DECODE_DEAD((*it2).first), DECODE_KILL((*it).first), (*it).second.bytes};
+            HPCRedundancyPair tmp = {DECODE_DEAD((*it2).first), DECODE_KILL((*it2).first), (*it2).second.bytes};
             tmpList.push_back(tmp);
         }
     }
@@ -1313,7 +1313,7 @@ static void HPCRunApproxRedundancyPairs(THREADID threadId) {
     vector<HPCRunCCT_t*> HPCRunNodes;
     int cntxtNum = 0;
     for(vector<HPCRedundancyPair>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
-        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_TO_LOG) break;
+        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_PER_OBJ_TO_LOG) break;
 
         HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
         HPCRunNode->ctxtHandle1 = (*listIt).dead;
