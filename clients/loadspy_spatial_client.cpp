@@ -50,6 +50,7 @@ using namespace PinCCTLib;
 
 #define MAX_OBJS_TO_LOG 100
 #define MAX_REDUNDANT_CONTEXTS_PER_OBJ_TO_LOG 10
+#define MAX_REDUNDANT_CONTEXTS_TO_LOG 1000
 #define THREAD_MAX 1024
 #define delta 0.01
 
@@ -1285,7 +1286,7 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
     vector<HPCRunCCT_t*> HPCRunNodes;
     int cntxtNum = 0;
     for(vector<HPCRedundancyPair>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
-        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_PER_OBJ_TO_LOG) break;
+        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_TO_LOG) break;
             
         HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
         HPCRunNode->ctxtHandle1 = (*listIt).dead;
@@ -1313,7 +1314,7 @@ static void HPCRunApproxRedundancyPairs(THREADID threadId) {
     vector<HPCRunCCT_t*> HPCRunNodes;
     int cntxtNum = 0;
     for(vector<HPCRedundancyPair>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
-        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_PER_OBJ_TO_LOG) break;
+        if(cntxtNum++ >= MAX_REDUNDANT_CONTEXTS_TO_LOG) break;
 
         HPCRunCCT_t *HPCRunNode = new HPCRunCCT_t();
         HPCRunNode->ctxtHandle1 = (*listIt).dead;
