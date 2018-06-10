@@ -3,7 +3,7 @@
 CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
 include $(CONFIG_ROOT)/makefile.config
 
-TEST_TOOL_ROOTS =  deadspy_client redspy_client loadspy_client redspy_temporal_client redspy_spatial_userdefine_client cct_metric_client cctlib_reader footprint_client footprint_client2 runtime_value_numbering_client omp_datarace_client cache_client
+TEST_TOOL_ROOTS =  deadspy_client redspy_client loadspy_client redspy_temporal_client redspy_spatial_userdefine_client cct_metric_client cctlib_reader footprint_client footprint_client2 runtime_value_numbering_client omp_datarace_client cache_client ins_reuse_client
 APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
@@ -102,6 +102,12 @@ $(OBJDIR)cache_client$(OBJ_SUFFIX): cache_client.cpp
 $(OBJDIR)cache_client$(PINTOOL_SUFFIX): $(OBJDIR)cache_client$(OBJ_SUFFIX) 
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)   $(TOOL_LIBS)  $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
+#instruction reuse client
+$(OBJDIR)ins_reuse_client$(OBJ_SUFFIX): ins_reuse_client.cpp 
+	$(CXX) $(CCTLIB_TEST_FLAGS) $(COMP_OBJ)$@ $<
+
+$(OBJDIR)ins_reuse_client$(PINTOOL_SUFFIX): $(OBJDIR)ins_reuse_client$(OBJ_SUFFIX) 
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)   $(TOOL_LIBS)  $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 
 include $(TOOLS_ROOT)/Config/makefile.default.rules
