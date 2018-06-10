@@ -187,6 +187,7 @@ public:
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);
             }
+            *l1Ptr = l1pg;
             v1 = l1pg;
         }
         ShadowTuple<Ts...> ** l2Ptr = & v1[LEVEL_2_PAGE_TABLE_SLOT(address)];
@@ -197,9 +198,10 @@ public:
                 perror("mmap l2pg");
                 PIN_ExitProcess(-1);
             }
+            *l2Ptr = l2pg;
             v2 = l2pg;
         }
-        return v2;
+        return (*v2);
     }
 };
 

@@ -53,11 +53,7 @@ using namespace PinCCTLib;
 
 #define FIRST_USE (ULLONG_MAX)
 
-/***********************************************
- ******  shadow memory
- ************************************************/
-ConcurrentShadowMemory<uint64_t> smIns;
-ConcurrentShadowMemory<uint64_t> smCL;
+#define MULTI_THREADED
 
 struct{
     char dummy1[128];
@@ -68,6 +64,7 @@ struct{
 using RBTree_t = RBTree<uint64_t, uint32_t, uint64_t>;
 
 struct InsReuseThreadData{
+    char padding1[128];
     uint64_t bytesLoad;
     long long numIns;
     RBTree_t InsRBTree;
@@ -76,7 +73,10 @@ struct InsReuseThreadData{
     uint64_t numCacheLines;
     uint64_t insReuseHisto[MAX_REUSE_DISTANCE_BINS];
     uint64_t clReuseHisto[MAX_REUSE_DISTANCE_BINS];
+    ShadowMemory<uint64_t> smIns;
+    ShadowMemory<uint64_t> smCL;
     bool sampleFlag;
+    char padding2[128];
 };
 
 // key for accessing TLS storage in the threads. initialized once in main()
@@ -126,7 +126,7 @@ static void ClientInit(int argc, char* argv[]) {
     }
     
     fprintf(gTraceFile, "\n");
-
+    
     // Init Xed
     // Init XED for decoding instructions
     xed_state_init(&InsReuseGlobals.xedState, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
@@ -134,12 +134,12 @@ static void ClientInit(int argc, char* argv[]) {
 
 static inline void UpdateInsReuseStats(uint64_t distance, uint64_t count, InsReuseThreadData* tData){
     uint64_t bin;
-
+    
     // Bin 0: [0, 1)
     // Bin 1  [1, 2)
     // Bin 3  [2, 4)
     // Bin 3  [4, 8)
-
+    
     if (distance >= MAX_REUSE_DISTANCE) {
         bin = MAX_REUSE_DISTANCE_BINS-1;
     } else if (distance == 0) {
@@ -155,7 +155,7 @@ static inline void UpdateCacheLineReuseStats(uint64_t distance, uint64_t count, 
     // Bin 1  [1, 2)
     // Bin 3  [2, 4)
     // Bin 3  [4, 8)
-
+    
     uint64_t bin;
     if (distance >= MAX_REUSE_DISTANCE) {
         bin = MAX_REUSE_DISTANCE_BINS-1;
@@ -207,12 +207,16 @@ static inline uint64_t ComputeCLReuseDistance(uint64_t prevTick, uint64_t newTic
 }
 
 
-static inline void AnalyzeInsLevelReuse(void * insAddr, uint64_t * shadowMemAddr, uint32_t numInsInBBL,  THREADID threadId){
+static inline void AnalyzeInsLevelReuse(void * insAddr, uint32_t numInsInBBL,  THREADID threadId){
     assert(0 != numInsInBBL);
     InsReuseThreadData* tData = ClientGetTLS(threadId);
+    tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = tData->smIns.GetOrCreateShadowBaseAddress((uint64_t)insAddr);
+    uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)insAddr)]);
+    
+    
     uint64_t prevTick = *shadowMemAddr;
     uint64_t newTick = tData->numInsExecuted;
-
+    
     // Update the number of instructions executed
     if (prevTick == 0 /* first use */) {
         // no update needed
@@ -228,9 +232,11 @@ static inline void AnalyzeInsLevelReuse(void * insAddr, uint64_t * shadowMemAddr
     tData->numInsExecuted += numInsInBBL;
 }
 
-static inline void AnalyzeCacheLineLevelReuse(void * insAddr, uint64_t * shadowMemAddr, uint32_t numInsInCacheLine,  THREADID threadId){
+static inline void AnalyzeCacheLineLevelReuse(void * cacheLine, uint32_t numInsInCacheLine,  THREADID threadId){
     assert(0 != numInsInCacheLine);
     InsReuseThreadData* tData = ClientGetTLS(threadId);
+    tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = tData->smCL.GetOrCreateShadowBaseAddress((uint64_t)cacheLine);
+    uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)cacheLine)]);
     uint64_t prevTick = *shadowMemAddr;
     
     if (prevTick == 0 /* first use */) {
@@ -258,12 +264,9 @@ static void InstrumentTrace(TRACE trace, void* f) {
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)){
         uint32_t totInsInBbl = BBL_NumIns(bbl);
         ADDRINT insAddr = BBL_Address(bbl);
-        tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = smIns.GetOrCreateShadowBaseAddress((uint64_t)insAddr);
-        uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)insAddr)]);
         BBL_InsertCall(bbl,
                        IPOINT_BEFORE,(AFUNPTR)AnalyzeInsLevelReuse,
                        IARG_ADDRINT, insAddr,
-                       IARG_ADDRINT, shadowMemAddr,
                        IARG_UINT32, totInsInBbl,
                        IARG_THREAD_ID, IARG_END);
     }
@@ -288,33 +291,27 @@ static void InstrumentTrace(TRACE trace, void* f) {
             }
             // either the ins ends in a new cacheline or begins on a new cacheline.
             
-            tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = smCL.GetOrCreateShadowBaseAddress((uint64_t)prevCacheLine);
-            uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)prevCacheLine)]);
             INS_InsertCall(ins,
-                       IPOINT_BEFORE,(AFUNPTR)AnalyzeCacheLineLevelReuse,
-                       IARG_ADDRINT, prevCacheLine,
-                       IARG_ADDRINT, shadowMemAddr,
-                       IARG_UINT32, numInsInCacheLine,
-                       IARG_THREAD_ID, IARG_END);
+                           IPOINT_BEFORE,(AFUNPTR)AnalyzeCacheLineLevelReuse,
+                           IARG_ADDRINT, prevCacheLine,
+                           IARG_UINT32, numInsInCacheLine,
+                           IARG_THREAD_ID, IARG_END);
             // Straddlers cacheline
             /*if (insStartCacheLine != insEndCacheLine){
-                numInsInCacheLine = 1;
-            } else {
-                numInsInCacheLine = 1;
-            }*/
+             numInsInCacheLine = 1;
+             } else {
+             numInsInCacheLine = 1;
+             }*/
             numInsInCacheLine = 1;
             prevCacheLine = insEndCacheLine;
         }
         
-        tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = smCL.GetOrCreateShadowBaseAddress((uint64_t)prevCacheLine);
-        uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)prevCacheLine)]);
         INS_InsertCall(BBL_InsTail(bbl),
                        IPOINT_BEFORE, (AFUNPTR)AnalyzeCacheLineLevelReuse,
                        IARG_ADDRINT, prevCacheLine,
-                       IARG_ADDRINT, shadowMemAddr,
                        IARG_UINT32, numInsInCacheLine,
                        IARG_THREAD_ID, IARG_END);
-
+        
     }
 }
 
@@ -335,6 +332,16 @@ static void DumpHisto(uint64_t * histo){
         fprintf(gTraceFile, "\n %d %lu", i, histo[i]);
     }
 }
+
+/*
+ static void PrintStats() {
+ struct rusage rusage;
+ getrusage(RUSAGE_SELF, &rusage);
+ size_t peakRSS =  (size_t)(rusage.ru_maxrss);
+ }
+ 
+ */
+
 static VOID FiniFunc(INT32 code, VOID *v) {
     THREADID  threadId =  PIN_ThreadId();
     InsReuseThreadData* tData = ClientGetTLS(threadId);
@@ -342,6 +349,8 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     DumpHisto(tData->insReuseHisto);
     fprintf(gTraceFile, "\nCL-reuse histo");
     DumpHisto(tData->clReuseHisto);
+    
+    
     fclose(gTraceFile);
 }
 
@@ -351,19 +360,19 @@ static void InitThreadData(InsReuseThreadData* tdata){
     tdata->numIns = 0;
     tdata->numCacheLines = 0x42; // the start of clock
     tdata->numInsExecuted = 0x42; // the start of clock
-
+    
     memset(tdata->insReuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
     memset(tdata->clReuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
-
-/*    for (int i = 0; i < THREAD_MAX; ++i) {
-        RedMap[i].set_empty_key(0);
-        ApproxRedMap[i].set_empty_key(0);
-    }
-*/
+    
+    /*    for (int i = 0; i < THREAD_MAX; ++i) {
+     RedMap[i].set_empty_key(0);
+     ApproxRedMap[i].set_empty_key(0);
+     }
+     */
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
-    InsReuseThreadData* tdata = (InsReuseThreadData*)memalign(32,sizeof(InsReuseThreadData));
+    InsReuseThreadData* tdata =  new InsReuseThreadData();
     InitThreadData(tdata);
     //    __sync_fetch_and_add(&gClientNumThreads, 1);
 #ifdef MULTI_THREADED
