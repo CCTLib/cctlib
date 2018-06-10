@@ -1921,6 +1921,11 @@ namespace PinCCTLib {
                 }
 
                 curCtxtHndle = GET_IPNODE_FROM_CONTEXT_HANDLE(curCtxtHndle)->parentTraceNode->callerCtxtHndl;
+
+                if (depth >= MAX_CCT_PRINT_DEPTH) {
+		    Context ctxt = {"Truncated call path (due to deep call chain)" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curCtxtHndle /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                    contextVec.push_back(ctxt);
+                }
             }
         }
 
