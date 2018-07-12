@@ -77,14 +77,9 @@ struct InsReuseThreadData{
     uint64_t bytesLoad;
     long long numIns;
     RBTree_t insRBTree;
-    RBTree_t clRBTree;
     uint64_t numInsExecuted;
-    uint64_t numCacheLines;
     uint64_t insReuseHisto[MAX_REUSE_DISTANCE_BINS];
-    uint64_t clReuseHisto[MAX_REUSE_DISTANCE_BINS];
     ShadowMemory<uint64_t> smIns;
-    ShadowMemory<uint64_t> smCL;
-    
     struct{
         RBTree_t rbTree;
         uint64_t numBlocksCounter;
@@ -109,10 +104,6 @@ inline InsReuseThreadData* ClientGetTLS(const THREADID threadId) {
 #else
     return gSingleThreadedTData;
 #endif
-}
-
-static inline size_t GetCacheline(size_t addr) {
-    return addr & ~(CACHELINE_MASK);
 }
 
 static inline size_t GetBlock(size_t addr, size_t blockMask) {
@@ -199,26 +190,6 @@ static inline void UpdateInsReuseStats(uint64_t distance, uint64_t count, InsReu
     tData->insReuseHisto[bin] += count;
 }
 
-static inline void UpdateCacheLineReuseStats(uint64_t distance, uint64_t count, InsReuseThreadData* tData){
-    // Bin 0: [0, 1)
-    // Bin 1  [1, 2)
-    // Bin 2  [2, 4)
-    // Bin 3  [4, 8)
-    
-    uint64_t bin;
-    if (distance >= MAX_REUSE_DISTANCE) {
-        bin = MAX_REUSE_DISTANCE_BINS-1;
-    } else if (distance == 0) {
-        bin = 0;
-    } else {
-        bin = (sizeof(uint64_t)*8 - 1 - __builtin_clzl(distance)) + 1 /* 1 for dedicated bin 0*/;
-    }
-    // One instruction is at this distance
-    tData->clReuseHisto[bin] ++;
-    // The rest of the instructions on the same cacheline have a zero distance
-    tData->clReuseHisto[0] += count-1;
-}
-
 
 static inline void UpdateBlockReuseStats(uint64_t distance, uint64_t count, uint64_t* reuseHisto){
     // Bin 0: [0, 1)
@@ -244,25 +215,6 @@ static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTi
     // Find how many RB-Tree nodes are to the right of this node.
     uint64_t reuseDist;
     auto node = rbt->FindSumGreaterEqual(prevTick, &reuseDist);
-    if (node) {
-        //  Delete the node from RB-tree
-        auto retNode = rbt->Delete(node);
-        // reinsert the node with new tick
-        retNode->key =  newTick;
-        retNode->value =  v;
-        rbt->Insert(retNode);
-        return reuseDist;
-    } else {
-        return FIRST_USE;
-    }
-}
-
-
-
-static inline uint64_t ComputeCLReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData * tData, RBTree_t * rbt){
-    // Find how many RB-Tree nodes are to the right of this node.
-    uint64_t reuseDist;
-    auto node = rbt->FindSumGreaterThan(prevTick, &reuseDist);
     if (node) {
         //  Delete the node from RB-tree
         auto retNode = rbt->Delete(node);
@@ -319,35 +271,6 @@ static inline void AnalyzeInsLevelReuse(void * insAddr, uint32_t numInsInBBL,  T
     tData->numInsExecuted += numInsInBBL;
 }
 
-static inline void AnalyzeCacheLineLevelReuse(void * cacheLine, uint32_t numInsInCacheLine,  THREADID threadId){
-    assert(0 != numInsInCacheLine);
-    InsReuseThreadData* tData = ClientGetTLS(threadId);
-    tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = tData->smCL.GetOrCreateShadowBaseAddress((uint64_t)cacheLine);
-    uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)cacheLine)]);
-    uint64_t prevTick = *shadowMemAddr;
-    
-    if (prevTick == 0 /* first use */) {
-        // needs a new insertion
-        auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numCacheLines, numInsInCacheLine);
-        tData->clRBTree.Insert(newNode);
-        
-        if (numInsInCacheLine > 1) {
-            // The rest of the instructions on the same cacheline have a zero distance
-            tData->clReuseHisto[0] += numInsInCacheLine-1;
-        }
-    } else {
-        // TODO: Optimization: if the last cacheline access is same as this one, we can bypass this RB-Tree deletion, insertion
-        // and instead directly increment the key. Need to be careful not to violate any tree properties.
-        // May have to check to make sure that the node value is also unchanged.
-        uint64_t reuseDistance = ComputeCLReuseDistance(prevTick, tData->numCacheLines, numInsInCacheLine, tData, & tData->clRBTree);
-        assert(FIRST_USE != reuseDistance);
-        UpdateCacheLineReuseStats(reuseDistance, numInsInCacheLine, tData);
-    }
-    *shadowMemAddr = tData->numCacheLines;
-    // Update the tick
-    tData->numCacheLines++;
-}
-
 template <int blockSize, int blkIdx>
 static inline void AnalyzeBlockLevelReuse(void * block, uint32_t numInsInBlock,  THREADID threadId){
     assert(0 != numInsInBlock);
@@ -395,52 +318,6 @@ static void InstrumentInsLevelReuse(TRACE trace, void* f) {
                        IARG_ADDRINT, insAddr,
                        IARG_UINT32, totInsInBbl,
                        IARG_THREAD_ID, IARG_END);
-    }
-}
-
-static void InstrumentCLLevelReuse(TRACE trace, void* f) {
-    // Cacheline-level reuse distance
-    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)){
-        uint32_t numInsInCacheLine = 0;
-        uint64_t prevCacheLine = GetCacheline( (uint64_t) INS_Address(BBL_InsHead(bbl)));
-        for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins=INS_Next(ins)) {
-            // Does instruction straddle two cachelines?
-            uint64_t insStartCacheLine = GetCacheline((uint64_t) INS_Address(ins));
-            uint64_t insEndCacheLine = GetCacheline((uint64_t) (INS_Address(ins) + INS_Size(ins) - 1));
-            
-            // +1 for the ongoing cacheline
-            if(insStartCacheLine == prevCacheLine) {
-                numInsInCacheLine ++;
-            }
-            
-            // Assumption: ins can never span more than one CL.
-            // Continue adding more to this cacheline
-            if (insEndCacheLine == prevCacheLine) {
-                continue;
-            }
-            // either the ins ends in a new cacheline or begins on a new cacheline.
-            
-            INS_InsertCall(ins,
-                           IPOINT_BEFORE,(AFUNPTR)AnalyzeCacheLineLevelReuse,
-                           IARG_ADDRINT, prevCacheLine,
-                           IARG_UINT32, numInsInCacheLine,
-                           IARG_THREAD_ID, IARG_END);
-            // Straddlers cacheline
-            /*if (insStartCacheLine != insEndCacheLine){
-             numInsInCacheLine = 1;
-             } else {
-             numInsInCacheLine = 1;
-             }*/
-            numInsInCacheLine = 1;
-            prevCacheLine = insEndCacheLine;
-        }
-        
-        INS_InsertCall(BBL_InsTail(bbl),
-                       IPOINT_BEFORE, (AFUNPTR)AnalyzeCacheLineLevelReuse,
-                       IARG_ADDRINT, prevCacheLine,
-                       IARG_UINT32, numInsInCacheLine,
-                       IARG_THREAD_ID, IARG_END);
-        
     }
 }
 
@@ -493,7 +370,6 @@ static void InstrumentMemBlockLevelReuse(TRACE trace, void* f) {
 //instrument the trace, count the number of ins in the trace and instrument each BBL
 static void InstrumentTrace(TRACE trace, void* f) {
     InstrumentInsLevelReuse(trace, f);
-    InstrumentCLLevelReuse(trace, f);
     InstrumentMemBlockLevelReuse<CACHELINE_SIZE, 0>(trace, f);
     InstrumentMemBlockLevelReuse<4096, 1>(trace, f);
 }
@@ -546,9 +422,9 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     fprintf(gTraceFile, "\nInstruction-reuse histo");
     DumpHisto(tData->insReuseHisto, "InsReuse");
     fprintf(gTraceFile, "\nCL-reuse histo");
-    DumpHisto(tData->clReuseHisto, "CacheLineReuse");
-    DumpHisto(tData->blockData[0].reuseHisto, "CacheLineReuse2");
-    DumpHisto(tData->blockData[1].reuseHisto, "CacheLineReuse2");
+    DumpHisto(tData->blockData[0].reuseHisto, "CacheLineReuse");
+    fprintf(gTraceFile, "\nOSPage-reuse histo");
+    DumpHisto(tData->blockData[1].reuseHisto, "OSPageReuse");
     
     ptTree.put("utime", to_string(ut.tv_sec * 1000000 + ut.tv_usec));
     ptTree.put("stime", to_string(st.tv_sec * 1000000 + st.tv_usec));
@@ -563,17 +439,14 @@ static void InitThreadData(InsReuseThreadData* tdata){
     tdata->bytesLoad = 0;
     tdata->sampleFlag = true;
     tdata->numIns = 0;
-    tdata->numCacheLines = 0x42; // the start of clock
+
+    for (int i = 0; i < NUM_BLOCKS; i++) {
+        tdata->blockData[i].numBlocksCounter = 0x42; // the start of clock
+        memset(tdata->blockData[i].reuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
+    }
+    
     tdata->numInsExecuted = 0x42; // the start of clock
-    
     memset(tdata->insReuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
-    memset(tdata->clReuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
-    
-    /*    for (int i = 0; i < THREAD_MAX; ++i) {
-     RedMap[i].set_empty_key(0);
-     ApproxRedMap[i].set_empty_key(0);
-     }
-     */
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
