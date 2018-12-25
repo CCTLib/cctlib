@@ -6,9 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "pin.H"
-#include "pin_isa.H"
 #include <map>
-#include <unordered_map>
 #include <list>
 #include <stdint.h>
 #include <sys/types.h>
@@ -33,11 +31,14 @@
 #include <setjmp.h>
 #include <sstream>
 #include <pthread.h>
-// Need GOOGLE sparse hash tables
-#include <google/sparse_hash_map>
-#include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;   // namespace where class lives by default
+
+#if __cplusplus > 199711L
+#include <unordered_map>
+#else
+#include <hash_map>
+#define unordered_map hash_map
+#endif //end  __cplusplus > 199711L
+
 using namespace std;
 
 #include "cctlib.H"
@@ -50,7 +51,7 @@ using namespace PinCCTLib;
 #define PAGE_OFFSET(addr) ( addr & 0xFFFF)
 #define PAGE_OFFSET_MASK ( 0xFFFF)
 
-#define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
+#define SHADOW_MEM_PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
 #define PTR_SIZE (sizeof(struct Status *))
@@ -138,7 +139,13 @@ static PIN_MUTEX  gMutex;
 
 // If it is one of ignoreable instructions, then skip instrumentation.
 bool IsIgnorableIns(INS ins){
-    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins) || INS_IsMaskedJump(ins))
+    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins)
+#if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
+       // INS_IsMaskedJump has disappeared in 3,7
+#else
+       || INS_IsMaskedJump(ins)
+#endif
+       )
         return true;
     else if(INS_IsRet(ins) || INS_IsIRet(ins))
         return true;
@@ -307,10 +314,10 @@ static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
     if(*l1Ptr == 0) {
         *l1Ptr = (uint8_t **) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     return shadowPage;
 }

@@ -3959,7 +3959,7 @@ fi
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
+CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
@@ -3995,9 +3995,10 @@ if test "${with_libelf+set}" = set; then :
 fi
 
 
-if test "$LIBELF_PATH" = "" ; then
-as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
-fi
+#no CRT
+#if test "$LIBELF_PATH" = "" ; then
+#AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
+#fi
 
 
 
@@ -4052,9 +4053,10 @@ if test "${with_sparse_hash+set}" = set; then :
 fi
 
 
-if test "$SPARSEHASH_PATH" = "" ; then
-as_fn_error $? "--with-sparse-hash requires absolute path as argument; given '${withval}'" "$LINENO" 5
-fi
+# no CRT
+#if test "$SPARSEHASH_PATH" = "" ; then
+#AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
+#fi
 
 
 

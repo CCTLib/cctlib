@@ -18,10 +18,19 @@
 using namespace std;
 using namespace PinCCTLib;
 
-#include <unordered_set>
 #include <vector>
-#include <unordered_map>
 #include <algorithm>
+
+#if __cplusplus > 199711L
+#include <unordered_set>
+#include <unordered_map>
+#else
+#include <hash_map>
+#include <hash_set>
+#define unordered_map hash_map
+#define unordered_set hash_set
+#endif //end  __cplusplus > 199711L
+
 
 /* infrastructure for shadow memory */
 /* MACROs */
@@ -30,7 +39,7 @@ using namespace PinCCTLib;
 #define PAGE_OFFSET(addr) ( addr & 0xFFFF)
 #define PAGE_OFFSET_MASK ( 0xFFFF)
 
-#define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
+#define SHADOW_MEM_PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
 #define PTR_SIZE (sizeof(struct Status *))
@@ -114,10 +123,10 @@ GetOrCreateShadowBaseAddress(uint64_t address)
   uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
   if(*l1Ptr == 0) {
     *l1Ptr = (uint8_t **) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
   }
   else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
   }
   return shadowPage;
 }
@@ -139,7 +148,7 @@ inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr)
 VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
     uint64_t Addr = (uint64_t)addr;
     uint8_t* status = GetOrCreateShadowBaseAddress(Addr);
-    uint64_t *prevAddr = (uint64_t *)(status + PAGE_SIZE +  PAGE_OFFSET(Addr) * sizeof(uint64_t));
+    uint64_t *prevAddr = (uint64_t *)(status + SHADOW_MEM_PAGE_SIZE +  PAGE_OFFSET(Addr) * sizeof(uint64_t));
     // check write-read(true and loop-carried) dependence
     bool *prevFlag = (bool *)(status + PAGE_OFFSET(Addr));
 
@@ -241,7 +250,7 @@ void PrintTopFootPrintPath(THREADID threadid)
 	tmp.fpNum = (uint64_t)(*it).second.addressSet.size();
 	tmp.accessNum =  (uint64_t)(*it).second.accessNum;
 	tmp.dependentNum =  (uint64_t)(*it).second.dependentNum;
-        TmpList.emplace_back(tmp);
+        TmpList.push_back(tmp);
     }
     sort(TmpList.begin(), TmpList.end(), FootPrintCompare);
     vector<struct sort_format_t>::iterator ListIt;

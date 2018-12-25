@@ -12,14 +12,22 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sstream>
+#include <vector>
+#include <algorithm>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include "pin.H"
+
+#if __cplusplus > 199711L
 #include <functional>
 #include <unordered_set>
-#include <vector>
 #include <unordered_map>
-#include <algorithm>
- #include <sys/time.h>
-       #include <sys/resource.h>
-#include "pin.H"
+#else
+#include <hash_map>
+#define unordered_map hash_map
+#endif //end  __cplusplus > 199711L
+
+
 using namespace std;
 
 static INT32 Usage() {
@@ -60,6 +68,12 @@ struct Cache_t{
     bool wasDifferent;
     uint8_t value[CACHE_LINE_SZ];
     Cache_t(): tag(0), isDirty(false), isInUse(false), wasDifferent(false) {}
+    void Reset(){
+        tag = 0;
+        isDirty = false;
+        isInUse = false;
+        wasDifferent = false;
+    }
 };
 
 struct Stats_t{
@@ -68,7 +82,21 @@ struct Stats_t{
     uint64_t unchanged;
     uint64_t dirtyEvicts;
     Stats_t() : sameData(0), evicts(0), unchanged(0), dirtyEvicts(0) {}
+    void Reset() {
+        sameData = 0;
+        evicts = 0;
+        unchanged = 0;
+        dirtyEvicts = 0;
+    }
+    void AtomicMerge(Stats_t & s) {
+        __atomic_add_fetch(&sameData, s.sameData, __ATOMIC_RELEASE);
+        __atomic_add_fetch(&evicts, s.evicts, __ATOMIC_RELEASE);
+        __atomic_add_fetch(&unchanged, s.unchanged, __ATOMIC_RELEASE);
+        __atomic_add_fetch(&dirtyEvicts, s.dirtyEvicts, __ATOMIC_RELEASE);
+    }
 };
+
+static Stats_t globalStats;
 
 struct AddrValPair{
     void * address;
@@ -79,6 +107,8 @@ struct RedSpyThreadData{
     AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
     uint64_t bytesWritten;
     uint64_t bytesRedundant;
+    Stats_t stats;
+    Cache_t cache[CACHE_NUM_LINES];
 };
 
 static  TLS_KEY client_tls_key;
@@ -96,20 +126,17 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 }
 
 
-thread_local Stats_t stats;
-
-
-thread_local Cache_t cache[CACHE_NUM_LINES];
-
-
-void CacheFlush(){
+void CacheFlush(Cache_t *cache){
    #pragma omp simd
    for(int i = 0; i < CACHE_NUM_LINES; i++){
        cache[i].isInUse = false;
    }
 }
 
-static inline void OnEvict(void ** addr) {
+static inline void OnEvict(void ** addr, RedSpyThreadData * tData) {
+    Cache_t * cache = tData->cache;
+    Stats_t & stats = tData->stats;
+
     uint64_t address = (uint64_t)addr;
     uint8_t * newValue = (uint8_t *) (address & (~CACHE_LINE_MASK));
     uint8_t * originalVal = cache[CACHE_LINE_INDEX(address)].value;
@@ -132,7 +159,7 @@ static inline void OnEvict(void ** addr) {
         if (isRedundant) {
             stats.sameData++;
         }
-        cache[CACHE_LINE_INDEX(address)].isDirty = false; 
+        cache[CACHE_LINE_INDEX(address)].isDirty = false;
         stats.dirtyEvicts++;
     } else {
   //      fprintf(stderr, "\n X: address=%lx, newValue=%p, originalVal=%p, curValue=%p, idx=%lx, tag=%lx\n", address, newValue, originalVal, curValue, CACHE_LINE_INDEX(address), GET_TAG(address));
@@ -146,10 +173,11 @@ static inline void OnEvict(void ** addr) {
     WAS_DIFFERENT(address) = false;
 }
 
-static inline void HandleOneCacheLine(void ** address, bool isWrite){
+static inline void HandleOneCacheLine(void ** address, bool isWrite, RedSpyThreadData * tData){
+    Cache_t * cache = tData->cache;
     if(!IS_VALID(address)) {
         // cache miss, allocate it.
-        OnEvict(address);
+        OnEvict(address, tData);
     }
     SET_INUSE(address);
    // set dirty if write
@@ -157,13 +185,14 @@ static inline void HandleOneCacheLine(void ** address, bool isWrite){
         cache[CACHE_LINE_INDEX(address)].isDirty = true;
 }
 
-static inline void OnAccess(void ** address, uint64_t accessLen, bool isWrite){
+static inline void OnAccess(void ** address, uint64_t accessLen, bool isWrite, THREADID threadId){
+    RedSpyThreadData*  tData = ClientGetTLS(threadId);
     // Is within cache line?
     if(CACHE_LINE_INDEX(address) == CACHE_LINE_INDEX((size_t)(address) + accessLen - 1)) {
-        HandleOneCacheLine(address, isWrite);
+        HandleOneCacheLine(address, isWrite, tData);
     } else {
         for(void ** cur = address; cur < address + accessLen; cur += CACHE_LINE_SZ){
-            HandleOneCacheLine(cur, isWrite);
+            HandleOneCacheLine(cur, isWrite, tData);
         }
     }
 }
@@ -235,6 +264,7 @@ struct RedSpyAnalysis{
     }
     static __attribute__((always_inline)) VOID CheckNByteValueAfterWrite(THREADID threadId){
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
+        Cache_t * cache = tData->cache;
         void * addr;
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
         if(isRedundantWrite) {
@@ -274,6 +304,8 @@ static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  ui
 
 static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    Cache_t * cache = tData->cache;
+
     size_t  addr = (size_t) (tData->buffer[bufferOffset].address);
     if(memcmp(tData->buffer[bufferOffset].value, (void *)addr, accessLen) == 0){
         tData->bytesRedundant += accessLen;
@@ -343,9 +375,9 @@ static VOID InstrumentInsCallback(INS ins, VOID* v) {
 
     for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
          if(INS_MemoryOperandIsWritten(ins, memOp)) {
-             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_BOOL, 1, IARG_END);
+             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_BOOL, 1, IARG_THREAD_ID, IARG_END);
          } else {
-             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_BOOL, 0,  IARG_END);
+             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) OnAccess, IARG_MEMORYOP_EA, memOp, IARG_MEMORYREAD_SIZE, IARG_BOOL, 0,  IARG_THREAD_ID, IARG_END);
         }
     }
 
@@ -402,24 +434,33 @@ static VOID InstrumentInsCallback(INS ins, VOID* v) {
 }
 
     size_t getPeakRSS() {
+#if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
+        // What a shame
+        return (0);
+#else
         struct rusage u;
         getrusage(RUSAGE_SELF, &u);
         return (size_t)(u.ru_maxrss);
+#endif
     }
 
 
 static VOID FiniFunc(INT32 code, VOID *v) {
-    fprintf(gTraceFile, "\n Total evict=%lu, dirtyEvicts=%lu, redundant=%lu, unchanged=%lu, waste=%f, cacheFixable=%f, Peak RSS=%zu\n", stats.evicts, stats.dirtyEvicts, stats.sameData, stats.unchanged, 100.0 * stats.sameData/ stats.dirtyEvicts, 100.0 * stats.unchanged/ stats.dirtyEvicts, getPeakRSS());
+    Stats_t s;
+    s.AtomicMerge(globalStats); // So that we get latest;
+    fprintf(gTraceFile, "\n Total evict=%lu, dirtyEvicts=%lu, redundant=%lu, unchanged=%lu, waste=%f, cacheFixable=%f, Peak RSS=%zu\n",
+            s.evicts, s.dirtyEvicts, s.sameData, s.unchanged, 100.0 * globalStats.sameData/ s.dirtyEvicts, 100.0 * s.unchanged/ s.dirtyEvicts, getPeakRSS());
 }
 
 static VOID ImageUnload(IMG img, VOID* v) {
 //fprintf(stderr, "\n ImageUnload\n");
-    CacheFlush();
+    // TODO: Should we flush?    CacheFlush();
 }
 
 static void HandleSysCall(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v){
 //fprintf(stderr, "\n HandleSysCall\n");
-        CacheFlush();
+        RedSpyThreadData* tData = ClientGetTLS(threadIndex);
+        CacheFlush(tData->cache);
 }
 
 inline VOID Update(uint32_t bytes, THREADID threadId){
@@ -429,9 +470,7 @@ inline VOID Update(uint32_t bytes, THREADID threadId){
 
 //instrument the trace, count the number of ins in the trace, decide to instrument or not
 static void InstrumentTrace(TRACE trace, void* f) {
-
-    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
-    {
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         uint32_t totBytes = 0;
         for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
             if(INS_IsMemoryWrite(ins)) {
@@ -444,13 +483,18 @@ static void InstrumentTrace(TRACE trace, void* f) {
 
 
 static VOID ThreadFiniFunc(THREADID threadId, const CONTEXT *ctxt, INT32 code, VOID *v) {
-RedSpyThreadData* const tData = ClientGetTLS(threadId);
-    fprintf(gTraceFile, "\n Bytes written=%lu, Bytes redundant=%lu, redundant=%f \n", tData->bytesWritten, tData->bytesRedundant, 100.0 * tData->bytesRedundant/ tData->bytesWritten);
+    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+    Stats_t & stats = tData->stats;
+    fprintf(gTraceFile, "\n thread = %d, Total evict=%lu, dirtyEvicts=%lu, redundant=%lu, unchanged=%lu, waste=%f, cacheFixable=%f, Bytes written=%lu, Bytes redundant=%lu, redundant=%f\n", threadId, stats.evicts, stats.dirtyEvicts, stats.sameData, stats.unchanged, 100.0 * stats.sameData/ stats.dirtyEvicts, 100.0 * stats.unchanged/ stats.dirtyEvicts, tData->bytesWritten, tData->bytesRedundant, 100.0 * tData->bytesRedundant/ tData->bytesWritten);
+    globalStats.AtomicMerge(stats);
 }
 
 static void InitThreadData(RedSpyThreadData* tdata){
     tdata->bytesWritten = 0;
     tdata->bytesRedundant = 0;
+    tdata->stats.Reset();
+    for(int i = 0; i < CACHE_NUM_LINES; i++)
+        tdata->cache[i].Reset();
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
@@ -485,7 +529,7 @@ int main(int argc, char* argv[]) {
   
     // Register SyscallEntry
     PIN_AddSyscallEntryFunction (HandleSysCall, 0);
-  //  PIN_AddSyscallExitFunction (HandleSysCall, 0);
+    // PIN_AddSyscallExitFunction (HandleSysCall, 0);
 
     INS_AddInstrumentFunction(InstrumentInsCallback, 0); 
     // fini function for post-mortem analysis

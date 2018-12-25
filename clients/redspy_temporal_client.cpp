@@ -13,12 +13,20 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sstream>
-#include <functional>
-#include <unordered_set>
 #include <vector>
-#include <unordered_map>
 #include <algorithm>
 #include <list>
+
+#if __cplusplus > 199711L
+#include <functional>
+#include <unordered_set>
+#include <unordered_map>
+#else
+#include <hash_set>
+#include <hash_map>
+#endif //end  __cplusplus > 199711L
+
+
 #include "pin.H"
 #include "cctlib.H"
 #include "shadow_memory.H"
@@ -30,10 +38,21 @@ extern "C" {
 #include "xed-common-hdrs.h"
 }
 
+#if __cplusplus > 199711L
+#else
+#define unordered_map  hash_map
+#define unordered_set  hash_set
+#endif //end  __cplusplus > 199711L
+
+#if __cplusplus > 199711L
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
 using google::sparse_hash_map;  // namespace where class lives by default
 using google::dense_hash_map;
+#else
+#define sparse_hash_map  hash_map
+#define dense_hash_map  hash_map
+#endif // __cplusplus > 199711L
 
 using namespace std;
 using namespace PinCCTLib;
@@ -195,7 +214,7 @@ static INT32 Usage() {
 static FILE* gTraceFile;
 static  ConcurrentShadowMemory<ContextHandle_t> sm;
 
-struct{
+static struct{
     char dummy1[128];
     xed_state_t  xedState;
     char dummy2[128];
@@ -355,219 +374,6 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
 
 
 
-static inline bool IsFloatInstructionOld(ADDRINT ip) {
-    xed_decoded_inst_t  xedd;
-    xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
-    
-    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
-        xed_iclass_enum_t iclassType = xed_decoded_inst_get_iclass(&xedd);
-        if (iclassType >= XED_ICLASS_F2XM1 && iclassType <=XED_ICLASS_FYL2XP1) {
-            return true;
-        }
-        if (iclassType >= XED_ICLASS_VBROADCASTSD && iclassType <= XED_ICLASS_VDPPS) {
-            return true;
-        }
-        if (iclassType >= XED_ICLASS_VRCPPS && iclassType <= XED_ICLASS_VSQRTSS) {
-            return true;
-        }
-        if (iclassType >= XED_ICLASS_VSUBPD && iclassType <= XED_ICLASS_VXORPS) {
-            return true;
-        }
-        switch (iclassType) {
-            case XED_ICLASS_ADDPD:
-            case XED_ICLASS_ADDPS:
-            case XED_ICLASS_ADDSD:
-            case XED_ICLASS_ADDSS:
-            case XED_ICLASS_ADDSUBPD:
-            case XED_ICLASS_ADDSUBPS:
-            case XED_ICLASS_ANDNPD:
-            case XED_ICLASS_ANDNPS:
-            case XED_ICLASS_ANDPD:
-            case XED_ICLASS_ANDPS:
-            case XED_ICLASS_BLENDPD:
-            case XED_ICLASS_BLENDPS:
-            case XED_ICLASS_BLENDVPD:
-            case XED_ICLASS_BLENDVPS:
-            case XED_ICLASS_CMPPD:
-            case XED_ICLASS_CMPPS:
-            case XED_ICLASS_CMPSD:
-            case XED_ICLASS_CMPSD_XMM:
-            case XED_ICLASS_COMISD:
-            case XED_ICLASS_COMISS:
-            case XED_ICLASS_CVTDQ2PD:
-            case XED_ICLASS_CVTDQ2PS:
-            case XED_ICLASS_CVTPD2PS:
-            case XED_ICLASS_CVTPI2PD:
-            case XED_ICLASS_CVTPI2PS:
-            case XED_ICLASS_CVTPS2PD:
-            case XED_ICLASS_CVTSD2SS:
-            case XED_ICLASS_CVTSI2SD:
-            case XED_ICLASS_CVTSI2SS:
-            case XED_ICLASS_CVTSS2SD:
-            case XED_ICLASS_DIVPD:
-            case XED_ICLASS_DIVPS:
-            case XED_ICLASS_DIVSD:
-            case XED_ICLASS_DIVSS:
-            case XED_ICLASS_DPPD:
-            case XED_ICLASS_DPPS:
-            case XED_ICLASS_HADDPD:
-            case XED_ICLASS_HADDPS:
-            case XED_ICLASS_HSUBPD:
-            case XED_ICLASS_HSUBPS:
-            case XED_ICLASS_MAXPD:
-            case XED_ICLASS_MAXPS:
-            case XED_ICLASS_MAXSD:
-            case XED_ICLASS_MAXSS:
-            case XED_ICLASS_MINPD:
-            case XED_ICLASS_MINPS:
-            case XED_ICLASS_MINSD:
-            case XED_ICLASS_MINSS:
-            case XED_ICLASS_MOVAPD:
-            case XED_ICLASS_MOVAPS:
-            case XED_ICLASS_MOVD:
-            case XED_ICLASS_MOVHLPS:
-            case XED_ICLASS_MOVHPD:
-            case XED_ICLASS_MOVHPS:
-            case XED_ICLASS_MOVLHPS:
-            case XED_ICLASS_MOVLPD:
-            case XED_ICLASS_MOVLPS:
-            case XED_ICLASS_MOVMSKPD:
-            case XED_ICLASS_MOVMSKPS:
-            case XED_ICLASS_MOVNTPD:
-            case XED_ICLASS_MOVNTPS:
-            case XED_ICLASS_MOVNTSD:
-            case XED_ICLASS_MOVNTSS:
-            case XED_ICLASS_MOVSD:
-            case XED_ICLASS_MOVSD_XMM:
-            case XED_ICLASS_MOVSS:
-            case XED_ICLASS_MULPD:
-            case XED_ICLASS_MULPS:
-            case XED_ICLASS_MULSD:
-            case XED_ICLASS_MULSS:
-            case XED_ICLASS_ORPD:
-            case XED_ICLASS_ORPS:
-            case XED_ICLASS_ROUNDPD:
-            case XED_ICLASS_ROUNDPS:
-            case XED_ICLASS_ROUNDSD:
-            case XED_ICLASS_ROUNDSS:
-            case XED_ICLASS_SHUFPD:
-            case XED_ICLASS_SHUFPS:
-            case XED_ICLASS_SQRTPD:
-            case XED_ICLASS_SQRTPS:
-            case XED_ICLASS_SQRTSD:
-            case XED_ICLASS_SQRTSS:
-            case XED_ICLASS_SUBPD:
-            case XED_ICLASS_SUBPS:
-            case XED_ICLASS_SUBSD:
-            case XED_ICLASS_SUBSS:
-            case XED_ICLASS_VADDPD:
-            case XED_ICLASS_VADDPS:
-            case XED_ICLASS_VADDSD:
-            case XED_ICLASS_VADDSS:
-            case XED_ICLASS_VADDSUBPD:
-            case XED_ICLASS_VADDSUBPS:
-            case XED_ICLASS_VANDNPD:
-            case XED_ICLASS_VANDNPS:
-            case XED_ICLASS_VANDPD:
-            case XED_ICLASS_VANDPS:
-            case XED_ICLASS_VBLENDPD:
-            case XED_ICLASS_VBLENDPS:
-            case XED_ICLASS_VBLENDVPD:
-            case XED_ICLASS_VBLENDVPS:
-            case XED_ICLASS_VBROADCASTSD:
-            case XED_ICLASS_VBROADCASTSS:
-            case XED_ICLASS_VCMPPD:
-            case XED_ICLASS_VCMPPS:
-            case XED_ICLASS_VCMPSD:
-            case XED_ICLASS_VCMPSS:
-            case XED_ICLASS_VCOMISD:
-            case XED_ICLASS_VCOMISS:
-            case XED_ICLASS_VCVTDQ2PD:
-            case XED_ICLASS_VCVTDQ2PS:
-            case XED_ICLASS_VCVTPD2PS:
-            case XED_ICLASS_VCVTPH2PS:
-            case XED_ICLASS_VCVTPS2PD:
-            case XED_ICLASS_VCVTSD2SS:
-            case XED_ICLASS_VCVTSI2SD:
-            case XED_ICLASS_VCVTSI2SS:
-            case XED_ICLASS_VCVTSS2SD:
-            case XED_ICLASS_VDIVPD:
-            case XED_ICLASS_VDIVPS:
-            case XED_ICLASS_VDIVSD:
-            case XED_ICLASS_VDIVSS:
-            case XED_ICLASS_VDPPD:
-            case XED_ICLASS_VDPPS:
-            case XED_ICLASS_VMASKMOVPD:
-            case XED_ICLASS_VMASKMOVPS:
-            case XED_ICLASS_VMAXPD:
-            case XED_ICLASS_VMAXPS:
-            case XED_ICLASS_VMAXSD:
-            case XED_ICLASS_VMAXSS:
-            case XED_ICLASS_VMINPD:
-            case XED_ICLASS_VMINPS:
-            case XED_ICLASS_VMINSD:
-            case XED_ICLASS_VMINSS:
-            case XED_ICLASS_VMOVAPD:
-            case XED_ICLASS_VMOVAPS:
-            case XED_ICLASS_VMOVD:
-            case XED_ICLASS_VMOVHLPS:
-            case XED_ICLASS_VMOVHPD:
-            case XED_ICLASS_VMOVHPS:
-            case XED_ICLASS_VMOVLHPS:
-            case XED_ICLASS_VMOVLPD:
-            case XED_ICLASS_VMOVLPS:
-            case XED_ICLASS_VMOVMSKPD:
-            case XED_ICLASS_VMOVMSKPS:
-            case XED_ICLASS_VMOVNTPD:
-            case XED_ICLASS_VMOVNTPS:
-            case XED_ICLASS_VMOVSD:
-            case XED_ICLASS_VMOVSS:
-            case XED_ICLASS_VMOVUPD:
-            case XED_ICLASS_VMOVUPS:
-            case XED_ICLASS_VMULPD:
-            case XED_ICLASS_VMULPS:
-            case XED_ICLASS_VMULSD:
-            case XED_ICLASS_VMULSS:
-            case XED_ICLASS_VORPD:
-            case XED_ICLASS_VORPS:
-            case XED_ICLASS_VPABSD:
-            case XED_ICLASS_VPADDD:
-            case XED_ICLASS_VPCOMD:
-            case XED_ICLASS_VPCOMUD:
-            case XED_ICLASS_VPERMILPD:
-            case XED_ICLASS_VPERMILPS:
-            case XED_ICLASS_VPERMPD:
-            case XED_ICLASS_VPERMPS:
-            case XED_ICLASS_VPGATHERDD:
-            case XED_ICLASS_VPGATHERQD:
-            case XED_ICLASS_VPHADDBD:
-            case XED_ICLASS_VPHADDD:
-            case XED_ICLASS_VPHADDUBD:
-            case XED_ICLASS_VPHADDUWD:
-            case XED_ICLASS_VPHADDWD:
-            case XED_ICLASS_VPHSUBD:
-            case XED_ICLASS_VPHSUBWD:
-            case XED_ICLASS_VPINSRD:
-            case XED_ICLASS_VPMACSDD:
-            case XED_ICLASS_VPMACSSDD:
-            case XED_ICLASS_VPMASKMOVD:
-            case XED_ICLASS_VPMAXSD:
-            case XED_ICLASS_VPMAXUD:
-            case XED_ICLASS_VPMINSD:
-            case XED_ICLASS_VPMINUD:
-            case XED_ICLASS_VPROTD:
-            case XED_ICLASS_VPSUBD:
-            case XED_ICLASS_XORPD:
-            case XED_ICLASS_XORPS:
-                return true;
-                
-            default: return false;
-        }
-    } else {
-        assert(0 && "failed to disassemble instruction");
-        return false;
-    }
-}
 /*
 static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
     xed_decoded_inst_t  xedd;
@@ -1246,10 +1052,16 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
             default: assert(0 && "not recoganized register size for floating instruction!\n");
         }
     }else{
+        
+#if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
+        //TODO .. Follow up https://groups.yahoo.com/neo/groups/pinheads/conversations/messages/13041
+        return;
+#else
         if (REG_is_in_X87(reg)) {
             HANDLE_SPECIALREG(1,reg);
             return;
         }
+#endif
         switch(regSize) {
             case 1: HANDLE_GENERAL(uint8_t); break;
             case 2: HANDLE_GENERAL(uint16_t); break;
@@ -1269,10 +1081,12 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
 
 template<int start, int end, int incr, bool conditional, bool approx>
 struct UnrolledLoop{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) void Body(function<void (const int)> func){
         func(start); // Real loop body
         UnrolledLoop<start+incr, end, incr, conditional, approx>:: Body(func);   // unroll next iteration
     }
+#endif
     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){
         if(conditional) {
             // report in RedTable
@@ -1286,7 +1100,11 @@ struct UnrolledLoop{
         UnrolledLoop<start+incr, end, incr, conditional, approx>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
     }
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){
+#if __cplusplus > 199711L
         uint8_t * status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr + start));
+#else
+        uint8_t * status = (uint8_t *) sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr + start);
+#endif
         ContextHandle_t * prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + start)) * sizeof(ContextHandle_t));
         if (conditional) {
             // report in RedTable
@@ -1303,16 +1121,20 @@ struct UnrolledLoop{
 
 template<int end,  int incr, bool conditional, bool approx>
 struct UnrolledLoop<end , end , incr, conditional, approx>{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) void Body(function<void (const int)> func){}
+#endif //end  __cplusplus > 199711L
     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){}
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){}
 };
 
 template<int start, int end, int incr>
 struct UnrolledConjunction{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
+#endif
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
         return (prevIP[0] == prevIP[start]) && UnrolledConjunction<start+incr, end, incr>:: BodyContextCheck(prevIP);   // unroll next iteration
     }
@@ -1320,9 +1142,11 @@ struct UnrolledConjunction{
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) bool Body(function<void (const int)> func){
         return true;
     }
+#endif
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
         return true;
     }
@@ -1474,8 +1298,14 @@ struct RedSpyAnalysis{
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
 
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+
         
+        
+#if __cplusplus > 199711L
         uint8_t* status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr));
+#else
+        uint8_t* status = (uint8_t *) sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr);
+#endif
         ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
         const bool isAccessWithinPageBoundary = IS_ACCESS_WITHIN_PAGE_BOUNDARY( (uint64_t)addr, AccessLen);
         if(isRedundantWrite) {
@@ -1531,12 +1361,20 @@ struct RedSpyAnalysis{
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
         
         UINT32 const interv = sizeof(T);
+#if __cplusplus > 199711L
         uint8_t* status = (uint8_t *)  get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr));
+#else
+        uint8_t* status = (uint8_t *)  sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr);
+#endif
         ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
         
         if(isRedundantWrite){
             for(UINT32 index = 0 ; index < AccessLen; index+=interv){
+#if __cplusplus > 199711L
                 status = (uint8_t *)  get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index));
+#else
+                status = (uint8_t *)  sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr + index);
+#endif
                 prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
                 // report in RedTable
                 AddToApproximateRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), interv, threadId);
@@ -1545,7 +1383,11 @@ struct RedSpyAnalysis{
             }
         }else{
             for(UINT32 index = 0 ; index < AccessLen; index+=interv){
+#if __cplusplus > 199711L
                 status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index));
+#else
+                status = (uint8_t *) sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr + index);
+#endif
                 prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
                 // Update context
                 prevIP[0] = curCtxtHandle;
@@ -1567,13 +1409,20 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     void * addr = tData->buffer[bufferOffset].address;
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-    
+#if __cplusplus > 199711L
     uint8_t* status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr));
+#else
+    uint8_t* status = (uint8_t *) sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr);
+#endif
     ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
     if(memcmp( & (tData->buffer[bufferOffset].value), addr, accessLen) == 0){
         // redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
+#if __cplusplus > 199711L
             status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index));
+#else
+            status = (uint8_t *) sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr + index);
+#endif
             prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
             // report in RedTable
             AddToRedTable(MAKE_CONTEXT_PAIR(prevIP[0 /* 0 is correct*/ ], curCtxtHandle), 1, threadId);
@@ -1583,7 +1432,11 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
     }else{
         // Not redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
+#if __cplusplus > 199711L
             status = (uint8_t *) get<0>(sm.GetOrCreateShadowBaseAddress((uint64_t)addr + index));
+#else
+            status = (uint8_t *) sm.GetOrCreateShadowBaseAddress_0((uint64_t)addr + index);
+#endif
             prevIP = (ContextHandle_t*)(status + PAGE_OFFSET(((uint64_t)addr + index)) * sizeof(ContextHandle_t));
             // Update context
             prevIP[0] = curCtxtHandle;
@@ -1687,7 +1540,13 @@ struct RedSpyInstrument{
 /*********************  instrument analysis  ************************/
 
 static inline bool INS_IsIgnorable(INS ins){
-    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins) || INS_IsMaskedJump(ins))
+    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins)
+#if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
+       // INS_IsMaskedJump has disappeared in 3,7
+#else
+       || INS_IsMaskedJump(ins)
+#endif
+       )
         return true;
     else if(INS_IsRet(ins) || INS_IsIRet(ins))
         return true;
@@ -1963,7 +1822,6 @@ static void PrintRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
-    vector<struct AnalyzedMetric_t>::iterator listIt;
     int cntxtNum = 0;
     for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
         if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
@@ -2031,7 +1889,6 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
     fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
-    vector<struct AnalyzedMetric_t>::iterator listIt;
     int cntxtNum = 0;
     for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
         if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
@@ -2078,10 +1935,14 @@ static void InitThreadData(RedSpyThreadData* tdata){
     tdata->sampleFlag = true;
     tdata->numIns = 0;
     tdata->numWinds = 0;
+
+#if __cplusplus > 199711L
+    // Not using google sparse hash without c++11
     for (int i = 0; i < THREAD_MAX; ++i) {
         RedMap[i].set_empty_key(0);
         ApproxRedMap[i].set_empty_key(0);
     }
+#endif
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {

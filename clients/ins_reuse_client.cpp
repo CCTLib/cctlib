@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <atomic>
 #include <malloc.h>
 #include <iostream>
 #include <unistd.h>

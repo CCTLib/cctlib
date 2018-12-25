@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <atomic>
 #include <malloc.h>
 #include <iostream>
 #include <unistd.h>
@@ -14,10 +13,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sstream>
-#include <functional>
-#include <unordered_set>
 #include <vector>
-#include <unordered_map>
 #include <algorithm>
 #include <list>
 #include "pin.H"
@@ -26,15 +22,26 @@
 #include <xmmintrin.h>
 #include <immintrin.h>
 
+#if __cplusplus > 199711L
+#include <functional>
+#include <unordered_set>
+#include <unordered_map>
+#else
+#include <hash_set>
+#include <hash_map>
+#endif //end  __cplusplus > 199711L
+
+
 extern "C" {
 #include "xed-interface.h"
 #include "xed-common-hdrs.h"
 }
 
-#include <google/sparse_hash_map>
-#include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;
+#if __cplusplus > 199711L
+#else
+#define unordered_map  hash_map
+#define unordered_set  hash_set
+#endif //end  __cplusplus > 199711L
 
 using namespace std;
 using namespace PinCCTLib;
@@ -96,7 +103,7 @@ using namespace PinCCTLib;
  ************************************************/
 ConcurrentShadowMemory<uint8_t, ContextHandle_t> sm;
 
-struct{
+static struct{
     char dummy1[128];
     xed_state_t  xedState;
     char dummy2[128];
@@ -329,219 +336,6 @@ static inline bool IsFloatInstructionAndOkToApproximate(ADDRINT ip) {
     }
 }
 
-static inline bool IsFloatInstructionOld(ADDRINT ip) {
-    xed_decoded_inst_t  xedd;
-    xed_decoded_inst_zero_set_mode(&xedd, &LoadSpyGlobals.xedState);
-    
-    if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
-        xed_iclass_enum_t iclassType = xed_decoded_inst_get_iclass(&xedd);
-        if (iclassType >= XED_ICLASS_F2XM1 && iclassType <=XED_ICLASS_FYL2XP1) {
-            return true;
-        }
-        if (iclassType >= XED_ICLASS_VBROADCASTSD && iclassType <= XED_ICLASS_VDPPS) {
-            return true;
-        }
-        if (iclassType >= XED_ICLASS_VRCPPS && iclassType <= XED_ICLASS_VSQRTSS) {
-            return true;
-        }
-        if (iclassType >= XED_ICLASS_VSUBPD && iclassType <= XED_ICLASS_VXORPS) {
-            return true;
-        }
-        switch (iclassType) {
-            case XED_ICLASS_ADDPD:
-            case XED_ICLASS_ADDPS:
-            case XED_ICLASS_ADDSD:
-            case XED_ICLASS_ADDSS:
-            case XED_ICLASS_ADDSUBPD:
-            case XED_ICLASS_ADDSUBPS:
-            case XED_ICLASS_ANDNPD:
-            case XED_ICLASS_ANDNPS:
-            case XED_ICLASS_ANDPD:
-            case XED_ICLASS_ANDPS:
-            case XED_ICLASS_BLENDPD:
-            case XED_ICLASS_BLENDPS:
-            case XED_ICLASS_BLENDVPD:
-            case XED_ICLASS_BLENDVPS:
-            case XED_ICLASS_CMPPD:
-            case XED_ICLASS_CMPPS:
-            case XED_ICLASS_CMPSD:
-            case XED_ICLASS_CMPSD_XMM:
-            case XED_ICLASS_COMISD:
-            case XED_ICLASS_COMISS:
-            case XED_ICLASS_CVTDQ2PD:
-            case XED_ICLASS_CVTDQ2PS:
-            case XED_ICLASS_CVTPD2PS:
-            case XED_ICLASS_CVTPI2PD:
-            case XED_ICLASS_CVTPI2PS:
-            case XED_ICLASS_CVTPS2PD:
-            case XED_ICLASS_CVTSD2SS:
-            case XED_ICLASS_CVTSI2SD:
-            case XED_ICLASS_CVTSI2SS:
-            case XED_ICLASS_CVTSS2SD:
-            case XED_ICLASS_DIVPD:
-            case XED_ICLASS_DIVPS:
-            case XED_ICLASS_DIVSD:
-            case XED_ICLASS_DIVSS:
-            case XED_ICLASS_DPPD:
-            case XED_ICLASS_DPPS:
-            case XED_ICLASS_HADDPD:
-            case XED_ICLASS_HADDPS:
-            case XED_ICLASS_HSUBPD:
-            case XED_ICLASS_HSUBPS:
-            case XED_ICLASS_MAXPD:
-            case XED_ICLASS_MAXPS:
-            case XED_ICLASS_MAXSD:
-            case XED_ICLASS_MAXSS:
-            case XED_ICLASS_MINPD:
-            case XED_ICLASS_MINPS:
-            case XED_ICLASS_MINSD:
-            case XED_ICLASS_MINSS:
-            case XED_ICLASS_MOVAPD:
-            case XED_ICLASS_MOVAPS:
-            case XED_ICLASS_MOVD:
-            case XED_ICLASS_MOVHLPS:
-            case XED_ICLASS_MOVHPD:
-            case XED_ICLASS_MOVHPS:
-            case XED_ICLASS_MOVLHPS:
-            case XED_ICLASS_MOVLPD:
-            case XED_ICLASS_MOVLPS:
-            case XED_ICLASS_MOVMSKPD:
-            case XED_ICLASS_MOVMSKPS:
-            case XED_ICLASS_MOVNTPD:
-            case XED_ICLASS_MOVNTPS:
-            case XED_ICLASS_MOVNTSD:
-            case XED_ICLASS_MOVNTSS:
-            case XED_ICLASS_MOVSD:
-            case XED_ICLASS_MOVSD_XMM:
-            case XED_ICLASS_MOVSS:
-            case XED_ICLASS_MULPD:
-            case XED_ICLASS_MULPS:
-            case XED_ICLASS_MULSD:
-            case XED_ICLASS_MULSS:
-            case XED_ICLASS_ORPD:
-            case XED_ICLASS_ORPS:
-            case XED_ICLASS_ROUNDPD:
-            case XED_ICLASS_ROUNDPS:
-            case XED_ICLASS_ROUNDSD:
-            case XED_ICLASS_ROUNDSS:
-            case XED_ICLASS_SHUFPD:
-            case XED_ICLASS_SHUFPS:
-            case XED_ICLASS_SQRTPD:
-            case XED_ICLASS_SQRTPS:
-            case XED_ICLASS_SQRTSD:
-            case XED_ICLASS_SQRTSS:
-            case XED_ICLASS_SUBPD:
-            case XED_ICLASS_SUBPS:
-            case XED_ICLASS_SUBSD:
-            case XED_ICLASS_SUBSS:
-            case XED_ICLASS_VADDPD:
-            case XED_ICLASS_VADDPS:
-            case XED_ICLASS_VADDSD:
-            case XED_ICLASS_VADDSS:
-            case XED_ICLASS_VADDSUBPD:
-            case XED_ICLASS_VADDSUBPS:
-            case XED_ICLASS_VANDNPD:
-            case XED_ICLASS_VANDNPS:
-            case XED_ICLASS_VANDPD:
-            case XED_ICLASS_VANDPS:
-            case XED_ICLASS_VBLENDPD:
-            case XED_ICLASS_VBLENDPS:
-            case XED_ICLASS_VBLENDVPD:
-            case XED_ICLASS_VBLENDVPS:
-            case XED_ICLASS_VBROADCASTSD:
-            case XED_ICLASS_VBROADCASTSS:
-            case XED_ICLASS_VCMPPD:
-            case XED_ICLASS_VCMPPS:
-            case XED_ICLASS_VCMPSD:
-            case XED_ICLASS_VCMPSS:
-            case XED_ICLASS_VCOMISD:
-            case XED_ICLASS_VCOMISS:
-            case XED_ICLASS_VCVTDQ2PD:
-            case XED_ICLASS_VCVTDQ2PS:
-            case XED_ICLASS_VCVTPD2PS:
-            case XED_ICLASS_VCVTPH2PS:
-            case XED_ICLASS_VCVTPS2PD:
-            case XED_ICLASS_VCVTSD2SS:
-            case XED_ICLASS_VCVTSI2SD:
-            case XED_ICLASS_VCVTSI2SS:
-            case XED_ICLASS_VCVTSS2SD:
-            case XED_ICLASS_VDIVPD:
-            case XED_ICLASS_VDIVPS:
-            case XED_ICLASS_VDIVSD:
-            case XED_ICLASS_VDIVSS:
-            case XED_ICLASS_VDPPD:
-            case XED_ICLASS_VDPPS:
-            case XED_ICLASS_VMASKMOVPD:
-            case XED_ICLASS_VMASKMOVPS:
-            case XED_ICLASS_VMAXPD:
-            case XED_ICLASS_VMAXPS:
-            case XED_ICLASS_VMAXSD:
-            case XED_ICLASS_VMAXSS:
-            case XED_ICLASS_VMINPD:
-            case XED_ICLASS_VMINPS:
-            case XED_ICLASS_VMINSD:
-            case XED_ICLASS_VMINSS:
-            case XED_ICLASS_VMOVAPD:
-            case XED_ICLASS_VMOVAPS:
-            case XED_ICLASS_VMOVD:
-            case XED_ICLASS_VMOVHLPS:
-            case XED_ICLASS_VMOVHPD:
-            case XED_ICLASS_VMOVHPS:
-            case XED_ICLASS_VMOVLHPS:
-            case XED_ICLASS_VMOVLPD:
-            case XED_ICLASS_VMOVLPS:
-            case XED_ICLASS_VMOVMSKPD:
-            case XED_ICLASS_VMOVMSKPS:
-            case XED_ICLASS_VMOVNTPD:
-            case XED_ICLASS_VMOVNTPS:
-            case XED_ICLASS_VMOVSD:
-            case XED_ICLASS_VMOVSS:
-            case XED_ICLASS_VMOVUPD:
-            case XED_ICLASS_VMOVUPS:
-            case XED_ICLASS_VMULPD:
-            case XED_ICLASS_VMULPS:
-            case XED_ICLASS_VMULSD:
-            case XED_ICLASS_VMULSS:
-            case XED_ICLASS_VORPD:
-            case XED_ICLASS_VORPS:
-            case XED_ICLASS_VPABSD:
-            case XED_ICLASS_VPADDD:
-            case XED_ICLASS_VPCOMD:
-            case XED_ICLASS_VPCOMUD:
-            case XED_ICLASS_VPERMILPD:
-            case XED_ICLASS_VPERMILPS:
-            case XED_ICLASS_VPERMPD:
-            case XED_ICLASS_VPERMPS:
-            case XED_ICLASS_VPGATHERDD:
-            case XED_ICLASS_VPGATHERQD:
-            case XED_ICLASS_VPHADDBD:
-            case XED_ICLASS_VPHADDD:
-            case XED_ICLASS_VPHADDUBD:
-            case XED_ICLASS_VPHADDUWD:
-            case XED_ICLASS_VPHADDWD:
-            case XED_ICLASS_VPHSUBD:
-            case XED_ICLASS_VPHSUBWD:
-            case XED_ICLASS_VPINSRD:
-            case XED_ICLASS_VPMACSDD:
-            case XED_ICLASS_VPMACSSDD:
-            case XED_ICLASS_VPMASKMOVD:
-            case XED_ICLASS_VPMAXSD:
-            case XED_ICLASS_VPMAXUD:
-            case XED_ICLASS_VPMINSD:
-            case XED_ICLASS_VPMINUD:
-            case XED_ICLASS_VPROTD:
-            case XED_ICLASS_VPSUBD:
-            case XED_ICLASS_XORPD:
-            case XED_ICLASS_XORPS:
-                return true;
-                
-            default: return false;
-        }
-    } else {
-        assert(0 && "failed to disassemble instruction");
-        return false;
-    }
-}
 /*
  static inline bool IsFloatInstruction(ADDRINT ip, uint32_t oper) {
  xed_decoded_inst_t  xedd;
@@ -586,10 +380,12 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
 
 template<int start, int end, int incr, bool conditional, bool approx>
 struct UnrolledLoop{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) void Body(function<void (const int)> func){
         func(start); // Real loop body
         UnrolledLoop<start+incr, end, incr, conditional, approx>:: Body(func);   // unroll next iteration
     }
+#endif
     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){
         if(conditional) {
             // report in RedTable
@@ -603,9 +399,13 @@ struct UnrolledLoop{
         UnrolledLoop<start+incr, end, incr, conditional, approx>:: BodySamePage(prevIP, handle, threadId);   // unroll next iteration
     }
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){
+#if __cplusplus > 199711L
         tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr+start);
         ContextHandle_t * prevIP = &(get<1>(t)[PAGE_OFFSET(((uint64_t)addr+start))]);
-        
+#else
+        tuple<uint8_t, ContextHandle_t> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr+start);
+        ContextHandle_t * prevIP = &(t.b[PAGE_OFFSET(((uint64_t)addr+start))]);
+#endif
         if (conditional) {
             // report in RedTable
             if(approx)
@@ -621,16 +421,20 @@ struct UnrolledLoop{
 
 template<int end,  int incr, bool conditional, bool approx>
 struct UnrolledLoop<end , end , incr, conditional, approx>{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) void Body(function<void (const int)> func){}
+#endif
     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){}
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){}
 };
 
 template<int start, int end, int incr>
 struct UnrolledConjunction{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
+#endif
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
         return (prevIP[0] == prevIP[start]) && UnrolledConjunction<start+incr, end, incr>:: BodyContextCheck(prevIP);   // unroll next iteration
     }
@@ -638,9 +442,11 @@ struct UnrolledConjunction{
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
+#if __cplusplus > 199711L
     static __attribute__((always_inline)) bool Body(function<void (const int)> func){
         return true;
     }
+#endif
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
         return true;
     }
@@ -770,10 +576,15 @@ struct RedSpyAnalysis{
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
         
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
+#if __cplusplus > 199711L
         tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
         ContextHandle_t * __restrict__ prevIP = &(get<1>(t)[PAGE_OFFSET((uint64_t)addr)]);
         uint8_t* prevValue = &(get<0>(t)[PAGE_OFFSET((uint64_t)addr)]);
-        
+#else
+        tuple<uint8_t, ContextHandle_t> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
+        ContextHandle_t * __restrict__ prevIP = &(t.b[PAGE_OFFSET((uint64_t)addr)]);
+        uint8_t* prevValue = &(t.a[PAGE_OFFSET((uint64_t)addr)]);
+#endif
         bool isRedundantRead = IsReadRedundant(addr, prevValue);
         
         const bool isAccessWithinPageBoundary = IS_ACCESS_WITHIN_PAGE_BOUNDARY( (uint64_t)addr, AccessLen);
@@ -829,13 +640,20 @@ static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t op
     
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-    
+
+#if __cplusplus > 199711L
     tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
     ContextHandle_t * __restrict__ prevIP = &(get<1>(t)[PAGE_OFFSET((uint64_t)addr)]);
     uint8_t* prevValue = &(get<0>(t)[PAGE_OFFSET((uint64_t)addr)]);
-    
     // This assumes that a large read cannot straddle a page boundary -- strong assumption, but lets go with it for now.
     tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &tt = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
+#else
+    tuple<uint8_t, ContextHandle_t> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
+    ContextHandle_t * __restrict__ prevIP = &(t.b[PAGE_OFFSET((uint64_t)addr)]);
+    uint8_t* prevValue = &(t.a[PAGE_OFFSET((uint64_t)addr)]);
+    // This assumes that a large read cannot straddle a page boundary -- strong assumption, but lets go with it for now.
+    tuple<uint8_t, ContextHandle_t> &tt = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
+#endif
     if(memcmp(prevValue, addr, accessLen) == 0){
         // redundant
         for(UINT32 index = 0 ; index < accessLen; index++){
@@ -935,7 +753,13 @@ struct LoadSpyInstrument{
 /*********************  instrument analysis  ************************/
 
 static inline bool INS_IsIgnorable(INS ins){
-    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins) || INS_IsMaskedJump(ins))
+    if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins)
+#if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
+       // INS_IsMaskedJump has disappeared in 3,7
+#else
+       || INS_IsMaskedJump(ins)
+#endif
+       )
         return true;
     else if(INS_IsRet(ins) || INS_IsIRet(ins))
         return true;

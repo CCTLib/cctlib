@@ -6,9 +6,10 @@
 set -ex
 #PATH_TO_PIN=/home/scratch/xl10/support/pin-2.14-71313-gcc.4.4.7-linux
 CUR_DIR=`pwd`
-PIN_REV=2.14-71313
-LinuxSuffix=gcc.4.4.7-linux.tar.gz
+PIN_REV=3.7-97619-g0d0c92f4f
+LinuxSuffix=gcc-linux.tar.gz
 MacSuffix=clang.5.1-mac.tar.gz
+
 PIN_WWW_PREFIX=http://software.intel.com/sites/landingpage/pintool/downloads/
 WEB_FETCH=wget
 WEB_FETCH_OUTPUT_FLAG=" -O"
@@ -57,29 +58,29 @@ echo "PIN_ROOT is set to '$PIN_ROOT'"
 fi
 
 ############## libelf #################################
-cd $CUR_DIR/externals/
-tar zxvf libelf-0.8.9.tar.gz
-rm -rf $CUR_DIR/libelf-0.8.9-install
-cd libelf-0.8.9
-./configure --prefix=$CUR_DIR/libelf-0.8.9-install
-make
-make install
+#cd $CUR_DIR/externals/
+#tar zxvf libelf-0.8.9.tar.gz
+#rm -rf $CUR_DIR/libelf-0.8.9-install
+#cd libelf-0.8.9
+#./configure --prefix=$CUR_DIR/libelf-0.8.9-install
+#make
+#make install
 #### Google sparse hash  ################################
-cd $CUR_DIR/externals/
-tar zxvf sparsehash-2.0.2.tar.gz
-rm -rf $CUR_DIR/sparsehash-2.0.2-install/ 
-cd sparsehash-2.0.2
-./configure --prefix=$CUR_DIR/sparsehash-2.0.2-install/ CXXFLAGS="-std=c++11"
-make
-make install
+#cd $CUR_DIR/externals/
+#tar zxvf sparsehash-2.0.2.tar.gz
+#rm -rf $CUR_DIR/sparsehash-2.0.2-install/ 
+#cd sparsehash-2.0.2
+#./configure --prefix=$CUR_DIR/sparsehash-2.0.2-install/ 
+#make
+#make install
 #### Boost ##############################################
-cd $CUR_DIR/externals/
-tar jxvf boost_1_56_0.tar.bz2
-rm -rf $CUR_DIR/boost_1_56_0-install/
-cd boost_1_56_0
-sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_56_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11"
-./b2 -j 4
-./b2 filesystem install
+#cd $CUR_DIR/externals/
+#tar jxvf boost_1_56_0.tar.bz2
+#rm -rf $CUR_DIR/boost_1_56_0-install/
+#cd boost_1_56_0
+#sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_56_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11"
+#./b2 -j 4
+#./b2 filesystem install
 #### CCTLib #############################################
 cd $CUR_DIR/
 
@@ -88,8 +89,8 @@ PATH_TO_GOOGLE_SPARSE_HASH=$CUR_DIR/sparsehash-2.0.2-install/
 PATH_TO_BOOST=$CUR_DIR/boost_1_56_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
 #develop is off by default
-#./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
-./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF
+#./configure --with-Pin=$PATH_TO_PIN --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
+./configure --with-Pin=$PATH_TO_PIN
 make
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests

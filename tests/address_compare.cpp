@@ -183,9 +183,17 @@ xed_uint64_t watchpointRegisterValueCallback(xed_reg_enum_t reg, void * _ctxt, x
 	}
 	return 0;
 }
-#include<unordered_set>
 
+// C++11 headers only if supported
+#if __cplusplus > 199711L
+#include<unordered_set>
 std::unordered_set<ADDRINT> hm;
+#else
+#include <hash_set>
+hash_set<ADDRINT> hm;
+#endif //end  __cplusplus > 199711L
+
+
 
 VOID Checker(ADDRINT addr, ADDRINT ip, const CONTEXT *ctxt, UINT32 idx) {	
 	xed_decoded_inst_t xedd;

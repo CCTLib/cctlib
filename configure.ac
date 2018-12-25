@@ -35,7 +35,7 @@ AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
+CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
@@ -69,9 +69,10 @@ AC_ARG_WITH([libelf],
      LIBELF_PATH=${withval}
    ])
 
-if test "$LIBELF_PATH" = "" ; then 
-AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
-fi
+#no CRT
+#if test "$LIBELF_PATH" = "" ; then 
+#AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
+#fi
 
 
 AC_ARG_WITH([Pin],
@@ -112,9 +113,10 @@ AC_ARG_WITH([sparse-hash],
      SPARSEHASH_PATH=${withval}
    ])
 
-if test "$SPARSEHASH_PATH" = "" ; then
-AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
-fi
+# no CRT
+#if test "$SPARSEHASH_PATH" = "" ; then
+#AC_MSG_ERROR([--with-sparse-hash requires absolute path as argument; given '${withval}'])
+#fi
 
 
 AC_SUBST([PIN_PATH])

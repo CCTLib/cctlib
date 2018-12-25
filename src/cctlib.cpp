@@ -1,7 +1,21 @@
 // @COPYRIGHT@
 // Licensed under MIT license.
 // See LICENSE.TXT file in the project root for more information.
-// ============================================================== 
+// ==============================================================
+
+// C++11 headers only if supported
+#if __cplusplus > 199711L
+#include <unordered_map>
+
+#else
+
+#if defined __GNUC__ || defined __APPLE__
+#include <hash_map>
+#else
+#include <hash_map>
+#endif //end defined __GNUC__ || defined __APPLE__
+#endif //end  __cplusplus > 199711L
+
 #include <set>
 #include "cctlib.H"
 #include "shadow_memory.H"
@@ -10,7 +24,6 @@
 #include <stdlib.h>
 #include "pin.H"
 #include <map>
-#include <unordered_map>
 #include <list>
 #include <inttypes.h>
 #include <stdint.h>
@@ -47,6 +60,7 @@
 #include <boost/algorithm/string.hpp>
 #endif
 
+#if PIN_CRT != 1
 #ifdef TARGET_MAC
 #include <libelf/libelf.h>
 #include <libelf/gelf.h>
@@ -56,20 +70,33 @@
 #else
 "Unsupported platform"
 #endif
-
+#endif //PIN_CRT!=1
 
 #include "splay-macros.h"
 // Need GOOGLE sparse hash tables
+#ifdef USE_SPARSE_HASH
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
+#endif
 // XED for printing instr
 extern "C" {
 #include "xed-interface.h"
 }
 
+#ifdef USE_SPARSE_HASH
 using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
+#endif
+
 using namespace std;
+
+
+#if __cplusplus > 199711L
+#else
+#define unordered_map  hash_map
+//using namespace __gnu_cxx;
+#endif //end  __cplusplus > 199711L
+
 
 #ifdef USE_BOOST
 namespace boostFS = ::boost::filesystem;
@@ -239,8 +266,12 @@ namespace PinCCTLib {
         struct TraceNode* tlsParentThreadTraceNode;
         ContextHandle_t tlsParentThreadCtxtHndl;
 
-
+#ifdef USE_SPARSE_HASH
         sparse_hash_map<ADDRINT, ContextHandle_t> tlsLongJmpMap;
+#else
+        hash_map<ADDRINT, ContextHandle_t> tlsLongJmpMap;
+#endif
+        
         ADDRINT tlsLongJmpHoldBuf;
 
         uint32_t curSlotNo;
@@ -1607,9 +1638,14 @@ namespace PinCCTLib {
      * determined on this OS.
      */
     size_t getPeakRSS() {
+#if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
+        // What a shame
+        return (0);
+#else
         struct rusage rusage;
         getrusage(RUSAGE_SELF, &rusage);
         return (size_t)(rusage.ru_maxrss);
+#endif
     }
 
 
@@ -1858,7 +1894,12 @@ namespace PinCCTLib {
             if((threadCtx = IsARootIPNode(curCtxtHndle)) != NOT_ROOT_CTX) {
                 // if the thread has a parent, recur over it.
                 ContextHandle_t parentThreadCtxtHndl = CCTLibGetTLS(threadCtx)->tlsParentThreadCtxtHndl;
-                Context ctxt = {"THREAD[" +  std::to_string(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curCtxtHndle /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                
+                /* could have use to_string() in c++11 */
+                stringstream tCtxStr;
+                tCtxStr << threadCtx;
+                
+                Context ctxt = {"THREAD[" +  tCtxStr.str() + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curCtxtHndle /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
                 contextVec.push_back(ctxt);
 
                 if(parentThreadCtxtHndl)
@@ -2168,7 +2209,11 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         uint32_t numInited = 0;
 
         for(uint64_t curAddr = (uint64_t)addr; curAddr < endAddr; curAddr += SHADOW_PAGE_SIZE) {
+#if __cplusplus > 199711L
             DataHandle_t* status = GetOrCreateShadowAddress<0>(sm, (size_t)curAddr);
+#else
+            DataHandle_t* status = GetOrCreateShadowAddress_0(sm, (size_t)curAddr);
+#endif
             int maxBytesInThisPage  = SHADOW_PAGE_SIZE - PAGE_OFFSET((uint64_t)addr);
 
             for(int i = 0 ; (i < maxBytesInThisPage) && numInited < accessLen; numInited++, i++) {
@@ -2186,8 +2231,11 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             dataHandle.objectType = STACK_OBJECT;
             return dataHandle;
         }
-
+#if __cplusplus > 199711L
         dataHandle = *(GetOrCreateShadowAddress<0>(sm, (size_t)addr));
+#else
+        dataHandle = *(GetOrCreateShadowAddress_0(sm, (size_t)addr));
+#endif
         return dataHandle;
     }
 
@@ -2473,6 +2521,10 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
 
+#if PIN_CRT==1
+    // Not linking in libelf
+#else
+
 // compute static variables
 // each image has a splay tree to include all static variables
 // that reside in the image. All images are linked as a link list
@@ -2563,7 +2615,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         UpdateLockLessTree(PIN_ThreadId(), ops);
 #endif
     }
-
+#endif
+    
     static VOID
     DeleteStaticVar(IMG img, VOID* v) {
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
@@ -2580,8 +2633,12 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         if(result == NULL) {
             fprintf(stderr, "\n failed to resolve path");
         }
-
+        
+#if PIN_CRT==1
+        // Not linking in libelf
+#else
         compute_static_var(filename, img);
+#endif
     }
 
 // end DO_DATA_CENTRIC #endif
@@ -3355,8 +3412,13 @@ long OSUtil_hostid() {
   static long hostid = OSUtil_hostid_NULL;
 
   if(hostid == OSUtil_hostid_NULL) {
+      // PIN_CRT does not support gethostid -- so naive
+#if PIN_CRT==1
+      hostid = 0xbad;
+#else
     // gethostid returns a 32-bit id. treat it as unsigned to prevent useless sign extension
     hostid = (uint32_t) gethostid();
+#endif
   }
 
   return hostid;
