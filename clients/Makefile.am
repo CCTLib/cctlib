@@ -9,8 +9,9 @@ TEST_TOOL_ROOTS =  deadspy_client  loadspy_client redspy_temporal_client cct_met
 APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
-ALLOW_UNUSED_BUT_SET= -Wno-unused-but-set-variable
-CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
+#ALLOW_UNUSED_BUT_SET= -Wno-unused-but-set-variable
+NO_STRICT_FORMAT=  -Wno-format
+CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET) $(NO_STRICT_FORMAT)
 
 if OPT_USE_BOOST
 	CCTLIB_TEST_FLAGS +=  -I$(BOOST_PATH)/include 
