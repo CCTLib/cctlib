@@ -123,10 +123,10 @@ GetOrCreateShadowBaseAddress(uint64_t address)
   uint8_t ***l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
   if(*l1Ptr == 0) {
     *l1Ptr = (uint8_t **) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
   }
   else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0 ){
-    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] =  (uint8_t *) mmap(0, SHADOW_MEM_PAGE_SIZE * (sizeof(bool) + sizeof(uint64_t)), PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
   }
   return shadowPage;
 }
@@ -256,7 +256,7 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %lu Bytes, #distinct memory access is %ld, reuse is %ld, write dependence is %lu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
+        fprintf(gTraceFile, "Footprint is %llu Bytes, #distinct memory access is %llu, reuse is %llu, write dependence is %llu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }

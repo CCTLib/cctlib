@@ -21,7 +21,7 @@
 #include "shadow_memory.H"
 #define __STDC_FORMAT_MACROS
 #include <stdio.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include "pin.H"
 #include <map>
 #include <list>
@@ -729,7 +729,7 @@ namespace PinCCTLib {
         return GLOBAL_STATE.preAllocatedStringPool + index;
     }
 
-    static inline uint32_t GetNextStringPoolIndex(char* name) {
+    static inline uint32_t  __attribute__ ((__unused__)) GetNextStringPoolIndex(char* name) {
         uint32_t len = strlen(name) + 1;
         uint64_t  oldStringPoolIndex = __sync_fetch_and_add(&GLOBAL_STATE.curPreAllocatedStringPoolIndex, len);
 
@@ -1650,7 +1650,7 @@ namespace PinCCTLib {
 
 
     static void PrintStats() {
-        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%" PRIu64, GLOBAL_STATE.curPreAllocatedContextBufferIndex);
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%llu", GLOBAL_STATE.curPreAllocatedContextBufferIndex);
         // Peak resource usage
         fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPeak RSS=%zu", getPeakRSS());
     }
@@ -1688,7 +1688,7 @@ namespace PinCCTLib {
 
 
 // Given a pointer (i.e. slot) within a trace node, returns the module name corresponding to that slot
-    static inline const string& GetModulePathFromInfo(IPNode* ipNode) {
+    static inline const string&  __attribute__ ((__unused__)) GetModulePathFromInfo(IPNode* ipNode) {
         TraceNode* traceNode = ipNode->parentTraceNode;
         ADDRINT* ptr = (ADDRINT*) GLOBAL_STATE.traceShadowMap[traceNode->traceKey] ;
         UINT32 moduleId = ptr[-1]; // module id is stored one behind.
@@ -2145,12 +2145,12 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         // prealloc IPNodeVec so that they all come from a continuous memory region.
         // IMPROVEME ... actually this can be as high as 24 GB since lower 3 bits are always zero for pointers
         GLOBAL_STATE.preAllocatedContextBuffer = (IPNode*) mmap(0, MAX_IPNODES * sizeof(IPNode), PROT_WRITE
-                | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+                | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         // start from index 1 so that we can use 0 as empty key for the google hash table
         GLOBAL_STATE.curPreAllocatedContextBufferIndex = 1;
         // Init the string pool
         GLOBAL_STATE.preAllocatedStringPool = (char*) mmap(0, MAX_STRING_POOL_NODES * sizeof(char), PROT_WRITE
-                                              | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+                                              | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         // start from index 1 so that we can use 0 as a special value
         GLOBAL_STATE.curPreAllocatedStringPoolIndex = 1;
     }
@@ -3230,6 +3230,8 @@ typedef struct metric_desc_properties_t {
 } metric_desc_properties_t;
 
 
+const static metric_desc_properties_t metric_desc_properties_init = {0, 0};
+
 typedef struct hpcrun_metricFlags_fields {
   MetricFlags_Ty_t      ty    : 8;
   MetricFlags_ValTy_t   valTy : 8;
@@ -3242,11 +3244,29 @@ typedef struct hpcrun_metricFlags_fields {
 } hpcrun_metricFlags_fields;
 
 
+static const hpcrun_metricFlags_fields hpcrun_metricFlags_fields_init = 
+{ 
+  MetricFlags_Ty_NULL,
+  MetricFlags_ValTy_NULL,
+  MetricFlags_ValFmt_NULL,
+  0, // fields.unused0
+  0, // fields.partner
+  1, // fields.show
+  1, // fields.showPercent
+  0
+};
+
 typedef union hpcrun_metricFlags_t {
   hpcrun_metricFlags_fields fields;
   uint8_t bits[2 * 8]; // for reading/writing
   uint64_t bits_big[2]; // for easy initialization
 } hpcrun_metricFlags_t;
+
+
+static const hpcrun_metricFlags_t hpcrun_metricFlags_init = 
+{
+.fields = hpcrun_metricFlags_fields_init
+};
 
 typedef struct metric_desc_t {
   char* name;
@@ -3282,17 +3302,9 @@ extern const metric_desc_t metricDesc_NULL;
 const metric_desc_t metricDesc_NULL = {
   NULL, // name
   NULL, // description
-  MetricFlags_Ty_NULL,
-  MetricFlags_ValTy_NULL,
-  MetricFlags_ValFmt_NULL,
-  0, // fields.unused0
-  0, // fields.partner
-  (uint8_t)true, // fields.show
-  (uint8_t)true, // fields.showPercent
-  0, // unused 1
+  hpcrun_metricFlags_init,
   0, // period
-  0, // properties.time
-  0, // properties.cycles
+  metric_desc_properties_init,
   NULL,
   NULL,
 };
@@ -3301,16 +3313,7 @@ const metric_desc_t metricDesc_NULL = {
 
 extern const hpcrun_metricFlags_t hpcrun_metricFlags_NULL;
 
-const hpcrun_metricFlags_t hpcrun_metricFlags_NULL = {
-   MetricFlags_Ty_NULL,
-   MetricFlags_ValTy_NULL,
-   MetricFlags_ValFmt_NULL,
-   0, // fields.unused0
-   0, // fields.partner
-   (uint8_t)true, // fields.show
-   (uint8_t)true, // fields.showPercent
-   0, // unused 1
-};
+const hpcrun_metricFlags_t hpcrun_metricFlags_NULL = hpcrun_metricFlags_init;
 
 
 static epoch_flags_t epoch_flags = {
@@ -4096,6 +4099,8 @@ int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void
   // Create the measurement directory
   dirName = "hpctoolkit-" + *filename + "-measurements";
   int status = mkdir(dirName.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+  if (status != 0)
+	return -1;
 
   if (skip) GLOBAL_STATE.skip = true;
  

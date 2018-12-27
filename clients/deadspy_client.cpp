@@ -365,9 +365,9 @@ inline uint8_t* GetOrCreateShadowBaseAddress(void* address) {
 
     if(*l1Ptr == 0) {
         *l1Ptr = (uint8_t**) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, DEADSPY_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, DEADSPY_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     } else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0) {
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, DEADSPY_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, DEADSPY_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
 
     return shadowPage;
@@ -1423,13 +1423,13 @@ inline uint64_t GetMeasurementBaseCount() {
 
 // Prints the collected statistics on writes along with their sizes
 inline void PrintEachSizeWrite() {
-    fprintf(gTraceFile, "\n1:%" PRIu64, GetTotalNByteWrites(1));
-    fprintf(gTraceFile, "\n2:%" PRIu64, GetTotalNByteWrites(2));
-    fprintf(gTraceFile, "\n4:%" PRIu64, GetTotalNByteWrites(4));
-    fprintf(gTraceFile, "\n8:%" PRIu64, GetTotalNByteWrites(8));
-    fprintf(gTraceFile, "\n10:%" PRIu64, GetTotalNByteWrites(10));
-    fprintf(gTraceFile, "\n16:%" PRIu64, GetTotalNByteWrites(16));
-    fprintf(gTraceFile, "\nother:%" PRIu64, GetTotalNByteWrites(-1));
+    fprintf(gTraceFile, "\n1:%llu" , GetTotalNByteWrites(1));
+    fprintf(gTraceFile, "\n2:%llu" , GetTotalNByteWrites(2));
+    fprintf(gTraceFile, "\n4:%llu" , GetTotalNByteWrites(4));
+    fprintf(gTraceFile, "\n8:%llu" , GetTotalNByteWrites(8));
+    fprintf(gTraceFile, "\n10:%llu" , GetTotalNByteWrites(10));
+    fprintf(gTraceFile, "\n16:%llu" , GetTotalNByteWrites(16));
+    fprintf(gTraceFile, "\nother:%llu" , GetTotalNByteWrites(-1));
 }
 
 
@@ -1441,10 +1441,10 @@ VOID Fini(INT32 code, VOID* v) {
     // byte count
     uint64_t measurementBaseCount = GetMeasurementBaseCount();
     fprintf(gTraceFile, "\n#deads");
-    fprintf(gTraceFile, "\nGrandTotalWrites = %" PRIu64, measurementBaseCount);
-    fprintf(gTraceFile, "\nGrandTotalDead = %" PRIu64 " = %e%%", gTotalDead, gTotalDead * 100.0 / measurementBaseCount);
+    fprintf(gTraceFile, "\nGrandTotalWrites = %llu" , measurementBaseCount);
+    fprintf(gTraceFile, "\nGrandTotalDead = %llu" " = %e%%", gTotalDead, gTotalDead * 100.0 / measurementBaseCount);
 #ifdef MULTI_THREADED
-    fprintf(gTraceFile, "\nGrandTotalMTDead = %" PRIu64 " = %e%%", gTotalMTDead, gTotalMTDead * 100.0 / measurementBaseCount);
+    fprintf(gTraceFile, "\nGrandTotalMTDead = %llu" " = %e%%", gTotalMTDead, gTotalMTDead * 100.0 / measurementBaseCount);
 #endif // end MULTI_THREADED
     fprintf(gTraceFile, "\n#eof");
     fclose(gTraceFile);
@@ -1540,7 +1540,7 @@ inline bool IsValidIP(DeadInfo  di) {
 
 // Prints the complete calling context including the line nunbers and the context's contribution, given a DeadInfo
 inline VOID PrintIPAndCallingContexts(const DeadInfoForPresentation& di, uint64_t measurementBaseCount) {
-    fprintf(gTraceFile, "\n%" PRIu64 " = %e", di.count, di.count * 100.0 / measurementBaseCount);
+    fprintf(gTraceFile, "\n%llu" " = %e", di.count, di.count * 100.0 / measurementBaseCount);
     fprintf(gTraceFile, "\n-------------------------------------------------------\n");
     PrintFullCallingContext(di.pMergedDeadInfo->context1);
     fprintf(gTraceFile, "\n***********************\n");
@@ -1554,7 +1554,7 @@ VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     // Update gTotalInstCount first
     uint64_t measurementBaseCount =  GetMeasurementBaseCount();
-    fprintf(gTraceFile, "\nTotal Instr = %" PRIu64 , measurementBaseCount);
+    fprintf(gTraceFile, "\nTotal Instr = %llu" , measurementBaseCount);
     fflush(gTraceFile);
     unordered_map<uint64_t, uint64_t>::iterator mapIt = DeadMap.begin();
     map<MergedDeadInfo, uint64_t> mergedDeadInfoMap;

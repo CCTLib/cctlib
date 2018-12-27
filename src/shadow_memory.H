@@ -5,7 +5,7 @@
 #ifndef __SHADOW_MEMORY__
 #define __SHADOW_MEMORY__
 #include<stdint.h>
-#include<stdlib.h>
+//#include<stdlib.h>
 #include<sys/mman.h>
 
 #if __cplusplus > 199711L
@@ -45,7 +45,7 @@ template <typename... Ts>
 struct ShadowType {
     tuple<Ts[SHADOW_PAGE_SIZE]...> f;
     void * operator new(size_t sz) {
-        void * p = mmap(0, sz, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        void * p = mmap(0, sz, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if(p == MAP_FAILED) {
             perror("mmap l2pg");
             PIN_ExitProcess(-1);
@@ -72,7 +72,7 @@ class ConcurrentShadowMemory {
     // If the shadow page does not exist a new one is MMAPed
 public:
     inline ConcurrentShadowMemory() {
-        pageDirectory = (atomic< atomic< ShadowTuple<Ts...> *> *> *) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        pageDirectory = (atomic< atomic< ShadowTuple<Ts...> *> *> *) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if(pageDirectory == MAP_FAILED) {
             perror("mmap pageDirectory");
             PIN_ExitProcess(-1);
@@ -105,7 +105,7 @@ public:
         atomic< atomic< ShadowTuple<Ts...> *> *>  * l1Ptr = & pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
         atomic< ShadowTuple<Ts...> *> * v1;
         if ( (v1=l1Ptr->load(memory_order_consume)) == 0) {
-            atomic< ShadowTuple<Ts...>    *> * l1pg = (atomic<  ShadowTuple<Ts...> *> *) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            atomic< ShadowTuple<Ts...>    *> * l1pg = (atomic<  ShadowTuple<Ts...> *> *) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             if(l1pg == MAP_FAILED) {
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);
@@ -156,7 +156,7 @@ class ShadowMemory {
     // If the shadow page does not exist a new one is MMAPed
 public:
     inline ShadowMemory() {
-        pageDirectory = (ShadowTuple<Ts...> ***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        pageDirectory = (ShadowTuple<Ts...> ***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if(pageDirectory == MAP_FAILED) {
             perror("mmap pageDirectory");
             PIN_ExitProcess(-1);
@@ -189,7 +189,7 @@ public:
         ShadowTuple<Ts...> *** l1Ptr = & pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
         ShadowTuple<Ts...> ** v1;
         if ( (v1=*l1Ptr) == 0) {
-            ShadowTuple<Ts...> ** l1pg = (ShadowTuple<Ts...> **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            ShadowTuple<Ts...> ** l1pg = (ShadowTuple<Ts...> **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             if(l1pg == MAP_FAILED) {
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);
@@ -255,7 +255,7 @@ class ConcurrentShadowMemory {
     // If the shadow page does not exist a new one is MMAPed
 public:
     inline ConcurrentShadowMemory() {
-        pageDirectory = (tuple<T1, T2> ***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        pageDirectory = (tuple<T1, T2> ***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if(pageDirectory == MAP_FAILED) {
             perror("mmap pageDirectory");
             PIN_ExitProcess(-1);
@@ -288,7 +288,7 @@ public:
         tuple<T1, T2> *** l1Ptr = & pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
         tuple<T1, T2> ** v1;
         if ( (v1=__atomic_load_n(l1Ptr, __ATOMIC_ACQUIRE)) == 0) {
-            tuple<T1, T2>  ** l1pg = (tuple<T1, T2> **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            tuple<T1, T2>  ** l1pg = (tuple<T1, T2> **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             if(l1pg == MAP_FAILED) {
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);
@@ -338,7 +338,7 @@ class ShadowMemory {
     // If the shadow page does not exist a new one is MMAPed
 public:
     inline ShadowMemory() {
-        pageDirectory = (tuple<T1, T2> ***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        pageDirectory = (tuple<T1, T2> ***) mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if(pageDirectory == MAP_FAILED) {
             perror("mmap pageDirectory");
             PIN_ExitProcess(-1);
@@ -371,7 +371,7 @@ public:
         tuple<T1, T2> *** l1Ptr = & pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
         tuple<T1, T2> ** v1;
         if ( (v1=*l1Ptr) == 0) {
-            tuple<T1, T2> ** l1pg = (tuple<T1, T2> **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            tuple<T1, T2> ** l1pg = (tuple<T1, T2> **) mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             if(l1pg == MAP_FAILED) {
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);

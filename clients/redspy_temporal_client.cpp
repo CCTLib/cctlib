@@ -4,7 +4,6 @@
 // ==============================================================
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <malloc.h>
 #include <iostream>
@@ -89,8 +88,14 @@ using namespace PinCCTLib;
 #define MAX_WRITE_OPS_IN_INS (8)
 #define MAX_REG_LENGTH (64)
 
+
 #define MAX_SIMD_LENGTH (64)
+#define XMM_VEC_LEN (16)
+#define YMM_VEC_LEN (32)
+#define ZMM_VEC_LEN (64)
 #define MAX_SIMD_REGS (32)
+// Based on current 64-byte alignment 
+#define MAX_SIMD_ALIGNMENT (64)
 
 #define MAX_ALIAS_REGS (16)  //EAX, EBX, ECX, EDX, EBP, EDI, ESI, ESP, R8-R15
 #define MAX_ALIAS_REG_SIZE (8) //RAX is 64bits
@@ -161,21 +166,30 @@ enum AliasGroup{
 #define MAKE_CONTEXT_PAIR(a, b) (((uint64_t)(a) << 32) | ((uint64_t)(b)))
 
 #define delta 0.01
+#define deltaFloat 0.01f
 
+/*
+https://www.felixcloutier.com/x86/movaps
 
+MOVAPS — Move Aligned Packed Single-Precision Floating-Point Values
+When the source or destination operand is a memory operand, the operand must be aligned on a 16-byte (128-bit version), 32-byte (VEX.256 encoded version) or 64-byte (EVEX.512 encoded version) boundary or a general-protection exception (#GP) will be generated. For EVEX.512 encoded versions, the operand must be aligned to the size of the memory operand. To move single-precision floating-point values to and from unaligned memory locations, use the VMOVUPS instruction.
+*/
 struct AddrValPair{
     uint8_t value[MAX_WRITE_OP_LENGTH];
-    void * address;
-} __attribute__((aligned(16)));
+    union { // for 64 byte alignment
+    	void * address;
+	char pad[MAX_SIMD_ALIGNMENT];
+    };
+} __attribute__((aligned(MAX_SIMD_ALIGNMENT)));
 
 struct LargeReg{
     UINT8 value[MAX_SIMD_LENGTH];
-} __attribute__((aligned(32)));
+} __attribute__((aligned(MAX_SIMD_ALIGNMENT)));
+
 
 struct RedSpyThreadData{
-
-    AddrValPair buffer[MAX_WRITE_OPS_IN_INS];
-    struct LargeReg simdValue[MAX_SIMD_REGS];
+    struct LargeReg simdValue[MAX_SIMD_REGS]; // this order should allow correct alignment
+    AddrValPair buffer[MAX_WRITE_OPS_IN_INS]; 
     
     uint32_t regCtxt[REG_LAST];
     UINT8 regValue[REG_LAST][MAX_REG_LENGTH];
@@ -249,11 +263,6 @@ static void ClientInit(int argc, char* argv[]) {
     // Init XED for decoding instructions
     xed_state_init(&RedSpyGlobals.xedState, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
 }
-
-
-static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_READ_ACTION, /*2 byte */ TWO_BYTE_READ_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_READ_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_READ_ACTION};
-static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
-static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
 
 static dense_hash_map<uint64_t, uint64_t> RedMap[THREAD_MAX];
 static dense_hash_map<uint64_t, uint64_t> ApproxRedMap[THREAD_MAX];
@@ -629,141 +638,26 @@ struct ApproxGeneralRegisters{
     }
 };
 
-//approximate SIMD registers, simdType:0(XMM), 1(YMM), 2(ZMM)
-template<class T, uint8_t simdType>
+//approximate SIMD registers, simdLen:0(XMM), 1(YMM), 2(ZMM)
+template<class T, uint8_t SIMD_LEN>
 struct ApproxLargeRegisters{
-    
     static __attribute__((always_inline)) void CheckValues(PIN_REGISTER* regRef, uint8_t regInd, uint32_t opaqueHandle, THREADID threadId){
-        
         RedSpyThreadData* const tData = ClientGetTLS(threadId);
-        
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-        
-        if(simdType == 0){
-            
-            if(sizeof(T) == 4){
-                __m128 oldValue = _mm_load_ps( reinterpret_cast<const float*> (&(tData->simdValue[regInd].value[0])));
-                __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (regRef));
-                
-                __m128 result = _mm_sub_ps(newValue,oldValue);
-                
-                result = _mm_div_ps(result,oldValue);
-                float rates[4] __attribute__((aligned(16)));
-                _mm_store_ps(rates,result);
-                
-                uint8_t redCount = 0;
-                if(rates[0] <= delta && rates[0] >= -delta) redCount++;
-                if(rates[1] <= delta && rates[1] >= -delta) redCount++;
-                if(rates[2] <= delta && rates[2] >= -delta) redCount++;
-                if(rates[3] <= delta && rates[3] >= -delta) redCount++;
+	T * __restrict__ oldValue = reinterpret_cast<T*> (&(tData->simdValue[regInd].value[0]));
+	T * __restrict__ newValue =  reinterpret_cast<T*> (regRef);
+	int redCount = 0;
 
-                if(redCount)
-                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),4*redCount,threadId);
-                _mm_store_ps(reinterpret_cast<float*> (&(tData->simdValue[regInd].value[0])),newValue);
-                
-            }else if(sizeof(T) == 8){
-                __m128d oldValue = _mm_load_pd( reinterpret_cast<const double*> (&(tData->simdValue[regInd].value[0])));
-                __m128d newValue = _mm_loadu_pd( reinterpret_cast<const double*> (regRef));
-                
-                __m128d result = _mm_sub_pd(newValue,oldValue);
-                
-                result = _mm_div_pd(result,oldValue);
-                
-                double rate[2];
-                _mm_storel_pd(&rate[0],result);
-                _mm_storeh_pd(&rate[1],result);
-                
-                uint8_t redCount = 0;
-                if(rate[0] <= delta && rate[0] >=-delta) redCount++;
-                if(rate[1] <= delta && rate[1] >= -delta) redCount++;
-                
-                if(redCount)
-                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),8*redCount,threadId);
-                _mm_store_pd(reinterpret_cast<double*> (&(tData->simdValue[regInd].value[0])),newValue);
-            }else ;
-            
-        }else if(simdType == 1){
-            
-            if(sizeof(T) == 4){
-                __m256 oldValue = _mm256_load_ps( reinterpret_cast<const float*> (&(tData->simdValue[regInd].value[0])));
-                __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (regRef));
-                
-                __m256 result = _mm256_sub_ps(newValue,oldValue);
-                
-                result = _mm256_div_ps(result,oldValue);
-                float rates[8] __attribute__((aligned(32)));
-                _mm256_store_ps(rates,result);
-                
-                uint8_t redCount = 0;
-                for(int i = 0; i < 7; ++i)
-                    if(rates[i] <= delta && rates[i] >= -delta) redCount++;
-                
-                if(redCount)
-                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),4*redCount,threadId);
-                _mm256_store_ps(reinterpret_cast<float*> (&(tData->simdValue[regInd].value[0])),newValue);
-                
-            }else if(sizeof(T) == 8){
-                __m256d oldValue = _mm256_load_pd( reinterpret_cast<const double*> (&(tData->simdValue[regInd].value[0])));
-                __m256d newValue = _mm256_loadu_pd( reinterpret_cast<const double*> (regRef));
-                
-                __m256d result = _mm256_sub_pd(newValue,oldValue);
-                
-                result = _mm256_div_pd(result,oldValue);
-                
-                double rate[4] __attribute__((aligned(32)));
-                _mm256_store_pd(rate,result);
-                
-                uint8_t redCount = 0;
-                if(rate[0] <= delta && rate[0] >=-delta) redCount++;
-                if(rate[1] <= delta && rate[1] >= -delta) redCount++;
-                if(rate[2] <= delta && rate[2] >=-delta) redCount++;
-                if(rate[3] <= delta && rate[3] >= -delta) redCount++;
-                
-                if(redCount)
-                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),8*redCount,threadId);
-                _mm256_store_pd(reinterpret_cast<double*> (&(tData->simdValue[regInd].value[0])),newValue);
-            }else ;
-            
-        }else ;/*else{
-            
-            if(sizeof(T) == 4){
-                __m512 oldValue = _mm512_load_ps( reinterpret_cast<const float*> (&(tData->simdValue[regInd].value[0])));
-                __m512 newValue = _mm512_loadu_ps( reinterpret_cast<const float*> (regRef));
-                
-                __m512 result = _mm512_sub_ps(newValue,oldValue);
-                
-                result = _mm512_div_ps(result,oldValue);
-                float rates[16] __attribute__((aligned(64)));
-                _mm512_store_ps(rates,result);
-                
-                uint8_t redCount = 0;
-                for(int i = 0; i < 15; ++i)
-                    if(rates[i] <= delta && rates[i] >= -delta) redCount++;
-                
-                if(redCount)
-                    AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),4*redCount,threadId);
-                _mm512_store_ps(reinterpret_cast<float*> (&(tData->simdValue[regInd].value[0])),newValue);
-                
-            }else if(sizeof(T) == 8){
-                __m512d oldValue = _mm512_load_pd( reinterpret_cast<const double*> (&(tData->simdValue[regInd].value[0])));
-                __m512d newValue = _mm512_loadu_pd( reinterpret_cast<const double*> (regRef));
-                
-                __m512d result = _mm512_sub_pd(newValue,oldValue);
-                
-                result = _mm512_div_pd(result,oldValue);
-                
-                double rates[8] __attribute__((aligned(64)));
-                _mm512_store_ps(rates,result);
-                
-                uint8_t redCount = 0;
-                for(int i = 0; i < 7; ++i)
-                    if(rates[i] <= delta && rates[i] >= -delta) redCount++;
-                
-                if(redCount)
-                AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->regCtxt[reg],curCtxtHandle),8*redCount,threadId);
-                _mm512_store_pd(reinterpret_cast<double*> (&(tData->simdValue[regInd].value[0])),newValue);
-            }else ;
-        }*/
+	#pragma omp simd reduction(+: redCount)
+	for(int i = 0; i < SIMD_LEN / sizeof(T); i++) {
+		T tmp = (newValue[i]-oldValue[i])/oldValue[i];
+		if (tmp < ((T)0))
+			tmp = -tmp;
+		redCount += tmp <= ((T)delta);
+		oldValue[i] = newValue[i];
+	}
+	if(redCount)
+		AddToApproximateRedTable(MAKE_CONTEXT_PAIR(tData->simdCtxt[regInd],curCtxtHandle),sizeof(T)*redCount,threadId);
 
         tData->simdCtxt[regInd] = curCtxtHandle;
     }
@@ -945,9 +839,9 @@ inline bool RegHasAlias(REG reg){
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
 INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleSpecialRegisters<LEN>::CheckRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_LARGEREG_APPROX(T, SIMD_TYPE, REG_ID) \
+#define HANDLE_LARGEREG_APPROX(T, SIMD_LEN, REG_ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END);\
-INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxLargeRegisters<T, SIMD_TYPE>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxLargeRegisters<T, SIMD_LEN>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ALIAS_REG(T, ALIAS_GRP, ID) \
 INS_InsertIfPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)IfEnableSample, IARG_THREAD_ID,IARG_END); \
@@ -970,8 +864,8 @@ INS_InsertThenPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) Check10BytesReg, IARG_
 #define HANDLE_SPECIALREG(LEN,REG_ID) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleSpecialRegisters<LEN>::CheckRegValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
-#define HANDLE_LARGEREG_APPROX(T, SIMD_TYPE, REG_ID) \
-INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxLargeRegisters<T, SIMD_TYPE>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
+#define HANDLE_LARGEREG_APPROX(T, SIMD_LEN, REG_ID) \
+INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) ApproxLargeRegisters<T, SIMD_LEN>::CheckValues, IARG_REG_CONST_REFERENCE,reg, IARG_UINT32, REG_ID, IARG_UINT32, opaqueHandle, IARG_THREAD_ID,IARG_END)
 
 #define HANDLE_ALIAS_REG(T, ALIAS_GRP, ID) \
 INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) HandleAliasRegisters<T, ALIAS_GRP>::CheckUpdateGenericAlias, IARG_UINT32, ID,IARG_REG_VALUE, reg, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END)
@@ -1030,22 +924,22 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
             case 10: HANDLE_10BYTES_APPROX(reg); break;
             case 16: {
                 switch (operSize) {
-                    case 4: HANDLE_LARGEREG_APPROX(float,0,reg-REG_XMM_BASE);break;
-                    case 8: HANDLE_LARGEREG_APPROX(double,0,reg-REG_XMM_BASE);break;
+                    case 4: HANDLE_LARGEREG_APPROX(float,XMM_VEC_LEN,reg-REG_XMM_BASE);break;
+                    case 8: HANDLE_LARGEREG_APPROX(double,XMM_VEC_LEN,reg-REG_XMM_BASE);break;
                     default: assert(0 && "handle large reg with large operand size\n"); break;
                 }
             }break;
             case 32:{
                 switch (operSize) {
-                    case 4: HANDLE_LARGEREG_APPROX(float,1,reg-REG_YMM_BASE);break;
-                    case 8: HANDLE_LARGEREG_APPROX(double,1,reg-REG_YMM_BASE);break;
+                    case 4: HANDLE_LARGEREG_APPROX(float,YMM_VEC_LEN,reg-REG_YMM_BASE);break;
+                    case 8: HANDLE_LARGEREG_APPROX(double, YMM_VEC_LEN, reg-REG_YMM_BASE);break;
                     default: assert(0 && "handle large reg with large operand size\n"); break;
                 }
             }break;
             case 64: {
                 switch (operSize) {
-                    case 4: HANDLE_LARGEREG_APPROX(float,2,reg-REG_ZMM_BASE);break;
-                    case 8: HANDLE_LARGEREG_APPROX(double,2,reg-REG_ZMM_BASE);break;
+                    case 4: HANDLE_LARGEREG_APPROX(float, ZMM_VEC_LEN, reg-REG_ZMM_BASE);break;
+                    case 8: HANDLE_LARGEREG_APPROX(double, ZMM_VEC_LEN, reg-REG_ZMM_BASE);break;
                     default: assert(0 && "handle large reg with large operand size\n"); break;
                 }
             }break;
@@ -1161,78 +1055,23 @@ struct RedSpyAnalysis{
         addr = avPair->address;
         
         if(isApprox){
-            if(AccessLen>=32){
-                if(sizeof(T) == 4){
-                    __m256 oldValue = _mm256_load_ps( reinterpret_cast<const float*> (&avPair->value));
-                    __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (avPair->address));
-                    
-                    __m256 result = _mm256_sub_ps(newValue,oldValue);
-                    
-                    result = _mm256_div_ps(result,oldValue);
-                    float rates[8] __attribute__((aligned(32)));
-                    _mm256_store_ps(rates,result);
-                    
-                    for(int i = 0; i < 8; ++i){
-                        if(rates[i] < -delta || rates[i] > delta) {
-                            return false;
-                        }
-                    }
-                    return true;
-                    
-                }else if(sizeof(T) == 8){
-                    __m256d oldValue = _mm256_load_pd( reinterpret_cast<const double*> (&avPair->value));
-                    __m256d newValue = _mm256_loadu_pd( reinterpret_cast<const double*> (avPair->address));
-                    
-                    __m256d result = _mm256_sub_pd(newValue,oldValue);
-                    
-                    result = _mm256_div_pd(result,oldValue);
-                    
-                    double rates[4] __attribute__((aligned(32)));
-                    _mm256_store_pd(rates,result);
-                    
-                    for(int i = 0; i < 4; ++i){
-                        if(rates[i] < -delta || rates[i] > delta) {
-                            return false;
-                        }
-                    }
-                    return true;
+            if(AccessLen == ZMM_VEC_LEN || AccessLen == YMM_VEC_LEN || AccessLen == XMM_VEC_LEN){
+                    T * __restrict__ oldValue = reinterpret_cast<T*> (&avPair->value);
+                    T * __restrict__ newValue = reinterpret_cast<T*> (avPair->address);
+		    int redCount = 0;
+		#pragma omp simd reduction(+: redCount)
+        	for(int i = 0; i < AccessLen/ sizeof(T); i++) {
+			T tmp = (newValue[i]-oldValue[i])/oldValue[i];
+			if (tmp < ((T) 0))
+				tmp = -tmp;
+               		redCount += tmp <= ((T)delta);
+               		oldValue[i] = newValue[i];
+        	}
+
+                if(redCount != AccessLen/ sizeof(T)) {
+                    return false;
                 }
-            }else if(AccessLen == 16){
-                if(sizeof(T) == 4){
-                    __m128 oldValue = _mm_load_ps( reinterpret_cast<const float*> (&avPair->value));
-                    __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (avPair->address));
-                    
-                    __m128 result = _mm_sub_ps(newValue,oldValue);
-                    
-                    result = _mm_div_ps(result,oldValue);
-                    float rates[4] __attribute__((aligned(16)));
-                    _mm_store_ps(rates,result);
-                    
-                    for(int i = 0; i < 4; ++i){
-                        if(rates[i] < -delta || rates[i] > delta) {
-                            return false;
-                        }
-                    }
-                    return true;
-                    
-                }else if(sizeof(T) == 8){
-                    __m128d oldValue = _mm_load_pd( reinterpret_cast<const double*> (&avPair->value));
-                    __m128d newValue = _mm_loadu_pd( reinterpret_cast<const double*> (avPair->address));
-                    
-                    __m128d result = _mm_sub_pd(newValue,oldValue);
-                    
-                    result = _mm_div_pd(result,oldValue);
-                    
-                    double rate[2];
-                    _mm_storel_pd(&rate[0],result);
-                    _mm_storeh_pd(&rate[1],result);
-                    
-                    if(rate[0] < -delta || rate[0] > delta)
-                        return false;
-                    if(rate[1] < -delta || rate[1] > delta)
-                        return false;
-                    return true;
-                }
+                return true;
             }else if(AccessLen == 10){
                 UINT8 newValue[10];
                 memcpy(newValue, addr, AccessLen);
@@ -1248,6 +1087,7 @@ struct RedSpyAnalysis{
                 }
                 return false;
             }else{
+                assert (AccessLen < 10);
                 T newValue = *(static_cast<T*>(avPair->address));
                 T oldValue = *((T*)(&avPair->value));
             
@@ -1255,7 +1095,7 @@ struct RedSpyAnalysis{
                 if( rate <= delta && rate >= -delta ) return true;
                 else return false;
             }
-        }else{
+        } else {
             return *((T*)(&avPair->value)) == *(static_cast<T*>(avPair->address));
         }
         return false;
@@ -1268,24 +1108,13 @@ struct RedSpyAnalysis{
         AddrValPair * avPair = & tData->buffer[bufferOffset];
 
         avPair->address = addr;
-        if(AccessLen >= 32){
-            if(sizeof(T) == 4){
-                __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (addr));
-                _mm256_store_ps(reinterpret_cast<float*> (&avPair->value), newValue);
-                
-            }else if(sizeof(T) == 8){
-                __m256d newValue = _mm256_loadu_pd(reinterpret_cast<const double*> (addr));
-                _mm256_store_pd(reinterpret_cast<double*> (&avPair->value), newValue);
-            }
-        }else if(AccessLen == 16){
-            if(sizeof(T) == 4){
-                __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (addr));
-                _mm_store_ps(reinterpret_cast<float*> (&avPair->value), newValue);
-                         
-            }else if(sizeof(T) == 8){
-                __m128d newValue = _mm_loadu_pd(reinterpret_cast<const double*> (addr));
-                _mm_store_pd(reinterpret_cast<double*> (&avPair->value), newValue);
-            }
+        if(AccessLen == ZMM_VEC_LEN || AccessLen == YMM_VEC_LEN || AccessLen == XMM_VEC_LEN){
+        	T * __restrict__ dst = reinterpret_cast<T*>(&avPair->value);
+        	T * __restrict__ src = reinterpret_cast<T*> (addr);
+        	#pragma omp simd 
+        	for(int i = 0; i < AccessLen/ sizeof(T); i++) {
+        		dst[i] = src[i];
+        	}
         }else if(AccessLen == 10){
             memcpy(&avPair->value, addr, AccessLen);
         }else
@@ -1293,7 +1122,6 @@ struct RedSpyAnalysis{
     }
     
     static __attribute__((always_inline)) VOID CheckNByteValueAfterWrite(uint32_t opaqueHandle, THREADID threadId){
-        RedSpyThreadData* const tData = ClientGetTLS(threadId);
         void * addr;
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
 
@@ -1354,7 +1182,6 @@ struct RedSpyAnalysis{
         }
     }
     static __attribute__((always_inline)) VOID ApproxCheckAfterWrite(uint32_t opaqueHandle, THREADID threadId){
-        RedSpyThreadData* const tData = ClientGetTLS(threadId);
         void * addr;
         bool isRedundantWrite = IsWriteRedundant(addr, threadId);
         
@@ -1517,6 +1344,13 @@ struct RedSpyInstrument{
                     switch (operSize) {
                         case 4: HANDLE_APPROX_CASE(float, 32, readBufferSlotIndex, true); break;
                         case 8: HANDLE_APPROX_CASE(double, 32, readBufferSlotIndex, true); break;
+                        default: assert(0 && "handle large mem write with unexpected operand size\n"); break;
+                    }
+                }break;
+                case 64: {
+                    switch (operSize) {
+                        case 4: HANDLE_APPROX_CASE(float, 64, readBufferSlotIndex, true); break;
+                        case 8: HANDLE_APPROX_CASE(double, 64, readBufferSlotIndex, true); break;
                         default: assert(0 && "handle large mem write with unexpected operand size\n"); break;
                     }
                 }break;
@@ -1777,7 +1611,6 @@ static inline bool RedundacyCompare(const struct RedundacyData &first, const str
 
 static void PrintRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
-    vector<RedundacyData>::iterator tmpIt;
 
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
@@ -1843,7 +1676,6 @@ static void PrintRedundancyPairs(THREADID threadId) {
 
 static void PrintApproximationRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
-    vector<RedundacyData>::iterator tmpIt;
     
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data(delta=%.2f%%) from Thread %d ****************\n", delta*100,threadId);
@@ -1946,7 +1778,7 @@ static void InitThreadData(RedSpyThreadData* tdata){
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
-    RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(32,sizeof(RedSpyThreadData));
+    RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(MAX_SIMD_ALIGNMENT,sizeof(RedSpyThreadData));
     InitThreadData(tdata);
     //    __sync_fetch_and_add(&gClientNumThreads, 1);
 #ifdef MULTI_THREADED

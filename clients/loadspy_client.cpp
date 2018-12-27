@@ -79,7 +79,12 @@ using namespace PinCCTLib;
 #define MAX_REG_LENGTH (64)
 
 #define MAX_SIMD_LENGTH (64)
+#define XMM_VEC_LEN (16)
+#define YMM_VEC_LEN (32)
+#define ZMM_VEC_LEN (64)
 #define MAX_SIMD_REGS (32)
+// Based on current 64-byte alignment
+#define MAX_SIMD_ALIGNMENT (64)
 
 
 #ifdef ENABLE_SAMPLING
@@ -121,9 +126,9 @@ inline uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     
     if(*l1Ptr == 0) {
         *l1Ptr = (uint8_t**) calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, SHADOW_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, SHADOW_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     } else if((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0) {
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, SHADOW_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*) mmap(0, SHADOW_PAGE_SIZE * (1 + sizeof(uint32_t)), PROT_WRITE | PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     
     return shadowPage;
@@ -202,11 +207,6 @@ static void ClientInit(int argc, char* argv[]) {
     xed_state_init(&LoadSpyGlobals.xedState, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
 }
 
-
-static const uint64_t READ_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_READ_ACTION, /*2 byte */ TWO_BYTE_READ_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_READ_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_READ_ACTION};
-static const uint64_t WRITE_ACCESS_STATES [] = {/*0 byte */0, /*1 byte */ ONE_BYTE_WRITE_ACTION, /*2 byte */ TWO_BYTE_WRITE_ACTION, /*3 byte */ 0, /*4 byte */ FOUR_BYTE_WRITE_ACTION, /*5 byte */0, /*6 byte */0, /*7 byte */0, /*8 byte */ EIGHT_BYTE_WRITE_ACTION};
-static const uint8_t OVERFLOW_CHECK [] = {/*0 byte */0, /*1 byte */ 0, /*2 byte */ 0, /*3 byte */ 1, /*4 byte */ 2, /*5 byte */3, /*6 byte */4, /*7 byte */5, /*8 byte */ 6};
-
 static unordered_map<uint64_t, uint64_t> RedMap[THREAD_MAX];
 static unordered_map<uint64_t, uint64_t> ApproxRedMap[THREAD_MAX];
 
@@ -254,7 +254,6 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 // Certain FP instructions should not be approximated
 static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
-     xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
      xed_iclass_enum_t 	iclass = xed_decoded_inst_get_iclass (&xedd);
      switch(iclass) {
 	case XED_ICLASS_FLDENV:
@@ -458,86 +457,22 @@ struct RedSpyAnalysis{
     static __attribute__((always_inline)) bool IsReadRedundant(void * addr, uint8_t * prev){
         
         if(isApprox){
-            if(AccessLen>=32){
-                if(sizeof(T) == 4){
-                    __m256 oldValue = _mm256_loadu_ps( reinterpret_cast<const float*> (prev));
-                    __m256 newValue = _mm256_loadu_ps( reinterpret_cast<const float*> (addr));
-                    
-                    __m256 result = _mm256_sub_ps(newValue,oldValue);
-                    
-                    result = _mm256_div_ps(result,oldValue);
-                    float rates[8] __attribute__((aligned(32)));
-                    _mm256_store_ps(rates,result);
-                    
-                    _mm256_storeu_ps(reinterpret_cast<float*> (prev), newValue);
-                    
-                    for(int i = 0; i < 8; ++i){
-                        if(rates[i] < -delta || rates[i] > delta) {
-                            return false;
-                        }
-                    }
-                    return true;
-                    
-                }else if(sizeof(T) == 8){
-                    __m256d oldValue = _mm256_loadu_pd( reinterpret_cast<const double*> (prev));
-                    __m256d newValue = _mm256_loadu_pd( reinterpret_cast<const double*> (addr));
-                    
-                    __m256d result = _mm256_sub_pd(newValue,oldValue);
-                    
-                    result = _mm256_div_pd(result,oldValue);
-                    
-                    double rates[4] __attribute__((aligned(32)));
-                    _mm256_store_pd(rates,result);
-                    
-                    _mm256_storeu_pd(reinterpret_cast<double*> (prev), newValue);
-                    
-                    for(int i = 0; i < 4; ++i){
-                        if(rates[i] < -delta || rates[i] > delta) {
-                            return false;
-                        }
-                    }
-                    return true;
+            if(AccessLen == ZMM_VEC_LEN || AccessLen == YMM_VEC_LEN || AccessLen == XMM_VEC_LEN){
+                T * __restrict__ oldValue = reinterpret_cast<T*> (prev);
+                T * __restrict__ newValue = reinterpret_cast<T*> (addr);
+                int redCount = 0;
+#pragma omp simd reduction(+: redCount)
+                for(int i = 0; i < AccessLen/ sizeof(T); i++) {
+                    T tmp = (newValue[i]-oldValue[i])/oldValue[i];
+                    if (tmp < ((T) 0))
+                        tmp = -tmp;
+                    redCount += tmp <= ((T)delta);
+                    oldValue[i] = newValue[i];
                 }
-            }else if(AccessLen == 16){
-                if(sizeof(T) == 4){
-                    __m128 oldValue = _mm_loadu_ps( reinterpret_cast<const float*> (prev));
-                    __m128 newValue = _mm_loadu_ps( reinterpret_cast<const float*> (addr));
-                    
-                    __m128 result = _mm_sub_ps(newValue,oldValue);
-                    
-                    result = _mm_div_ps(result,oldValue);
-                    float rates[4] __attribute__((aligned(16)));
-                    _mm_store_ps(rates,result);
-                    
-                    _mm_storeu_ps(reinterpret_cast<float*> (prev), newValue);
-                    
-                    for(int i = 0; i < 4; ++i){
-                        if(rates[i] < -delta || rates[i] > delta) {
-                            return false;
-                        }
-                    }
-                    return true;
-                    
-                }else if(sizeof(T) == 8){
-                    __m128d oldValue = _mm_loadu_pd( reinterpret_cast<const double*> (prev));
-                    __m128d newValue = _mm_loadu_pd( reinterpret_cast<const double*> (addr));
-                    
-                    __m128d result = _mm_sub_pd(newValue,oldValue);
-                    
-                    result = _mm_div_pd(result,oldValue);
-                    
-                    double rate[2];
-                    _mm_storel_pd(&rate[0],result);
-                    _mm_storeh_pd(&rate[1],result);
-                    
-                    _mm_storeu_pd(reinterpret_cast<double*> (prev), newValue);
-                    
-                    if(rate[0] < -delta || rate[0] > delta)
-                        return false;
-                    if(rate[1] < -delta || rate[1] > delta)
-                        return false;
-                    return true;
+                if(redCount != AccessLen/ sizeof(T)) {
+                    return false;
                 }
+                return true;
             }else if(AccessLen == 10){
                 UINT8 newValue[10];
                 memcpy(newValue, addr, AccessLen);
@@ -555,6 +490,7 @@ struct RedSpyAnalysis{
                 }
                 return false;
             }else{
+                assert (AccessLen < 10);
                 T newValue = *(static_cast<T*>(addr));
                 T oldValue = *((T*)(prev));
                 
@@ -564,7 +500,7 @@ struct RedSpyAnalysis{
                 if( rate <= delta && rate >= -delta ) return true;
                 else return false;
             }
-        }else{
+        } else {
             bool isRed = (*((T*)(prev)) == *(static_cast<T*>(addr)));
             *((T*)(prev)) = *(static_cast<T*>(addr));
             return isRed;
@@ -573,8 +509,6 @@ struct RedSpyAnalysis{
     }
     
     static __attribute__((always_inline)) VOID CheckNByteValueAfterRead(void* addr, uint32_t opaqueHandle, THREADID threadId){
-        RedSpyThreadData* const tData = ClientGetTLS(threadId);
-        
         ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 #if __cplusplus > 199711L
         tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
@@ -637,8 +571,6 @@ struct RedSpyAnalysis{
 
 
 static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t opaqueHandle, THREADID threadId){
-    
-    RedSpyThreadData* const tData = ClientGetTLS(threadId);
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
 
 #if __cplusplus > 199711L
@@ -646,13 +578,13 @@ static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t op
     ContextHandle_t * __restrict__ prevIP = &(get<1>(t)[PAGE_OFFSET((uint64_t)addr)]);
     uint8_t* prevValue = &(get<0>(t)[PAGE_OFFSET((uint64_t)addr)]);
     // This assumes that a large read cannot straddle a page boundary -- strong assumption, but lets go with it for now.
-    tuple<uint8_t[SHADOW_PAGE_SIZE], ContextHandle_t[SHADOW_PAGE_SIZE]> &tt = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
+    sm.GetOrCreateShadowBaseAddress((uint64_t)addr); // just to have a side effect?
 #else
     tuple<uint8_t, ContextHandle_t> &t = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
     ContextHandle_t * __restrict__ prevIP = &(t.b[PAGE_OFFSET((uint64_t)addr)]);
     uint8_t* prevValue = &(t.a[PAGE_OFFSET((uint64_t)addr)]);
     // This assumes that a large read cannot straddle a page boundary -- strong assumption, but lets go with it for now.
-    tuple<uint8_t, ContextHandle_t> &tt = sm.GetOrCreateShadowBaseAddress((uint64_t)addr);
+    sm.GetOrCreateShadowBaseAddress((uint64_t)addr); // just to have a side effect?
 #endif
     if(memcmp(prevValue, addr, accessLen) == 0){
         // redundant
@@ -730,6 +662,13 @@ struct LoadSpyInstrument{
                     switch (operSize) {
                         case 4: HANDLE_CASE(float, 32, true); break;
                         case 8: HANDLE_CASE(double, 32, true); break;
+                        default: assert(0 && "handle large mem read with unexpected operand size\n"); break;
+                    }
+                }break;
+                case 64: {
+                    switch (operSize) {
+                        case 4: HANDLE_CASE(float, 64, true); break;
+                        case 8: HANDLE_CASE(double, 64, true); break;
                         default: assert(0 && "handle large mem read with unexpected operand size\n"); break;
                     }
                 }break;
@@ -903,7 +842,6 @@ static inline bool RedundacyCompare(const struct RedundacyData &first, const str
 
 static void PrintRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
-    vector<RedundacyData>::iterator tmpIt;
     
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
@@ -971,8 +909,6 @@ static void PrintRedundancyPairs(THREADID threadId) {
 
 static void PrintApproximationRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
-    vector<RedundacyData>::iterator tmpIt;
-    
     uint64_t grandTotalRedundantBytes = 0;
     fprintf(gTraceFile, "*************** Dump Data(delta=%.2f%%) from Thread %d ****************\n", delta*100,threadId);
     
@@ -1040,8 +976,6 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
 
 static void HPCRunRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
-    vector<RedundacyData>::iterator tmpIt;
-    
     for (unordered_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].begin(); it != RedMap[threadId].end(); ++it) {
         RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
         tmpList.push_back(tmp);
@@ -1069,8 +1003,6 @@ static void HPCRunRedundancyPairs(THREADID threadId) {
 
 static void HPCRunApproxRedundancyPairs(THREADID threadId) {
     vector<RedundacyData> tmpList;
-    vector<RedundacyData>::iterator tmpIt;
-    
     for (unordered_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].begin(); it != ApproxRedMap[threadId].end(); ++it) {
         RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
         tmpList.push_back(tmp);
@@ -1143,9 +1075,9 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     grandTotBytesApproxRedLoad += approxRedReadTmp;
     
     fprintf(gTraceFile, "\n#Redundant Read:");
-    fprintf(gTraceFile, "\nTotalBytesLoad: %lu \n",grandTotBytesLoad);
-    fprintf(gTraceFile, "\nRedundantBytesLoad: %lu %.2f\n",grandTotBytesRedLoad, grandTotBytesRedLoad * 100.0/grandTotBytesLoad);
-    fprintf(gTraceFile, "\nApproxRedundantBytesLoad: %lu %.2f\n",grandTotBytesApproxRedLoad, grandTotBytesApproxRedLoad * 100.0/grandTotBytesLoad);
+    fprintf(gTraceFile, "\nTotalBytesLoad: %llu \n",grandTotBytesLoad);
+    fprintf(gTraceFile, "\nRedundantBytesLoad: %llu %.2f\n",grandTotBytesRedLoad, grandTotBytesRedLoad * 100.0/grandTotBytesLoad);
+    fprintf(gTraceFile, "\nApproxRedundantBytesLoad: %llu %.2f\n",grandTotBytesApproxRedLoad, grandTotBytesApproxRedLoad * 100.0/grandTotBytesLoad);
 }
 
 static void InitThreadData(RedSpyThreadData* tdata){

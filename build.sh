@@ -8,7 +8,7 @@ set -ex
 CUR_DIR=`pwd`
 PIN_REV=3.7-97619-g0d0c92f4f
 LinuxSuffix=gcc-linux.tar.gz
-MacSuffix=clang.5.1-mac.tar.gz
+MacSuffix=clang-mac.tar.gz
 
 PIN_WWW_PREFIX=http://software.intel.com/sites/landingpage/pintool/downloads/
 WEB_FETCH=wget
@@ -90,7 +90,7 @@ PATH_TO_BOOST=$CUR_DIR/boost_1_56_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
 #develop is off by default
 #./configure --with-Pin=$PATH_TO_PIN --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
-./configure --with-Pin=$PATH_TO_PIN
+./configure --with-Pin=$PATH_TO_PIN --enable-develop
 make
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests
