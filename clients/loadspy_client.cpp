@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <malloc.h>
 #include <iostream>
 #include <unistd.h>
@@ -1075,9 +1076,9 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     grandTotBytesApproxRedLoad += approxRedReadTmp;
     
     fprintf(gTraceFile, "\n#Redundant Read:");
-    fprintf(gTraceFile, "\nTotalBytesLoad: %llu \n",grandTotBytesLoad);
-    fprintf(gTraceFile, "\nRedundantBytesLoad: %llu %.2f\n",grandTotBytesRedLoad, grandTotBytesRedLoad * 100.0/grandTotBytesLoad);
-    fprintf(gTraceFile, "\nApproxRedundantBytesLoad: %llu %.2f\n",grandTotBytesApproxRedLoad, grandTotBytesApproxRedLoad * 100.0/grandTotBytesLoad);
+    fprintf(gTraceFile, "\nTotalBytesLoad: %" PRIu64 "\n",grandTotBytesLoad);
+    fprintf(gTraceFile, "\nRedundantBytesLoad: %" PRIu64 " %.2f\n",grandTotBytesRedLoad, grandTotBytesRedLoad * 100.0/grandTotBytesLoad);
+    fprintf(gTraceFile, "\nApproxRedundantBytesLoad: %" PRIu64 " %.2f\n",grandTotBytesApproxRedLoad, grandTotBytesApproxRedLoad * 100.0/grandTotBytesLoad);
 }
 
 static void InitThreadData(RedSpyThreadData* tdata){

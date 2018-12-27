@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <iostream>
 #include <unistd.h>
 #include <assert.h>
@@ -256,7 +257,7 @@ void PrintTopFootPrintPath(THREADID threadid)
     vector<struct sort_format_t>::iterator ListIt;
     for (ListIt = TmpList.begin(); ListIt != TmpList.end(); ++ListIt) {
       if (cntxtNum < MAX_FOOTPRINT_CONTEXTS_TO_LOG) {
-        fprintf(gTraceFile, "Footprint is %llu Bytes, #distinct memory access is %llu, reuse is %llu, write dependence is %llu, context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
+        fprintf(gTraceFile, "Footprint is %" PRIu64 " Bytes, #distinct memory access is %" PRIu64", reuse is %" PRIu64 ", write dependence is %" PRIu64", context is:", ((*ListIt).footprint), (*ListIt).fpNum, (*ListIt).accessNum - (*ListIt).footprint, (*ListIt).dependentNum);
         PrintFullCallingContext((*ListIt).handle);
 	fprintf(gTraceFile, "\n------------------------------------------------\n");
       }

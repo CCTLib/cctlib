@@ -25,8 +25,8 @@
 #include "pin.H"
 #include <map>
 #include <list>
-#include <inttypes.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -1650,7 +1650,7 @@ namespace PinCCTLib {
 
 
     static void PrintStats() {
-        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%llu", GLOBAL_STATE.curPreAllocatedContextBufferIndex);
+        fprintf(GLOBAL_STATE.CCTLibLogFile, "\nTotal call paths=%" PRIu64, GLOBAL_STATE.curPreAllocatedContextBufferIndex);
         // Peak resource usage
         fprintf(GLOBAL_STATE.CCTLibLogFile, "\nPeak RSS=%zu", getPeakRSS());
     }
