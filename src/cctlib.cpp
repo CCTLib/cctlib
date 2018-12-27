@@ -3069,7 +3069,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                 BottomUpTraverseHelper(GET_IPNODE_FROM_CONTEXT_HANDLE(node->childCtxtStartIdx + i)->calleeTraceNodes, opFunc, threadid);
             }
             // do anything here
-           assert(node->callerCtxtHndl);
+//           assert(node->callerCtxtHndl);
            if( node->callerCtxtHndl) {
                ContextHandle_t myHandle = node->childCtxtStartIdx + i;
                ContextHandle_t parentHandle = node->callerCtxtHndl;

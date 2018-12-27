@@ -1,5 +1,5 @@
 #include <stdio.h>
-#define N (10000000)
+#define N (10000)
 int A[N];
 int B[N/2];
 

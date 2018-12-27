@@ -86,10 +86,6 @@ static INT32 Usage() {
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 FILE* gTraceFile;
 
-struct timeval tv1;
-__thread struct timeval tv2;
-__thread struct timeval tv3;
-
 // Initialized the needed data structures before launching the target program
 void ClientInit(int argc, char* argv[]) {
     // Create output file
@@ -270,17 +266,14 @@ void PrintTopFootPrintPath(THREADID threadid)
 
 VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
 {
-    gettimeofday(&tv2, NULL);
     // traverse CCT bottom to up
     // decode first
     TraverseCCTBottomUp(threadid, DecodingFootPrint);
     // merge second
     TraverseCCTBottomUp(threadid, MergeFootPrint);
-    gettimeofday(&tv3, NULL);
     // print the footprint for functions
     PIN_LockClient();
     PrintTopFootPrintPath(threadid);
-    fprintf(gTraceFile, "online collection time %lf, offline analysis time %lf\n",tv2.tv_sec-tv1.tv_sec+(tv2.tv_usec-tv1.tv_usec)/1000000.0, tv3.tv_sec-tv2.tv_sec+(tv3.tv_usec-tv2.tv_usec)/1000000.0);
     PIN_UnlockClient();
 }
 
@@ -291,7 +284,6 @@ VOID FiniFunc(INT32 code, VOID *v)
 
 int main(int argc, char* argv[]) {
     
-    gettimeofday(&tv1, NULL);
     // Initialize PIN
     if(PIN_Init(argc, argv))
         return Usage();
