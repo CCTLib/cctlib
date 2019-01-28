@@ -365,6 +365,7 @@ namespace PinCCTLib {
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
         bool applicationStarted ; // false by default
+        bool flatProfile;
         uint8_t cctLibUsageMode;
         FILE* CCTLibLogFile;
         CCTLibInstrumentInsCallback userInstrumentationCallback;
@@ -903,7 +904,7 @@ namespace PinCCTLib {
             for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
                 // If it is a call/ret instruction, we need to adjust the CCT.
                 // manage context
-                if(INS_IsProcedureCall(ins)) {
+                if((!GLOBAL_STATE.flatProfile) && INS_IsProcedureCall(ins)) {
                     // INS_InsertPredicatedCall if the call is not made, we should not set the flag
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
 
@@ -920,7 +921,7 @@ namespace PinCCTLib {
                     // put next slot in corresponding ins start location;
                     ipShadow[slot + 2] = INS_Address(ins); // +2 because the first 2 entries hold metadata
                     slot++;
-                } else if(INS_IsRet(ins)) {
+                } else if(((!GLOBAL_STATE.flatProfile) ) && INS_IsRet(ins)) {
                     // INS_InsertPredicatedCall if the RET is not made, we should not change CCT node
                     // CALL_ORDER_LAST because we want update context after all analysis routines for RET have executed.
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST,  IARG_THREAD_ID, IARG_END);
@@ -974,7 +975,7 @@ namespace PinCCTLib {
 
         // if landed here w/o a call instruction, then let's make this trace a sibling.
         // The trick to do it is to go to the parent TraceNode and make this trace a child of it
-        if(!tData->tlsInitiatedCall) {
+        if(!tData->tlsInitiatedCall || GLOBAL_STATE.flatProfile) {
             tData->tlsCurrentCtxtHndl = tData->tlsCurrentTraceNode->callerCtxtHndl;
         } else {
             // tlsCurrentCtxtHndl must be pointing to the call IP in the parent trace
@@ -2979,7 +2980,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 
-    int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric) {
+    int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric, BOOL flatProfile) {
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM) {
             fprintf(stderr, "\n CCTLib was initialized for postmortem analysis using PinCCTLibInitForPostmortemAnalysis! Exiting...\n");
             PIN_ExitApplication(-1);
@@ -3000,6 +3001,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         // remember user instrumentation callback
         GLOBAL_STATE.userInstrumentationCallback = userCallback;
         GLOBAL_STATE.userInstrumentationCallbackArg = userCallbackArg;
+        GLOBAL_STATE.flatProfile = flatProfile;
         // Register ThreadStart to be called when a thread starts.
         PIN_AddThreadStartFunction(CCTLibThreadStart, 0);
         // Register for context change in case of signals .. Actually this is never used. // Todo: - fix me

@@ -318,6 +318,7 @@ static ADDRINT IfEnableSample(THREADID threadId){
 #endif
 
 static inline bool IsFloatInstruction(ADDRINT ip) {
+return false;
     xed_decoded_inst_t  xedd;
     xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
 
@@ -413,6 +414,7 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
         if (TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE) {
             return 16;
         }
+printf("\n TypeOperand = %d\n", TypeOperand);
         assert(0 && "float instruction with unknown operand\n");
         return 0;
     } else {
@@ -1800,7 +1802,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, /*datacentric=*/0, /*flatProfile=*/true);
     
     
     // Obtain  a key for TLS storage.

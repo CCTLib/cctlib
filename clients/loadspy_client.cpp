@@ -1122,7 +1122,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, /*datacentric=*/0, /*flatProfile=*/true );
     
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, NULL, NULL, false);
