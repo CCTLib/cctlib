@@ -140,7 +140,6 @@ namespace PinCCTLib {
 // Assuming 128 byte line size.
 #define CACHE_LINE_SIZE (128)
 
-
 #define GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(node) ((ContextHandle_t) ( (node) ? ((node) - GLOBAL_STATE.preAllocatedContextBuffer) : 0 ))
 #define GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(handle) ( (handle) ? (GLOBAL_STATE.preAllocatedContextBuffer + (handle)) : NULL )
 
@@ -238,6 +237,17 @@ namespace PinCCTLib {
 #endif
     };
 
+#define CALL_INITIATED (0b1)
+#define STACK_PTR_STASHED (0b10)
+    
+#define SET_STACK_STATUS(v, flag) (v = v | flag)
+#define UNSET_STACK_STATUS(v, flag) (v = v & (~flag))
+#define RESET_STACK_STATUS(v) (v = 0)
+
+#define IS_STACK_STATUS(v, flag) (v & flag)
+
+    
+    
     typedef struct QNode {
         struct QNode* volatile next;
         union {
@@ -261,7 +271,7 @@ namespace PinCCTLib {
         struct TraceNode* tlsCurrentTraceNode;
         ContextHandle_t tlsRootCtxtHndl;
         struct TraceNode* tlsRootTraceNode;
-        bool tlsInitiatedCall;
+        uint32_t tlsStackStatus;
 
         struct TraceNode* tlsParentThreadTraceNode;
         ContextHandle_t tlsParentThreadCtxtHndl;
@@ -271,7 +281,6 @@ namespace PinCCTLib {
 #else
         hash_map<ADDRINT, ContextHandle_t> tlsLongJmpMap;
 #endif
-        
         ADDRINT tlsLongJmpHoldBuf;
 
         uint32_t curSlotNo;
@@ -764,8 +773,10 @@ namespace PinCCTLib {
         UpdateCurTraceAndIp(tdata, t);
         tdata->tlsParentThreadCtxtHndl = 0;
         tdata->tlsParentThreadTraceNode = 0;
-        tdata->tlsInitiatedCall = true;
+        RESET_STACK_STATUS(tdata->tlsStackStatus);
+        SET_STACK_STATUS(tdata->tlsStackStatus, CALL_INITIATED);
         tdata->curSlotNo = 0;
+        
         // init the dummy root for hpcrun format
         tdata->tlsHPCRunCCTRoot = NULL;
 
@@ -806,24 +817,34 @@ namespace PinCCTLib {
 // Analysis routine called on making a function call
     static inline VOID SetCallInitFlag(uint32_t slot, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
-        tData->tlsInitiatedCall = true;
+        SET_STACK_STATUS(tData->tlsStackStatus, CALL_INITIATED);
         tData->tlsCurrentCtxtHndl = tData->tlsCurrentChildContextStartIndex + slot;
 #if 0
         ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[tData->tlsCurrentTraceNode->traceKey];
         printf("\n Calling from IP = %p", tracesIPs[slot]);
 #endif
     }
+    
+    static inline VOID SetCallStackPtrStashFlag(THREADID threadId) {
+        ThreadData* tData = CCTLibGetTLS(threadId);
+        SET_STACK_STATUS(tData->tlsStackStatus, STACK_PTR_STASHED);
+#if 0
+        printf("\n Stashed");
+#endif
+    }
+
+    
 
 // Analysis routine called on function return.
-// Point gCurrentContext to its parent, if we reach the root, set tlsInitiatedCall.
+// Point gCurrentContext to its parent, if we reach the root, set tlsStackStatus.
     static inline VOID GoUpCallChain(THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
-
         // If we reach the root trace, then fake the call
         if(tData->tlsCurrentTraceNode->callerCtxtHndl == tData->tlsRootCtxtHndl) {
-            tData->tlsInitiatedCall = true;
+            SET_STACK_STATUS(tData->tlsStackStatus, CALL_INITIATED);
         }
 
+        
         tData->tlsCurrentCtxtHndl = tData->tlsCurrentTraceNode->callerCtxtHndl;
         UpdateCurTraceOnly(tData, GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentCtxtHndl)->parentTraceNode);
         // RET & CALL end a trace hence the target should trigger a new trace entry for us ... pray pray.
@@ -882,6 +903,25 @@ namespace PinCCTLib {
         GLOBAL_STATE.ModuleInfoMap[id] = mi;
     }
 
+    
+    static bool TrashesStackPtr(INS ins){
+        // stack ptr is modified
+        int numOperands = INS_OperandCount(ins);
+        for (int i = 0; i < numOperands; i++) {
+            if (INS_OperandWritten(ins, i) && !INS_OperandRead(ins, i)) {
+                if (INS_OperandIsReg(ins, i)) {
+                    if ((INS_OperandReg(ins, i) == REG_STACK_PTR) || (INS_OperandReg(ins, i) == REG_RSP))  {
+                        if (false == INS_OperandIsImplicit(ins, i)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+   static void GetDecodedInstFromIP(ADDRINT);
 
 // Called each time a new trace is JITed.
 // Given a trace this function adds instruction to each instruction in the trace.
@@ -923,7 +963,7 @@ namespace PinCCTLib {
                 } else if(INS_IsRet(ins)) {
                     // INS_InsertPredicatedCall if the RET is not made, we should not change CCT node
                     // CALL_ORDER_LAST because we want update context after all analysis routines for RET have executed.
-                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST,  IARG_THREAD_ID, IARG_END);
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
 
                     if(GLOBAL_STATE.userInstrumentationCallback) {
                         // Call user instrumentation passing the flag
@@ -954,6 +994,23 @@ namespace PinCCTLib {
                 } else {
                     // NOP
                 }
+                
+                // If the instruction trashes the stack pointer, we need to reset the context to the root context.
+                if (TrashesStackPtr(ins)) {
+#if 0
+                    PIN_LockClient();
+                    string filePath;
+                    uint32_t lineNo;
+                    ADDRINT ip = INS_Address(ins);
+                    GetLineFromInfo(ip, lineNo, filePath);
+                    GetDecodedInstFromIP(ip);
+                    fprintf(stderr, "\n%s:%s:%s:%u",GLOBAL_STATE.disassemblyBuff, PIN_UndecorateSymbolName(RTN_FindNameByAddress(ip), UNDECORATION_COMPLETE).c_str(), filePath.c_str(), lineNo);
+                    PIN_UnlockClient();
+#endif
+                    INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) SetCallStackPtrStashFlag, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+
+                }
+                
             }
         }
     }
@@ -972,14 +1029,18 @@ namespace PinCCTLib {
     static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInterestingInstInTrace, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
 
-        // if landed here w/o a call instruction, then let's make this trace a sibling.
-        // The trick to do it is to go to the parent TraceNode and make this trace a child of it
-        if(!tData->tlsInitiatedCall) {
+        // If the stack pointer is stashed, rest the tlsCurrentTraceNode to the root
+        if(IS_STACK_STATUS(tData->tlsStackStatus, STACK_PTR_STASHED)) {
+            tData->tlsCurrentCtxtHndl = tData->tlsRootCtxtHndl;
+        } else if(!IS_STACK_STATUS(tData->tlsStackStatus, CALL_INITIATED)) {
+            // if landed here w/o a call instruction, then let's make this trace a sibling.
+            // The trick to do it is to go to the parent TraceNode and make this trace a child of it
             tData->tlsCurrentCtxtHndl = tData->tlsCurrentTraceNode->callerCtxtHndl;
         } else {
             // tlsCurrentCtxtHndl must be pointing to the call IP in the parent trace
-            tData->tlsInitiatedCall = false;
         }
+                  
+        RESET_STACK_STATUS(tData->tlsStackStatus);
 
         // if the current trace is a child of currentIPNode, then let's set ourselves to that
 #ifdef USE_SPLAY_TREE
@@ -1072,7 +1133,7 @@ namespace PinCCTLib {
         case CONTEXT_CHANGE_REASON_SIGNAL:
             //cerr<<"\n SIGNAL";
             // rest will be set as we enter the signal callee
-            tData->tlsInitiatedCall = true;
+            SET_STACK_STATUS(tData->tlsStackStatus, CALL_INITIATED);
             break;
 
         case CONTEXT_CHANGE_REASON_SIGRETURN: {
