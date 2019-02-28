@@ -941,22 +941,24 @@ namespace PinCCTLib {
    static void GetDecodedInstFromIP(ADDRINT);
 
     
-    static inline void PopulateIPReverseMapAndAccountRtnInstructions(RTN rtn,
-                                                                    uint32_t rtnKey,
-                                                                     uint32_t numInterestingInstInRtn,
+    static inline void PopulateIPReverseMapAndAccountRtnInstructions(TRACE trace,
+                                                                    uint32_t traceKey,
+                                                                     uint32_t numInterestingInstInTrace,
                                                                      IsInterestingInsFptr isInterestingIns) {
-        if (numInterestingInstInRtn == 0)
+        if (numInterestingInstInTrace == 0)
             return;
 
-        ADDRINT* ipShadow = (ADDRINT*)malloc((2 + numInterestingInstInRtn) * sizeof(ADDRINT));     // +1 to hold the number of slots as a metadata and ++1 to hold module id
+        ADDRINT* ipShadow = (ADDRINT*)malloc((2 + numInterestingInstInTrace) * sizeof(ADDRINT));     // +1 to hold the number of slots as a metadata and ++1 to hold module id
         // Record the number of instructions in the rtn as the first entry
-        ipShadow[0] = numInterestingInstInRtn;
+        ipShadow[0] = numInterestingInstInTrace;
         // Record the module id as 2nd entry
-        ipShadow[1] = IMG_Id(IMG_FindByAddress(RTN_Address(rtn)));
+        ipShadow[1] = IMG_Id(IMG_FindByAddress(TRACE_Address(trace)));
         uint32_t slot = 0;
-        GLOBAL_STATE.traceShadowMap[rtnKey] = &ipShadow[2] ; // 0th entry is 2 behind
-        
-        for(INS ins = RTN_InsHead (rtn); INS_Valid(ins); ins = INS_Next(ins)){
+        GLOBAL_STATE.traceShadowMap[traceKey] = &ipShadow[2] ; // 0th entry is 2 behind
+ 
+        for(BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
+            for(INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+             
             if(isInterestingIns(ins)) {
                 if(GLOBAL_STATE.userInstrumentationCallback) {
                     // Call user instrumentation passing the flag
@@ -971,7 +973,7 @@ namespace PinCCTLib {
                 ipShadow[slot + 2] = INS_Address(ins); // +2 because the first 2 entries hold metadata
                 slot++;
             }
-        }
+        }}
     }
     
 // Called each time a new trace is JITed.
@@ -1172,41 +1174,43 @@ namespace PinCCTLib {
         PopulateIPReverseMapAndAccountTraceInstructions(trace, traceKey, numInterestingInstInTrace, (IsInterestingInsFptr)isInterestingIns);
     }
 
-    static void EnterRoutine(TraceNode * rtnNode, THREADID id) {
+    static void EnterTraceFlatProfile(TraceNode * traceNode, THREADID id) {
         ThreadData* tData = CCTLibGetTLS(id);
-        tData->tlsCurrentCtxtHndl = rtnNode->childCtxtStartIdx;
+        tData->tlsCurrentCtxtHndl = traceNode->childCtxtStartIdx;
+        tData->tlsCurrentTraceNode = traceNode;
     }
     
     // Instrument a trace, take the first instruction in the first BBL and insert the analysis function before that
-    static void CCTLibInstrumentRtn(RTN rtn, void*   isInterestingIns) {
-        RTN_Open(rtn);
-        uint32_t numInterestingInstInRtn = GetNumInterestingInsInRtn(rtn, (IsInterestingInsFptr)isInterestingIns);
+    static void CCTLibInstrumentTraceFlatProfile(TRACE trace, void*   isInterestingIns) {
+        uint32_t numInterestingInstInTrace = GetNumInterestingInsInTrace(trace, (IsInterestingInsFptr)isInterestingIns);
         
-        TraceNode* rtnNode = new TraceNode();
-        uint32_t rtnKey = GetNextTraceKey();
-        rtnNode->traceKey = rtnKey;
-        PopulateIPReverseMapAndAccountRtnInstructions(rtn, rtnKey, numInterestingInstInRtn, (IsInterestingInsFptr)isInterestingIns);
+        TraceNode* traceNode = new TraceNode();
+        uint32_t k = GetNextTraceKey();
+        traceNode->traceKey = k;
+        PopulateIPReverseMapAndAccountRtnInstructions(trace, k, numInterestingInstInTrace, (IsInterestingInsFptr)isInterestingIns);
         
-        rtnNode->callerCtxtHndl = GLOBAL_STATE.flatProfileCallerHandle;
-        if(numInterestingInstInRtn) {
-            rtnNode->childCtxtStartIdx  = GetNextIPVecBuffer(numInterestingInstInRtn);
-            rtnNode->nSlots = numInterestingInstInRtn;
-            IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(rtnNode->childCtxtStartIdx);
+        traceNode->callerCtxtHndl = GLOBAL_STATE.flatProfileCallerHandle;
+        if(numInterestingInstInTrace) {
+            traceNode->childCtxtStartIdx  = GetNextIPVecBuffer(numInterestingInstInTrace);
+            traceNode->nSlots = numInterestingInstInTrace;
+            IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childCtxtStartIdx);
             
             //cerr<<"\n***:"<<numInterestingInstInTrace;
-            for(uint32_t i = 0 ; i < numInterestingInstInRtn ; i++) {
-                ipNode[i].parentTraceNode = rtnNode;
+            for(uint32_t i = 0 ; i < numInterestingInstInTrace ; i++) {
+                ipNode[i].parentTraceNode = traceNode;
                 ipNode[i].calleeTraceNodes = 0; // TODO: This is a waste, better to save some space
             }
         } else {
             // This can happen since we may have a trace with 0 interesting instructions.
             //assert(0 && "I never expect traces to have 0 instructions");
-            rtnNode->nSlots = 0;
-            rtnNode->childCtxtStartIdx = 0;
+            traceNode->nSlots = 0;
+            traceNode->childCtxtStartIdx = 0;
         }
-        // Add routine entry instrumentation
-        RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR) EnterRoutine, IARG_CALL_ORDER, CALL_ORDER_FIRST, IARG_PTR, rtnNode, IARG_THREAD_ID, IARG_END);
-        RTN_Close(rtn);
+
+        BBL bbl = TRACE_BblHead(trace);
+        INS ins = BBL_InsHead(bbl);
+        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)EnterTraceFlatProfile, IARG_CALL_ORDER, CALL_ORDER_FIRST, IARG_PTR, traceNode, IARG_THREAD_ID, IARG_END);
+
 
     }
 
@@ -1255,6 +1259,7 @@ namespace PinCCTLib {
     ContextHandle_t GetContextHandle(const THREADID id, const uint32_t slot) {
         ThreadData* tData = CCTLibGetTLS(id);
         assert(slot < tData->tlsCurrentTraceNode->nSlots);
+//fprintf(stderr, "---%lu vs %lu\n", slot, tData->tlsCurrentTraceNode->nSlots);
         return tData->tlsCurrentTraceNode->childCtxtStartIdx + slot;
     }
 
@@ -3175,7 +3180,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         }
 
         if (flatProfile == true){
-            RTN_AddInstrumentFunction(CCTLibInstrumentRtn, (void*) isInterestingIns);
+            TRACE_AddInstrumentFunction(CCTLibInstrumentTraceFlatProfile, (void*) isInterestingIns);
         } else {
             // Since some functions may not be known, instrument every "trace"
             TRACE_AddInstrumentFunction(CCTLibInstrumentTrace, (void*) isInterestingIns);

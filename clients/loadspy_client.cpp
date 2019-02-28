@@ -104,6 +104,14 @@ using namespace PinCCTLib;
 #define delta 0.01
 
 
+
+KNOB<BOOL>   KnobDataCentric(KNOB_MODE_WRITEONCE,    "pintool",
+    "dc", "0", "perform data-centric analysis");
+
+KNOB<BOOL>   KnobFlatProfile(KNOB_MODE_WRITEONCE,    "pintool",
+    "fp", "0", "Collect flat profile");
+
+
 /***********************************************
  ******  shadow memory
  ************************************************/
@@ -463,7 +471,7 @@ struct RedSpyAnalysis{
                 T * __restrict__ newValue = reinterpret_cast<T*> (addr);
                 int redCount = 0;
 #pragma omp simd reduction(+: redCount)
-                for(int i = 0; i < AccessLen/ sizeof(T); i++) {
+                for(uint32_t i = 0; i < AccessLen/ sizeof(T); i++) {
                     T tmp = (newValue[i]-oldValue[i])/oldValue[i];
                     if (tmp < ((T) 0))
                         tmp = -tmp;
@@ -1059,7 +1067,7 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     // do whatever you want to the full CCT with footpirnt
     uint64_t redReadTmp = 0;
     uint64_t approxRedReadTmp = 0;
-    for(int i = 0; i < THREAD_MAX; ++i){
+    for(uint32_t i = 0; i < THREAD_MAX; ++i){
         unordered_map<uint64_t, uint64_t>::iterator it;
         if(!RedMap[i].empty()){
             for (it = RedMap[i].begin(); it != RedMap[i].end(); ++it) {
@@ -1122,7 +1130,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0, KnobDataCentric, KnobFlatProfile);
     
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, NULL, NULL, false);

@@ -168,6 +168,12 @@ enum AliasGroup{
 #define delta 0.01
 #define deltaFloat 0.01f
 
+
+KNOB<BOOL>   KnobDataCentric(KNOB_MODE_WRITEONCE,    "pintool",
+    "dc", "0", "perform data-centric analysis");
+
+KNOB<BOOL>   KnobFlatProfile(KNOB_MODE_WRITEONCE,    "pintool",
+    "fp", "0", "Collect flat profile");
 /*
 https://www.felixcloutier.com/x86/movaps
 
@@ -649,7 +655,7 @@ struct ApproxLargeRegisters{
 	int redCount = 0;
 
 	#pragma omp simd reduction(+: redCount)
-	for(int i = 0; i < SIMD_LEN / sizeof(T); i++) {
+	for(uint8_t i = 0; i < SIMD_LEN / sizeof(T); i++) {
 		T tmp = (newValue[i]-oldValue[i])/oldValue[i];
 		if (tmp < ((T)0))
 			tmp = -tmp;
@@ -1060,7 +1066,7 @@ struct RedSpyAnalysis{
                     T * __restrict__ newValue = reinterpret_cast<T*> (avPair->address);
 		    int redCount = 0;
 		#pragma omp simd reduction(+: redCount)
-        	for(int i = 0; i < AccessLen/ sizeof(T); i++) {
+        	for(uint32_t i = 0; i < AccessLen/ sizeof(T); i++) {
 			T tmp = (newValue[i]-oldValue[i])/oldValue[i];
 			if (tmp < ((T) 0))
 				tmp = -tmp;
@@ -1112,7 +1118,7 @@ struct RedSpyAnalysis{
         	T * __restrict__ dst = reinterpret_cast<T*>(&avPair->value);
         	T * __restrict__ src = reinterpret_cast<T*> (addr);
         	#pragma omp simd 
-        	for(int i = 0; i < AccessLen/ sizeof(T); i++) {
+        	for(uint32_t i = 0; i < AccessLen/ sizeof(T); i++) {
         		dst[i] = src[i];
         	}
         }else if(AccessLen == 10){
@@ -1354,7 +1360,8 @@ struct RedSpyInstrument{
                         default: assert(0 && "handle large mem write with unexpected operand size\n"); break;
                     }
                 }break;
-                default: assert(0 && "unexpected large memory writes\n"); break;
+                default: assert(0 && "unexpected large memory writes\n"); 
+			break;
             }
         }else{
             switch(refSize) {
@@ -1800,7 +1807,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0, /*doDataCentric = */ KnobDataCentric, /*flatProfile = */ KnobFlatProfile);
     
     
     // Obtain  a key for TLS storage.

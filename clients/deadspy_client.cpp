@@ -160,6 +160,13 @@ struct DeadSpyThreadData {
 
 
 
+KNOB<BOOL>   KnobDataCentric(KNOB_MODE_WRITEONCE,    "pintool",
+    "dc", "0", "perform data-centric analysis");
+
+KNOB<BOOL>   KnobFlatProfile(KNOB_MODE_WRITEONCE,    "pintool",
+    "fp", "0", "Collect flat profile");
+
+
 struct DeadInfo {
     void* firstIP;
     void* secondIP;
@@ -1723,7 +1730,7 @@ int main(int argc, char* argv[]) {
     // Intialize DeadSpy
     InitDeadSpy(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, Instruction, 0, /*doDataCentric=*/ false);
+    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, Instruction, 0, /*doDataCentric=*/ KnobDataCentric, KnobFlatProfile);
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
