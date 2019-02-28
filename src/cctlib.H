@@ -90,8 +90,9 @@ namespace PinCCTLib {
                     logFile: file pointer where CCTLib will put its output data.
                     userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value. See one of the examples in tests directory for example usage.
                     doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
+                    flatProfile: do not collect calling context, just function and line information.
     */
-    int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
+    int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false, BOOL flatProfile = false);
 
     /*
     int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);

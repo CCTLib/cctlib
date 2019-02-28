@@ -373,6 +373,8 @@ namespace PinCCTLib {
         char metrics[MAX_METRICS][MAX_LEN];
 // Should data-centric attribution be perfomed?
         bool doDataCentric; // false  by default
+        bool flatProfile; // false  by default
+        ContextHandle_t flatProfileCallerHandle;
         bool applicationStarted ; // false by default
         uint8_t cctLibUsageMode;
         FILE* CCTLibLogFile;
@@ -690,8 +692,11 @@ namespace PinCCTLib {
                 break;
         }
 
-        GLOBAL_STATE.threadCreatorTraceNode = CCTLibGetTLS(threadId)->tlsCurrentTraceNode;
-        GLOBAL_STATE.threadCreatorCtxtHndl = CCTLibGetTLS(threadId)->tlsCurrentCtxtHndl;
+        // Necessary only for non-flat profiles
+        if (!GLOBAL_STATE.flatProfile){
+            GLOBAL_STATE.threadCreatorTraceNode = CCTLibGetTLS(threadId)->tlsCurrentTraceNode;
+            GLOBAL_STATE.threadCreatorCtxtHndl = CCTLibGetTLS(threadId)->tlsCurrentCtxtHndl;
+        }
         //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCreatePoint, parent Trace = %p, parent ip = %p", GLOBAL_STATE.threadCreatorTraceNode, GLOBAL_STATE.threadCreatorCtxtHndl);
         GLOBAL_STATE.threadCreateCount++;
         ReleaseLock();
@@ -701,17 +706,16 @@ namespace PinCCTLib {
 // Sets the child thread's CCT's parent to its creator thread's CCT node.
     static inline void ThreadCapturePoint(ThreadData* tdata) {
         TakeLock();
-
         if(GLOBAL_STATE.threadCreateCount == GLOBAL_STATE.threadCaptureCount) {
             // Base thread, no parent
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, no parent ");
         } else {
+            // This will be always 0 for flat profiles
             tdata->tlsParentThreadTraceNode = (TraceNode*) GLOBAL_STATE.threadCreatorTraceNode;
             tdata->tlsParentThreadCtxtHndl = GLOBAL_STATE.threadCreatorCtxtHndl;
             //fprintf(GLOBAL_STATE.CCTLibLogFile, "\n ThreadCapturePoint, parent Trace = %p, parent ip = %p", GLOBAL_STATE.threadCreatorTraceNode, GLOBAL_STATE.threadCreatorCtxtHndl);
             GLOBAL_STATE.threadCaptureCount++;
         }
-
         ReleaseLock();
     }
 
@@ -875,6 +879,19 @@ namespace PinCCTLib {
     }
 */
 
+    static inline uint32_t GetNumInterestingInsInRtn(const RTN& rtn,
+                                                     IsInterestingInsFptr isInterestingIns) {
+        uint32_t count = 0;
+        for(INS ins = RTN_InsHead (rtn); INS_Valid(ins); ins = INS_Next(ins)){
+            if(isInterestingIns(ins)) {
+                if(isInterestingIns(ins))
+                    count++;
+            }
+        }
+        return count;
+    }
+
+    
     static inline uint32_t GetNumInterestingInsInTrace(const TRACE& trace, IsInterestingInsFptr isInterestingIns) {
         uint32_t count = 0;
 
@@ -923,6 +940,40 @@ namespace PinCCTLib {
 
    static void GetDecodedInstFromIP(ADDRINT);
 
+    
+    static inline void PopulateIPReverseMapAndAccountRtnInstructions(RTN rtn,
+                                                                    uint32_t rtnKey,
+                                                                     uint32_t numInterestingInstInRtn,
+                                                                     IsInterestingInsFptr isInterestingIns) {
+        if (numInterestingInstInRtn == 0)
+            return;
+
+        ADDRINT* ipShadow = (ADDRINT*)malloc((2 + numInterestingInstInRtn) * sizeof(ADDRINT));     // +1 to hold the number of slots as a metadata and ++1 to hold module id
+        // Record the number of instructions in the rtn as the first entry
+        ipShadow[0] = numInterestingInstInRtn;
+        // Record the module id as 2nd entry
+        ipShadow[1] = IMG_Id(IMG_FindByAddress(RTN_Address(rtn)));
+        uint32_t slot = 0;
+        GLOBAL_STATE.traceShadowMap[rtnKey] = &ipShadow[2] ; // 0th entry is 2 behind
+        
+        for(INS ins = RTN_InsHead (rtn); INS_Valid(ins); ins = INS_Next(ins)){
+            if(isInterestingIns(ins)) {
+                if(GLOBAL_STATE.userInstrumentationCallback) {
+                    // Call user instrumentation passing the flag
+                    GLOBAL_STATE.userInstrumentationCallback(ins, GLOBAL_STATE.userInstrumentationCallbackArg, slot);
+                } else {
+                    // If, it is an interesting Ins, then we need to hold on to the slot number.
+                    // TLS will remember your slot no.
+                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) RememberSlotNoInTLS, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
+                }
+                
+                // put next slot in corresponding ins start location;
+                ipShadow[slot + 2] = INS_Address(ins); // +2 because the first 2 entries hold metadata
+                slot++;
+            }
+        }
+    }
+    
 // Called each time a new trace is JITed.
 // Given a trace this function adds instruction to each instruction in the trace.
 // It also adds the trace to a hash table "GLOBAL_STATE.traceShadowMap" to maintain the reverse mapping from an (interesting) instruction's position in CCT back to its IP.
@@ -1029,7 +1080,7 @@ namespace PinCCTLib {
     static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInterestingInstInTrace, THREADID threadId) {
         ThreadData* tData = CCTLibGetTLS(threadId);
 
-        // If the stack pointer is stashed, rest the tlsCurrentTraceNode to the root
+        // If the stack pointer is stashed, reset the tlsCurrentTraceNode to the root
         if(IS_STACK_STATUS(tData->tlsStackStatus, STACK_PTR_STASHED)) {
             tData->tlsCurrentCtxtHndl = tData->tlsRootCtxtHndl;
         } else if(!IS_STACK_STATUS(tData->tlsStackStatus, CALL_INITIATED)) {
@@ -1119,6 +1170,44 @@ namespace PinCCTLib {
         uint32_t traceKey = GetNextTraceKey();
         INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)InstrumentTraceEntry, IARG_UINT32, traceKey, IARG_UINT32, numInterestingInstInTrace, IARG_THREAD_ID, IARG_END);
         PopulateIPReverseMapAndAccountTraceInstructions(trace, traceKey, numInterestingInstInTrace, (IsInterestingInsFptr)isInterestingIns);
+    }
+
+    static void EnterRoutine(TraceNode * rtnNode, THREADID id) {
+        ThreadData* tData = CCTLibGetTLS(id);
+        tData->tlsCurrentCtxtHndl = rtnNode->childCtxtStartIdx;
+    }
+    
+    // Instrument a trace, take the first instruction in the first BBL and insert the analysis function before that
+    static void CCTLibInstrumentRtn(RTN rtn, void*   isInterestingIns) {
+        RTN_Open(rtn);
+        uint32_t numInterestingInstInRtn = GetNumInterestingInsInRtn(rtn, (IsInterestingInsFptr)isInterestingIns);
+        
+        TraceNode* rtnNode = new TraceNode();
+        uint32_t rtnKey = GetNextTraceKey();
+        rtnNode->traceKey = rtnKey;
+        PopulateIPReverseMapAndAccountRtnInstructions(rtn, rtnKey, numInterestingInstInRtn, (IsInterestingInsFptr)isInterestingIns);
+        
+        rtnNode->callerCtxtHndl = GLOBAL_STATE.flatProfileCallerHandle;
+        if(numInterestingInstInRtn) {
+            rtnNode->childCtxtStartIdx  = GetNextIPVecBuffer(numInterestingInstInRtn);
+            rtnNode->nSlots = numInterestingInstInRtn;
+            IPNode * ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(rtnNode->childCtxtStartIdx);
+            
+            //cerr<<"\n***:"<<numInterestingInstInTrace;
+            for(uint32_t i = 0 ; i < numInterestingInstInRtn ; i++) {
+                ipNode[i].parentTraceNode = rtnNode;
+                ipNode[i].calleeTraceNodes = 0; // TODO: This is a waste, better to save some space
+            }
+        } else {
+            // This can happen since we may have a trace with 0 interesting instructions.
+            //assert(0 && "I never expect traces to have 0 instructions");
+            rtnNode->nSlots = 0;
+            rtnNode->childCtxtStartIdx = 0;
+        }
+        // Add routine entry instrumentation
+        RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR) EnterRoutine, IARG_CALL_ORDER, CALL_ORDER_FIRST, IARG_PTR, rtnNode, IARG_THREAD_ID, IARG_END);
+        RTN_Close(rtn);
+
     }
 
 
@@ -1822,9 +1911,13 @@ namespace PinCCTLib {
 
 
 #define NOT_ROOT_CTX (-1)
+#define FLATPROFILE_ROOT_CTXT (-2)
+
 // Return true if the given ContextNode is one of the root context nodes
     static int IsARootIPNode(ContextHandle_t curCtxtHndle) {
-        // if it is runing monitoring we will use CCTLibGetTLS
+        if (GLOBAL_STATE.flatProfileCallerHandle == curCtxtHndle)
+            return FLATPROFILE_ROOT_CTXT;
+        // if it is running monitoring we will use CCTLibGetTLS
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_COLLECTION) {
             for(uint32_t id = 0 ; id < GLOBAL_STATE.numThreads; id++) {
                 ThreadData* tData = CCTLibGetTLS(id);
@@ -3040,13 +3133,20 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 
-    int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric) {
+    int PinCCTLibInit(IsInterestingInsFptr isInterestingIns,
+                      FILE* logFile,
+                      CCTLibInstrumentInsCallback userCallback,
+                      VOID* userCallbackArg,
+                      BOOL doDataCentric,
+                      BOOL flatProfile) {
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_POSTMORTEM) {
             fprintf(stderr, "\n CCTLib was initialized for postmortem analysis using PinCCTLibInitForPostmortemAnalysis! Exiting...\n");
             PIN_ExitApplication(-1);
         }
 
         GLOBAL_STATE.cctLibUsageMode = CCT_LIB_MODE_COLLECTION;
+        GLOBAL_STATE.flatProfile = flatProfile;
+        GLOBAL_STATE.flatProfileCallerHandle = GetNextIPVecBuffer(1);
         // Initialize Symbols, we need them to report functions and lines
         PIN_InitSymbols();
         // Intialize
@@ -3074,8 +3174,13 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             InitDataCentric();
         }
 
-        // Since some functions may not be known, instrument every "trace"
-        TRACE_AddInstrumentFunction(CCTLibInstrumentTrace, (void*) isInterestingIns);
+        if (flatProfile == true){
+            RTN_AddInstrumentFunction(CCTLibInstrumentRtn, (void*) isInterestingIns);
+        } else {
+            // Since some functions may not be known, instrument every "trace"
+            TRACE_AddInstrumentFunction(CCTLibInstrumentTrace, (void*) isInterestingIns);
+        }
+        
         // Register Image to be called to instrument functions.
         IMG_AddInstrumentFunction(CCTLibImage, 0);
         // Add a function to report entire stats at the termination.
