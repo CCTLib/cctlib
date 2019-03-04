@@ -1852,9 +1852,98 @@ namespace PinCCTLib {
 
 
 // Given a pointer (i.e. slot) within a trace node, returns the Line number corresponding to that slot
-    static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath) {
+    static inline void GetLineFromInfoDwarf2Only(const ADDRINT& ip, uint32_t& lineNo, string& filePath) {
         PIN_GetSourceLocation(ip, NULL, (INT32*) &lineNo, &filePath);
     }
+
+    // TODO: Is not thread safe.
+    struct ip_line_map {
+	    string file;
+	    uint32_t line;
+    };
+    static unordered_map<ADDRINT, ip_line_map> linemapCache;
+    static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath) {
+
+	    IMG img = IMG_FindByAddress(ip);
+	    if (IMG_IsVDSO (img)) {
+		    filePath = "[vdso]";
+		    lineNo = 0;
+		    return;
+	    }
+	    unordered_map<ADDRINT, ip_line_map>::const_iterator it = linemapCache.find(ip);
+	    if (it != linemapCache.end()) {
+		    filePath = it->second.file;
+		    lineNo = it->second.line;
+		    return;
+	    }
+
+	    stringstream s;
+	    s << "addr2line -e " << IMG_Name(img) << " -p -C " << std::hex << ip;
+
+	    FILE *fp = popen(s.str().c_str(), "r");
+	    if (NULL==fp)
+		    return; // silent failure.
+
+	    char buf[2*PATH_MAX] = {0};
+	    if (NULL != fgets(buf, 2*PATH_MAX, fp)){
+		    std::stringstream ss(buf);
+		    std::getline(ss, filePath, ':');
+		    ss>>lineNo;
+	    }
+	    pclose(fp);
+	    // Put in the cache
+	    ip_line_map ilm = {filePath, lineNo};
+	    linemapCache[ip] = ilm;
+	    //      fprintf(stderr, "RESULT = %s:%d\n", filePath.c_str(), lineNo);
+    }
+
+
+    static inline void GetLineFromInfoxx(const ADDRINT& ip, uint32_t& lineNo, string& filePath) {
+	
+	    NATIVE_FD readFd;
+	    NATIVE_FD writeFd;
+	    OS_Pipe (OS_PIPE_CREATE_FLAGS_NONE, &readFd, &writeFd);
+
+	stringstream s;
+	NATIVE_FD stdFiles[3] = {0, writeFd, writeFd};
+	NATIVE_FD closeFiles[3] = {readFd, INVALID_NATIVE_FD};
+	OS_PROCESS_WAITABLE_PROCESS w;
+	UINT32 status;
+	s << "addr2line -e " << IMG_Name(IMG_FindByAddress(ip)) << " -p -C " << std::hex << ip;
+
+	//	fprintf(stderr, "cmd = %s\n", s.str().c_str());
+	OS_RETURN_CODE r = OS_CreateProcess(s.str().c_str(),  stdFiles, closeFiles, 0, &w);
+	OS_CloseFD(writeFd);
+	if (OS_RETURN_CODE_NO_ERROR != r) {
+		fprintf(stderr, "OS_CreateProcess r = %d\n", r);
+	} else {
+	  if (OS_RETURN_CODE_NO_ERROR != OS_WaitForProcessTermination(w, &status))
+	      fprintf(stderr, "addr2line terminated with %d\n", status);
+	  else {
+	  char buf[1000] = {0};
+	  USIZE sz = 1000;
+	  OS_ReadFD(readFd, &sz, buf);
+	      //fprintf(stderr, "RESULT = %s\n", buf);
+
+	  std::string res(buf);
+	  std::stringstream ss(res);
+#if 1
+	  std::getline(ss, filePath, ':');
+	  //std::getline(ss, filePath, ':');
+	  string l;
+	  //std::getline(ss, l, ':');
+	  ss>>lineNo;
+	//      fprintf(stderr, "RESULT = %s:%d\n", filePath.c_str(), lineNo);
+#else
+	      int pos = res.rfind(':');
+	      filePath = res.substr(0, pos);
+	      fprintf(stderr, "RESULT = %s:%d\n", filePath.c_str(), r());
+#endif
+	      OS_CloseFD(readFd);
+
+          }
+     	}
+     }
 
     static void GetDecodedInstFromIP(ADDRINT ip) {
         // Get the instruction in a string
