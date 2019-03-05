@@ -35,7 +35,9 @@ AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -Wno-format -std=c++03 -Werror=aligned-new=none"
+#use for newer GCC versions
+#CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -Wno-format -std=c++03 -Werror=aligned-new=none"
+CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -Wno-format"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
