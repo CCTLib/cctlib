@@ -60,17 +60,15 @@
 #include <boost/algorithm/string.hpp>
 #endif
 
-#if PIN_CRT != 1
 #ifdef TARGET_MAC
 #include <libelf/libelf.h>
 #include <libelf/gelf.h>
 #elif defined(TARGET_LINUX)
-#include <libelf.h>
-#include <gelf.h>
+//#include <libelf/libelf.h>
+#include <libelf/gelf.h>
 #else
 "Unsupported platform"
 #endif
-#endif //PIN_CRT!=1
 
 #include "splay-macros.h"
 // Need GOOGLE sparse hash tables
@@ -2769,10 +2767,6 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
 
-#if PIN_CRT==1
-    // Not linking in libelf
-#else
-
 // compute static variables
 // each image has a splay tree to include all static variables
 // that reside in the image. All images are linked as a link list
@@ -2863,7 +2857,6 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         UpdateLockLessTree(PIN_ThreadId(), ops);
 #endif
     }
-#endif
     
     static VOID
     DeleteStaticVar(IMG img, VOID* v) {
@@ -2882,11 +2875,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
             fprintf(stderr, "\n failed to resolve path");
         }
         
-#if PIN_CRT==1
-        // Not linking in libelf
-#else
         compute_static_var(filename, img);
-#endif
     }
 
 // end DO_DATA_CENTRIC #endif

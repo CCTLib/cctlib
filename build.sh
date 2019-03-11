@@ -58,13 +58,14 @@ echo "PIN_ROOT is set to '$PIN_ROOT'"
 fi
 
 ############## libelf #################################
-#cd $CUR_DIR/externals/
-#tar zxvf libelf-0.8.9.tar.gz
-#rm -rf $CUR_DIR/libelf-0.8.9-install
-#cd libelf-0.8.9
-#./configure --prefix=$CUR_DIR/libelf-0.8.9-install
-#make
-#make install
+PATH_TO_PIN=$PIN_ROOT
+cd $CUR_DIR/externals/
+tar zxvf libelf-0.8.9.tar.gz
+rm -rf $CUR_DIR/libelf-0.8.9-install
+cd libelf-0.8.9
+CFLAGS="-D__PIN__=1 -DPIN_CRT=1 -fno-stack-protector -DTARGET_IA32E -DHOST_IA32E -fPIC -DTARGET_LINUX -isystem $PATH_TO_PIN/extras/stlport/include -isystem $PATH_TO_PIN/extras/libstdc++/include -isystem $PATH_TO_PIN/extras/crt/include -isystem $PATH_TO_PIN/extras/crt/include/arch-x86_64 -isystem $PATH_TO_PIN/extras/crt/include/kernel/uapi -isystem $PATH_TO_PIN/extras/crt/include/kernel/uapi/asm-x86 -I$PATH_TO_PIN/extras/components/include" LDFLAGS="-Wl,--hash-style=sysv $PATH_TO_PIN/intel64/runtime/pincrt/crtbeginS.o -Wl,-Bsymbolic -Wl,--version-script=$PATH_TO_PIN/source/include/pin/pintool.ver  -L$PATH_TO_PIN/intel64/runtime/pincrt -L$PATH_TO_PIN/intel64/lib -L$PATH_TO_PIN/intel64/lib-ext -L$PATH_TO_PIN/extras/xed-intel64/lib  $PATH_TO_PIN/intel64/runtime/pincrt/crtendS.o  -ldl-dynamic -nostdlib -lstlport-dynamic -lm-dynamic -lc-dynamic -lunwind-dynamic" ./configure --prefix=$CUR_DIR/libelf-0.8.9-install --host=x86_64-linux-gnu --target=x86_64-linux-gnu --build=x86_64-linux-gnu
+make
+make install
 #### Google sparse hash  ################################
 #cd $CUR_DIR/externals/
 #tar zxvf sparsehash-2.0.2.tar.gz
@@ -90,7 +91,7 @@ PATH_TO_BOOST=$CUR_DIR/boost_1_56_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
 #develop is off by default
 #./configure --with-Pin=$PATH_TO_PIN --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
-./configure --with-Pin=$PATH_TO_PIN --enable-develop
+./configure --with-Pin=$PATH_TO_PIN --with-libelf=$PATH_TO_LIBELF --enable-develop
 make
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests
