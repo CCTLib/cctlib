@@ -214,6 +214,8 @@ struct RedSpyThreadData{
 static  TLS_KEY client_tls_key;
 static RedSpyThreadData* gSingleThreadedTData;
 
+#define MULTI_THREADED
+
 // function to access thread-specific data
 inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 #ifdef MULTI_THREADED
@@ -276,7 +278,7 @@ static dense_hash_map<uint64_t, uint64_t> ApproxRedMap[THREAD_MAX];
 static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadId) __attribute__((always_inline,flatten));
 static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadId) {
 #ifdef MULTI_THREADED
-    LOCK_RED_MAP();
+    //LOCK_RED_MAP();
 #endif
     dense_hash_map<uint64_t, uint64_t>::iterator it = RedMap[threadId].find(key);
     if ( it  == RedMap[threadId].end()) {
@@ -285,14 +287,14 @@ static inline void AddToRedTable(uint64_t key,  uint16_t value, THREADID threadI
         it->second += value;
     }
 #ifdef MULTI_THREADED
-    UNLOCK_RED_MAP();
+    //UNLOCK_RED_MAP();
 #endif
 }
 
 static inline void AddToApproximateRedTable(uint64_t key,  uint16_t value, THREADID threadId) __attribute__((always_inline,flatten));
 static inline void AddToApproximateRedTable(uint64_t key,  uint16_t value, THREADID threadId) {
 #ifdef MULTI_THREADED
-    LOCK_RED_MAP();
+    //LOCK_RED_MAP();
 #endif
     dense_hash_map<uint64_t, uint64_t>::iterator it = ApproxRedMap[threadId].find(key);
     if ( it  == ApproxRedMap[threadId].end()) {
@@ -301,7 +303,7 @@ static inline void AddToApproximateRedTable(uint64_t key,  uint16_t value, THREA
         it->second += value;
     }
 #ifdef MULTI_THREADED
-    UNLOCK_RED_MAP();
+    //UNLOCK_RED_MAP();
 #endif
 }
 
