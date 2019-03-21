@@ -1561,7 +1561,7 @@ VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     // Update gTotalInstCount first
     uint64_t measurementBaseCount =  GetMeasurementBaseCount();
-    fprintf(gTraceFile, "\nTotal Instr = %"PRIu64 , measurementBaseCount);
+    fprintf(gTraceFile, "\nTotal Instr = %" PRIu64 , measurementBaseCount);
     fflush(gTraceFile);
     unordered_map<uint64_t, uint64_t>::iterator mapIt = DeadMap.begin();
     map<MergedDeadInfo, uint64_t> mergedDeadInfoMap;
