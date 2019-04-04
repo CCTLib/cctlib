@@ -71,6 +71,8 @@ using namespace PinCCTLib;
 #ifndef MAX_DEAD_CONTEXTS_TO_LOG
 #define MAX_DEAD_CONTEXTS_TO_LOG   (1000)
 #endif //MAX_DEAD_CONTEXTS_TO_LOG
+#define THREAD_MAX (1024)
+
 
 // 64KB shadow pages
 #define PAGE_OFFSET_BITS (16LL)
@@ -106,6 +108,10 @@ using namespace PinCCTLib;
 #define TWO_BYTE_WRITE_ACTION (0xffff)
 #define FOUR_BYTE_WRITE_ACTION (0xffffffff)
 #define EIGHT_BYTE_WRITE_ACTION (0xffffffffffffffff)
+
+#define DECODE_DEAD(data) static_cast<ContextHandle_t>(((data)  & 0xffffffffffffffff) >> 32 )
+#define DECODE_KILL(data) (static_cast<ContextHandle_t>( (data)  & 0x00000000ffffffff))
+#define MAX_REDUNDANT_CONTEXTS_TO_LOG (1000)
 
 
 
@@ -158,6 +164,10 @@ struct DeadSpyThreadData {
     uint64_t gLargeByteWriteByteCount;
 };
 
+
+//for statistics result
+uint64_t grandTotBytesWritten;
+uint64_t grandTotBytesDead;
 
 
 KNOB<BOOL>   KnobDataCentric(KNOB_MODE_WRITEONCE,    "pintool",
@@ -229,8 +239,8 @@ uint8_t** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 
 //map < void *, Status > MemState;
 #if defined(CONTINUOUS_DEADINFO)
-unordered_map<uint64_t, uint64_t> DeadMap;
-unordered_map<uint64_t, uint64_t>::iterator gDeadMapIt;
+unordered_map<uint64_t, uint64_t> DeadMap[THREAD_MAX];
+//unordered_map<uint64_t, uint64_t>::iterator gDeadMapIt;
 //dense_hash_map<uint64_t, uint64_t> DeadMap;
 //dense_hash_map<uint64_t, uint64_t>::iterator gDeadMapIt;
 //sparse_hash_map<uint64_t, uint64_t> DeadMap;
@@ -432,16 +442,18 @@ hashVar |= key;\
 
 #define DECLARE_HASHVAR(name) uint64_t name
 
-#define REPORT_DEAD(curCtxt, lastCtxt,hashVar, size) do { \
+#define REPORT_DEAD(curCtxt, lastCtxt,hashVar, size, threadId) do { \
 CONTEXT_HASH_128BITS_TO_64BITS(curCtxt, lastCtxt,hashVar)  \
-if ( (gDeadMapIt = DeadMap.find(hashVar))  == DeadMap.end()) {    \
-DeadMap.insert(std::pair<uint64_t, uint64_t>(hashVar,size)); \
+unordered_map<uint64_t, uint64_t>::iterator deadMapIt = DeadMap[threadId].find(hashVar); \
+if (deadMapIt == DeadMap[threadId].end()) {    \
+DeadMap[threadId].insert(std::pair<uint64_t, uint64_t>(hashVar,size)); \
 } else {    \
-(gDeadMapIt->second) += size;    \
+(deadMapIt->second) += size;    \
 }   \
 }while(0)
 
 #else // no defined(CONTINUOUS_DEADINFO)
+#error "Not maintained"
 #define DECLARE_HASHVAR(name) uint64_t name
 
 #define REPORT_DEAD(curCtxt, lastCtxt,hashVar, size) do { \
@@ -456,8 +468,8 @@ DeadMap.insert(std::pair<uint64_t, DeadInfo>(hashVar,deadInfo)); \
 
 #endif // end defined(CONTINUOUS_DEADINFO)
 
-#define REPORT_IF_DEAD(mask, curCtxt, lastCtxt, hashVar) do {if (state & (mask)){ \
-REPORT_DEAD(curCtxt, lastCtxt,hashVar, 1);\
+#define REPORT_IF_DEAD(mask, curCtxt, lastCtxt, hashVar, threadId) do {if (state & (mask)){ \
+REPORT_DEAD(curCtxt, lastCtxt,hashVar, 1, threadId);\
 }}while(0)
 
 
@@ -533,7 +545,7 @@ VOID Record1ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threa
 
     if(*(status +  PAGE_OFFSET((uint64_t)addr)) == ONE_BYTE_WRITE_ACTION) {
         DECLARE_HASHVAR(myhash);
-        REPORT_DEAD(curCtxtHandle, OLD_CTXT, myhash, 1);
+        REPORT_DEAD(curCtxtHandle, OLD_CTXT, myhash, 1, threadId);
     } else {
         *(status +  PAGE_OFFSET((uint64_t)addr)) = ONE_BYTE_WRITE_ACTION;
     }
@@ -590,14 +602,14 @@ VOID Record2ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threa
 
             // fast path where all bytes are dead by same context
             if(state == TWO_BYTE_WRITE_ACTION && lastIP[0] == lastIP[1]) {
-                REPORT_DEAD(curCtxtHandle, (*lastIP), myhash, 2);
+                REPORT_DEAD(curCtxtHandle, (*lastIP), myhash, 2, threadId);
                 // State is already written, so no need to dead write in a tool that detects dead writes
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x00ff, curCtxtHandle, lastIP[0], myhash);
+                REPORT_IF_DEAD(0x00ff, curCtxtHandle, lastIP[0], myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0xff00, curCtxtHandle, lastIP[1], myhash);
+                REPORT_IF_DEAD(0xff00, curCtxtHandle, lastIP[1], myhash, threadId);
                 // update state for all
                 *((uint16_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = TWO_BYTE_WRITE_ACTION;
             }
@@ -665,18 +677,18 @@ VOID Record4ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threa
             // fast path where all bytes are dead by same context
             if(state == FOUR_BYTE_WRITE_ACTION &&
                     ipZero == lastIP[0] && ipZero == lastIP[1] && ipZero  == lastIP[2] && ipZero  == lastIP[3]) {
-                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 4);
+                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 4, threadId);
                 // State is already written, so no need to dead write in a tool that detects dead writes
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x000000ff, curCtxtHandle, ipZero, myhash);
+                REPORT_IF_DEAD(0x000000ff, curCtxtHandle, ipZero, myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0x0000ff00, curCtxtHandle, lastIP[1], myhash);
+                REPORT_IF_DEAD(0x0000ff00, curCtxtHandle, lastIP[1], myhash, threadId);
                 // byte 3 dead ?
-                REPORT_IF_DEAD(0x00ff0000, curCtxtHandle, lastIP[2], myhash);
+                REPORT_IF_DEAD(0x00ff0000, curCtxtHandle, lastIP[2], myhash, threadId);
                 // byte 4 dead ?
-                REPORT_IF_DEAD(0xff000000, curCtxtHandle, lastIP[3], myhash);
+                REPORT_IF_DEAD(0xff000000, curCtxtHandle, lastIP[3], myhash, threadId);
                 // update state for all
                 *((uint32_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = FOUR_BYTE_WRITE_ACTION;
             }
@@ -750,26 +762,26 @@ VOID Record8ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID threa
                     ipZero  == lastIP[1] && ipZero  == lastIP[2] &&
                     ipZero  == lastIP[3] && ipZero  == lastIP[4] &&
                     ipZero  == lastIP[5] && ipZero  == lastIP[6] && ipZero  == lastIP[7]) {
-                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8);
+                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8, threadId);
                 // State is already written, so no need to dead write in a tool that detects dead writes
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash);
+                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[1], myhash);
+                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[1], myhash, threadId);
                 // byte 3 dead ?
-                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[2], myhash);
+                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[2], myhash, threadId);
                 // byte 4 dead ?
-                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[3], myhash);
+                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[3], myhash, threadId);
                 // byte 5 dead ?
-                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[4], myhash);
+                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[4], myhash, threadId);
                 // byte 6 dead ?
-                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[5], myhash);
+                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[5], myhash, threadId);
                 // byte 7 dead ?
-                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[6], myhash);
+                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[6], myhash, threadId);
                 // byte 8 dead ?
-                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[7], myhash);
+                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[7], myhash, threadId);
                 // update state for all
                 *((uint64_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = EIGHT_BYTE_WRITE_ACTION;
             }
@@ -887,26 +899,26 @@ VOID Record10ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID thre
                     ipZero  == lastIP[1] && ipZero  == lastIP[2] &&
                     ipZero  == lastIP[3] && ipZero  == lastIP[4] &&
                     ipZero  == lastIP[5] && ipZero  == lastIP[6] && ipZero  == lastIP[7]) {
-                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8);
+                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8, threadId);
                 // No state update needed
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash);
+                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[1], myhash);
+                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[1], myhash, threadId);
                 // byte 3 dead ?
-                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[2], myhash);
+                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[2], myhash, threadId);
                 // byte 4 dead ?
-                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[3], myhash);
+                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[3], myhash, threadId);
                 // byte 5 dead ?
-                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[4], myhash);
+                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[4], myhash, threadId);
                 // byte 6 dead ?
-                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[5], myhash);
+                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[5], myhash, threadId);
                 // byte 7 dead ?
-                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[6], myhash);
+                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[6], myhash, threadId);
                 // byte 8 dead ?
-                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[7], myhash);
+                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[7], myhash, threadId);
                 // update state of these 8 bytes could be some overwrites
                 *((uint64_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = EIGHT_BYTE_WRITE_ACTION;
             }
@@ -926,14 +938,14 @@ VOID Record10ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID thre
             // fast path where all bytes are dead by same context
             if(state == TWO_BYTE_WRITE_ACTION &&
                     ipZero == lastIP[9]) {
-                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 2);
+                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 2, threadId);
                 // No state update needed
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x00ff, curCtxtHandle, ipZero, myhash);
+                REPORT_IF_DEAD(0x00ff, curCtxtHandle, ipZero, myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0xff00, curCtxtHandle, lastIP[9], myhash);
+                REPORT_IF_DEAD(0xff00, curCtxtHandle, lastIP[9], myhash, threadId);
                 // update state
                 *((uint16_t*)(status +  PAGE_OFFSET(((uint64_t)addr + 8)))) = TWO_BYTE_WRITE_ACTION;
             }
@@ -1049,26 +1061,26 @@ VOID Record16ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID thre
                     ipZero  == lastIP[1] && ipZero  == lastIP[2] &&
                     ipZero  == lastIP[3] && ipZero  == lastIP[4] &&
                     ipZero  == lastIP[5] && ipZero  == lastIP[6] && ipZero  == lastIP[7]) {
-                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8);
+                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8, threadId);
                 // No state update needed
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash);
+                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[1], myhash);
+                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[1], myhash, threadId);
                 // byte 3 dead ?
-                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[2], myhash);
+                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[2], myhash, threadId);
                 // byte 4 dead ?
-                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[3], myhash);
+                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[3], myhash, threadId);
                 // byte 5 dead ?
-                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[4], myhash);
+                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[4], myhash, threadId);
                 // byte 6 dead ?
-                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[5], myhash);
+                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[5], myhash, threadId);
                 // byte 7 dead ?
-                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[6], myhash);
+                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[6], myhash, threadId);
                 // byte 8 dead ?
-                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[7], myhash);
+                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[7], myhash, threadId);
                 // update state of these 8 bytes could be some overwrites
                 *((uint64_t*)(status +  PAGE_OFFSET((uint64_t)addr))) = EIGHT_BYTE_WRITE_ACTION;
             }
@@ -1088,26 +1100,26 @@ VOID Record16ByteMemWrite(VOID* addr, const uint32_t opaqueHandle, THREADID thre
                     ipZero == lastIP[9] && ipZero  == lastIP[10] && ipZero  == lastIP[11] &&
                     ipZero  == lastIP[12] && ipZero  == lastIP[13] &&
                     ipZero  == lastIP[14] && ipZero  == lastIP[15]) {
-                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8);
+                REPORT_DEAD(curCtxtHandle, ipZero, myhash, 8, threadId);
                 // No state update needed
             } else {
                 // slow path
                 // byte 1 dead ?
-                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash);
+                REPORT_IF_DEAD(0x00000000000000ff, curCtxtHandle, ipZero, myhash, threadId);
                 // byte 2 dead ?
-                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[9], myhash);
+                REPORT_IF_DEAD(0x000000000000ff00, curCtxtHandle, lastIP[9], myhash, threadId);
                 // byte 3 dead ?
-                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[10], myhash);
+                REPORT_IF_DEAD(0x0000000000ff0000, curCtxtHandle, lastIP[10], myhash, threadId);
                 // byte 4 dead ?
-                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[11], myhash);
+                REPORT_IF_DEAD(0x00000000ff000000, curCtxtHandle, lastIP[11], myhash, threadId);
                 // byte 5 dead ?
-                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[12], myhash);
+                REPORT_IF_DEAD(0x000000ff00000000, curCtxtHandle, lastIP[12], myhash, threadId);
                 // byte 6 dead ?
-                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[13], myhash);
+                REPORT_IF_DEAD(0x0000ff0000000000, curCtxtHandle, lastIP[13], myhash, threadId);
                 // byte 7 dead ?
-                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[14], myhash);
+                REPORT_IF_DEAD(0x00ff000000000000, curCtxtHandle, lastIP[14], myhash, threadId);
                 // byte 8 dead ?
-                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[15], myhash);
+                REPORT_IF_DEAD(0xff00000000000000, curCtxtHandle, lastIP[15], myhash, threadId);
                 // update state
                 *((uint64_t*)(status +  PAGE_OFFSET(((uint64_t)addr + 8)))) = EIGHT_BYTE_WRITE_ACTION;
             }
@@ -1374,52 +1386,58 @@ inline VOID PrintInstructionBreakdown() {
 
 
 // Returns the total N-byte size writes across all CCTs
-uint64_t GetTotalNByteWrites(uint32_t size) {
+uint64_t GetTotalNByteWrites(DeadSpyThreadData* tData, uint32_t size) {
     uint64_t total = 0;
+    switch(size) {
+    case 1: {
+        total += tData->g1ByteWriteInstrCount;
+        break;
+    }
 
-    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
-        DeadSpyThreadData* tData = ClientGetTLS(i);
+    case 2: {
+        total += tData->g2ByteWriteInstrCount;
+        break;
+    }
 
-        switch(size) {
-        case 1: {
-            total += tData->g1ByteWriteInstrCount;
-            break;
-        }
+    case 4: {
+        total += tData->g4ByteWriteInstrCount;
+        break;
+    }
 
-        case 2: {
-            total += tData->g2ByteWriteInstrCount;
-            break;
-        }
+    case 8: {
+        total += tData->g8ByteWriteInstrCount;
+        break;
+    }
 
-        case 4: {
-            total += tData->g4ByteWriteInstrCount;
-            break;
-        }
+    case 10: {
+        total += tData->g10ByteWriteInstrCount;
+        break;
+    }
 
-        case 8: {
-            total += tData->g8ByteWriteInstrCount;
-            break;
-        }
+    case 16: {
+        total += tData->g16ByteWriteInstrCount;
+        break;
+    }
 
-        case 10: {
-            total += tData->g10ByteWriteInstrCount;
-            break;
-        }
-
-        case 16: {
-            total += tData->g16ByteWriteInstrCount;
-            break;
-        }
-
-        default: {
-            // Not too sure :(
-            total += tData->gLargeByteWriteInstrCount;
-            break;
-        }
-        }
-    }//end for
+    default: {
+        // Not too sure :(
+        total += tData->gLargeByteWriteInstrCount;
+        break;
+    }
+    }
 
     return total;
+}
+
+uint64_t GetTotalNByteWrites(uint32_t size) {
+    uint64_t total = 0;
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+        DeadSpyThreadData* tData = ClientGetTLS(i);
+        total += GetTotalNByteWrites(tData, size);
+    }//end for
+    
+    return total;
+
 }
 
 inline uint64_t GetMeasurementBaseCount() {
@@ -1427,6 +1445,15 @@ inline uint64_t GetMeasurementBaseCount() {
     uint64_t measurementBaseCount =  GetTotalNByteWrites(1) + 2 * GetTotalNByteWrites(2) + 4 * GetTotalNByteWrites(4) + 8 * GetTotalNByteWrites(8) + 10 * GetTotalNByteWrites(10) + 16 * GetTotalNByteWrites(16) + GetTotalNByteWrites(-1);
     return measurementBaseCount;
 }
+
+inline uint64_t GetMeasurementBaseCount(int tid) {
+    DeadSpyThreadData* tData = ClientGetTLS(tid);
+
+    // byte count
+    uint64_t measurementBaseCount =  GetTotalNByteWrites(tData, 1) + 2 * GetTotalNByteWrites(tData, 2) + 4 * GetTotalNByteWrites(tData, 4) + 8 * GetTotalNByteWrites(tData, 8) + 10 * GetTotalNByteWrites(tData, 10) + 16 * GetTotalNByteWrites(tData, 16) + GetTotalNByteWrites(tData, -1);
+    return measurementBaseCount;
+}
+
 
 // Prints the collected statistics on writes along with their sizes
 inline void PrintEachSizeWrite() {
@@ -1446,17 +1473,11 @@ VOID Fini(INT32 code, VOID* v) {
     // Serialize CCTLib
     SerializeMetadata("DeadSpy-CCTLib-database");
     // byte count
-    uint64_t measurementBaseCount = GetMeasurementBaseCount();
-    fprintf(gTraceFile, "\n#deads");
-    fprintf(gTraceFile, "\nGrandTotalWrites = %" PRIu64, measurementBaseCount);
-    fprintf(gTraceFile, "\nGrandTotalDead = %" PRIu64 " = %e%%", gTotalDead, gTotalDead * 100.0 / measurementBaseCount);
-#ifdef MULTI_THREADED
-    fprintf(gTraceFile, "\nGrandTotalMTDead = %" PRIu64 " = %e%%", gTotalMTDead, gTotalMTDead * 100.0 / measurementBaseCount);
-#endif // end MULTI_THREADED
+    fprintf(gTraceFile, "\n#Redundant Writes:");
+    fprintf(gTraceFile, "\nTotalBytesStored: %" PRIu64 "\n",grandTotBytesWritten);
+    fprintf(gTraceFile, "\nRedundantBytesWritten: %" PRIu64 " %.2f\n",grandTotBytesDead, grandTotBytesDead * 100.0/grandTotBytesWritten);
     fprintf(gTraceFile, "\n#eof");
     fclose(gTraceFile);
-    if(KnobTopN.Value())
-        topnStream.close();
 }
 
 
@@ -1556,104 +1577,106 @@ inline VOID PrintIPAndCallingContexts(const DeadInfoForPresentation& di, uint64_
 }
 
 
+struct RedundacyData {
+    ContextHandle_t dead;
+    ContextHandle_t kill;
+    uint64_t frequency;
+};
+
+static inline bool RedundacyCompare(const struct RedundacyData &first, const struct RedundacyData &second) {
+    return first.frequency > second.frequency ? true : false;
+}
+
+static void PrintRedundancyPairs(int threadId) {
+    vector<RedundacyData> tmpList;
+    
+    uint64_t grandTotalRedundantBytes = 0;
+    fprintf(gTraceFile, "*************** Dump Data from Thread %d ****************\n", threadId);
+    
+#ifdef MERGING
+    for (unordered_map<uint64_t, uint64_t>::iterator it = DeadMap[threadId].begin(); it != DeadMap[threadId].end(); ++it) {
+        ContextHandle_t dead = DECODE_DEAD((*it).first);
+        ContextHandle_t kill = DECODE_KILL((*it).first);
+        
+        for(tmpIt = tmpList.begin();tmpIt != tmpList.end(); ++tmpIt){
+            if(dead == 0 || ((*tmpIt).dead) == 0){
+                continue;
+            }
+            if (!HaveSameCallerPrefix(dead,(*tmpIt).dead)) {
+                continue;
+            }
+            if (!HaveSameCallerPrefix(kill,(*tmpIt).kill)) {
+                continue;
+            }
+            bool ct1 = IsSameSourceLine(dead,(*tmpIt).dead);
+            bool ct2 = IsSameSourceLine(kill,(*tmpIt).kill);
+            if(ct1 && ct2){
+                (*tmpIt).frequency += (*it).second;
+                grandTotalRedundantBytes += (*it).second;
+                break;
+            }
+        }
+        if(tmpIt == tmpList.end()){
+            RedundacyData tmp = { dead, kill, (*it).second};
+            tmpList.push_back(tmp);
+            grandTotalRedundantBytes += tmp.frequency;
+        }
+    }
+#else
+    for (unordered_map<uint64_t, uint64_t>::iterator it = DeadMap[threadId].begin(); it != DeadMap[threadId].end(); ++it) {
+        RedundacyData tmp = { DECODE_DEAD ((*it).first), DECODE_KILL((*it).first), (*it).second};
+        tmpList.push_back(tmp);
+        grandTotalRedundantBytes += tmp.frequency;
+    }
+#endif
+    
+    __sync_fetch_and_add(&grandTotBytesDead,grandTotalRedundantBytes);
+    
+    uint64_t totalWritesByThread = GetMeasurementBaseCount(threadId);
+    
+    fprintf(gTraceFile, "\n Total dead bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / totalWritesByThread);
+    
+    sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
+    int cntxtNum = 0;
+    for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
+        if (cntxtNum < MAX_REDUNDANT_CONTEXTS_TO_LOG) {
+            fprintf(gTraceFile, "\n======= (%f) %% ======\n", (*listIt).frequency * 100.0 / grandTotalRedundantBytes);
+            if ((*listIt).dead == 0) {
+                fprintf(gTraceFile, "\n Prepopulated with  by OS\n");
+            } else {
+                PrintFullCallingContext((*listIt).dead);
+            }
+            fprintf(gTraceFile, "\n---------------------Redundant load with---------------------------\n");
+            PrintFullCallingContext((*listIt).kill);
+        }
+        else {
+            break;
+        }
+        cntxtNum++;
+    }
+}
+
 // On each Unload of a loaded image, the accummulated deadness information is dumped
 VOID ImageUnload(IMG img, VOID* v) {
+    fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     // Update gTotalInstCount first
-    uint64_t measurementBaseCount =  GetMeasurementBaseCount();
-    fprintf(gTraceFile, "\nTotal Instr = %" PRIu64 , measurementBaseCount);
-    fflush(gTraceFile);
-    unordered_map<uint64_t, uint64_t>::iterator mapIt = DeadMap.begin();
-    map<MergedDeadInfo, uint64_t> mergedDeadInfoMap;
-
-    for(; mapIt != DeadMap.end(); mapIt++) {
-        MergedDeadInfo tmpMergedDeadInfo;
-        uint64_t hash = mapIt->first;
-        uint32_t ctxt1 = (hash >> 32);
-        uint32_t ctxt2 = (hash & 0xffffffff);
-        tmpMergedDeadInfo.context1 = ctxt1;
-        tmpMergedDeadInfo.context2 = ctxt2;
-        map<MergedDeadInfo, uint64_t>::iterator tmpIt;
-
-        if((tmpIt = mergedDeadInfoMap.find(tmpMergedDeadInfo)) == mergedDeadInfoMap.end()) {
-            mergedDeadInfoMap[tmpMergedDeadInfo] = mapIt->second;
-        } else {
-            tmpIt->second  += mapIt->second;
-        }
-    }
-
-    // clear dead map now
-    DeadMap.clear();
-    map<MergedDeadInfo, uint64_t>::iterator it = mergedDeadInfoMap.begin();
-    list<DeadInfoForPresentation> deadList;
-
-    for(; it != mergedDeadInfoMap.end(); it ++) {
-        DeadInfoForPresentation deadInfoForPresentation;
-        deadInfoForPresentation.pMergedDeadInfo = &(it->first);
-        deadInfoForPresentation.count = it->second;
-        deadList.push_back(deadInfoForPresentation);
-    }
-
-    deadList.sort(MergedDeadInfoComparer);
-    //present and delete all
-    list<DeadInfoForPresentation>::iterator dipIter = deadList.begin();
     PIN_LockClient();
-    uint64_t deads = 0;
-
-    for(; dipIter != deadList.end(); dipIter++) {
-#ifdef MULTI_THREADED
-        assert(0 && "NYI");
-#endif //end MULTI_THREADED
-
-        // Print just first MAX_DEAD_CONTEXTS_TO_LOG contexts
-        if(deads < MAX_DEAD_CONTEXTS_TO_LOG) {
-#if PIN_CRT != 1
-            try {
-                PrintIPAndCallingContexts(*dipIter, measurementBaseCount);
-            } catch(...) {
-                fprintf(gTraceFile, "\nexcept");
-            }
-#else
-            PrintIPAndCallingContexts(*dipIter, measurementBaseCount);
-#endif
-        } else {
-            // print only dead count
-#ifdef PRINT_ALL_CTXT
-            fprintf(gTraceFile, "\nCTXT_DEAD_CNT:%lu = %e", dipIter->count, dipIter->count * 100.0 / measurementBaseCount);
-#endif                //end PRINT_ALL_CTXT
-        }
-
-        gTotalDead += dipIter->count ;
-        deads++;
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+        if (DeadMap[i].empty())
+            break;
+        PrintRedundancyPairs(i);
     }
-
-static bool done = false;
-if(KnobTopN.Value() && (!done)){
-done = true;
-    // Produce a log of Top 10
-    dipIter = deadList.begin();
-     topnStream<<"<LOADMODULES>";
-     AppendLoadModulesToStream(topnStream);
-     topnStream<<"\n</LOADMODULES>\n<TOPN>";
-    for(UINT32 topN = 0; dipIter != deadList.end() && (topN <KnobTopN.Value()) ; dipIter++, topN++) {
-     topnStream <<"\n"<<(*dipIter).count<<":"<< (*dipIter).count * 1.0 / gTotalDead<<":";
-     LogContexts(topnStream, (*dipIter).pMergedDeadInfo->context2 /* kill first*/, (*dipIter).pMergedDeadInfo->context1);
-    }
-     topnStream<<"\n</TOPN>";
-}
-    PrintEachSizeWrite();
-#ifdef TESTING_BYTES
-    PrintInstructionBreakdown();
-#endif //end TESTING_BYTES
-#ifdef GATHER_STATS
-    PrintStats(deadList, deads);
-#endif //end GATHER_STATS
-    mergedDeadInfoMap.clear();
-    deadList.clear();
     PIN_UnlockClient();
+    // clear redmap now
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+        DeadMap[i].clear();
+    }
 }
 
-
+static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
+    __sync_fetch_and_add(&grandTotBytesWritten, GetMeasurementBaseCount(threadid));
+}
 
 
 
@@ -1741,6 +1764,9 @@ int main(int argc, char* argv[]) {
     TRACE_AddInstrumentFunction(InstrumentTrace, 0);
     // Register ImageUnload to be called when an image is unloaded
     IMG_AddUnloadFunction(ImageUnload, 0);
+    
+    // fini function for post-mortem analysis
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
     // Add a function to report entire stats at the termination.
     PIN_AddFiniFunction(Fini, 0);
     // Launch program now
