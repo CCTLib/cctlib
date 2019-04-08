@@ -214,6 +214,14 @@ struct RedSpyThreadData{
 static  TLS_KEY client_tls_key;
 static RedSpyThreadData* gSingleThreadedTData;
 
+//for statistics result
+volatile uint32_t gClientNumThreads;
+uint64_t grandTotBytesWritten;
+uint64_t grandTotBytesRedWrite;
+uint64_t grandTotBytesApproxRedWrite;
+
+
+
 #define MULTI_THREADED
 
 // function to access thread-specific data
@@ -1661,8 +1669,10 @@ static void PrintRedundancyPairs(THREADID threadId) {
     }
 #endif
     
-    fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
-    
+     __sync_fetch_and_add(&grandTotBytesRedWrite, grandTotalRedundantBytes);
+
+     fprintf(gTraceFile, "\n Total redundant bytes = (%.2e / %.2e) %f  %%\n", (double) grandTotalRedundantBytes, (double) ClientGetTLS(threadId)->bytesWritten, grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
+
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
     int cntxtNum = 0;
     for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
@@ -1727,8 +1737,9 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
     }
 #endif
     
-    fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
-    
+     __sync_fetch_and_add(&grandTotBytesApproxRedWrite, grandTotalRedundantBytes);
+
+     fprintf(gTraceFile, "\n Total appx redundant bytes = (%.2e / %.2e) %f  %%\n", (double) grandTotalRedundantBytes, (double) ClientGetTLS(threadId)->bytesWritten, grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesWritten);
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
     int cntxtNum = 0;
     for (vector<RedundacyData>::iterator listIt = tmpList.begin(); listIt != tmpList.end(); ++listIt) {
@@ -1751,20 +1762,33 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
 
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
-    fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");    
-    THREADID  threadid =  PIN_ThreadId();
+    fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
+    //THREADID  threadid =  PIN_ThreadId();
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     // Update gTotalInstCount first
     PIN_LockClient();
-    PrintRedundancyPairs(threadid);
-    PrintApproximationRedundancyPairs(threadid);
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+	fprintf(gTraceFile, "\n Thread %d of %d \n", i, gClientNumThreads);
+
+        if (!RedMap[i].empty())
+            PrintRedundancyPairs(i);
+        if(!ApproxRedMap[i].empty())
+            PrintApproximationRedundancyPairs(i);
+    }
     PIN_UnlockClient();
     // clear redmap now
-    RedMap[threadid].clear();
-    ApproxRedMap[threadid].clear();
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+        RedMap[i].clear();
+        ApproxRedMap[i].clear();
+    }
+    fprintf(gTraceFile, "\nRunning grandTotBytesWritten : %.2e \n", (double)grandTotBytesWritten);
+    fprintf(gTraceFile, "\nRunning grandTotBytesRedWritten: %.2e %f %%\n", (double)grandTotBytesRedWrite, grandTotBytesRedWrite * 100.0/grandTotBytesWritten);
+    fprintf(gTraceFile, "\nRunning grandTotBytesApproximateRedWrite: %.2e %f %%\n", (double)grandTotBytesApproxRedWrite, grandTotBytesApproxRedWrite * 100.0/grandTotBytesWritten);
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
+	__sync_fetch_and_add(&grandTotBytesWritten, ClientGetTLS(threadid)->bytesWritten);
+
 }
 
 static VOID FiniFunc(INT32 code, VOID *v) {
@@ -1789,7 +1813,7 @@ static void InitThreadData(RedSpyThreadData* tdata){
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
     RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(MAX_SIMD_ALIGNMENT,sizeof(RedSpyThreadData));
     InitThreadData(tdata);
-    //    __sync_fetch_and_add(&gClientNumThreads, 1);
+    __sync_fetch_and_add(&gClientNumThreads, 1);
 #ifdef MULTI_THREADED
     PIN_SetThreadData(client_tls_key, tdata, threadid);
 #else

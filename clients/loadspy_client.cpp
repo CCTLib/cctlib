@@ -159,6 +159,8 @@ int redload_metric_id = 0;
 int redload_approx_metric_id = 0;
 
 //for statistics result
+volatile uint32_t gClientNumThreads;
+
 uint64_t grandTotBytesLoad;
 uint64_t grandTotBytesRedLoad;
 uint64_t grandTotBytesApproxRedLoad;
@@ -896,7 +898,7 @@ static void PrintRedundancyPairs(THREADID threadId) {
     
     __sync_fetch_and_add(&grandTotBytesRedLoad,grandTotalRedundantBytes);
     
-    fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesLoad);
+     fprintf(gTraceFile, "\n Total redundant bytes = (%.2e / %.2e) %f  %%\n", (double) grandTotalRedundantBytes, (double) ClientGetTLS(threadId)->bytesLoad, grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesLoad);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
     int cntxtNum = 0;
@@ -963,7 +965,7 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
     
     __sync_fetch_and_add(&grandTotBytesApproxRedLoad,grandTotalRedundantBytes);
     
-    fprintf(gTraceFile, "\n Total redundant bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesLoad);
+    fprintf(gTraceFile, "\n Total appx redundant bytes = (%.2e / %.2e) %f  %%\n", (double)grandTotalRedundantBytes,  (double) ClientGetTLS(threadId)->bytesLoad, grandTotalRedundantBytes * 100.0 / ClientGetTLS(threadId)->bytesLoad);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
     int cntxtNum = 0;
@@ -1042,17 +1044,26 @@ static void HPCRunApproxRedundancyPairs(THREADID threadId) {
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
-    THREADID  threadid =  PIN_ThreadId();
+    //THREADID  threadid =  PIN_ThreadId();
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
-    if (RedMap[threadid].empty() && ApproxRedMap[threadid].empty()) return;
     // Update gTotalInstCount first
     PIN_LockClient();
-    PrintRedundancyPairs(threadid);
-    PrintApproximationRedundancyPairs(threadid);
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+	fprintf(gTraceFile, "\n Thread %d of %d \n", i, gClientNumThreads);
+        if (!RedMap[i].empty())
+            PrintRedundancyPairs(i);
+        if(!ApproxRedMap[i].empty())
+            PrintApproximationRedundancyPairs(i);
+    }
     PIN_UnlockClient();
     // clear redmap now
-    RedMap[threadid].clear();
-    ApproxRedMap[threadid].clear();
+    for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
+        RedMap[i].clear();
+        ApproxRedMap[i].clear();
+    }
+    fprintf(gTraceFile, "\nRunning grandTotBytesLoad : %.2e \n", (double)grandTotBytesLoad);
+    fprintf(gTraceFile, "\nRunning grandTotBytesRedLoad: %.2e %f %%\n", (double)grandTotBytesRedLoad, grandTotBytesRedLoad * 100.0/grandTotBytesLoad);
+    fprintf(gTraceFile, "\nRunning grandTotBytesApproximateRedLoad: %.2e %f %%\n", (double)grandTotBytesApproxRedLoad, grandTotBytesApproxRedLoad * 100.0/grandTotBytesLoad);
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
@@ -1105,7 +1116,7 @@ static void InitThreadData(RedSpyThreadData* tdata){
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
     RedSpyThreadData* tdata = (RedSpyThreadData*)memalign(32,sizeof(RedSpyThreadData));
     InitThreadData(tdata);
-    //    __sync_fetch_and_add(&gClientNumThreads, 1);
+    __sync_fetch_and_add(&gClientNumThreads, 1);
 #ifdef MULTI_THREADED
     PIN_SetThreadData(client_tls_key, tdata, threadid);
 #else
@@ -1120,6 +1131,7 @@ uint64_t computeMetricVal(void *metric)
     if (!metric) return 0;
     return (uint64_t)metric;
 }
+
 
 int main(int argc, char* argv[]) {
     // Initialize PIN
@@ -1159,5 +1171,6 @@ int main(int argc, char* argv[]) {
     PIN_StartProgram();
     return 0;
 }
+
 
 

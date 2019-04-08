@@ -1634,7 +1634,7 @@ static void PrintRedundancyPairs(int threadId) {
     
     uint64_t totalWritesByThread = GetMeasurementBaseCount(threadId);
     
-    fprintf(gTraceFile, "\n Total dead bytes = %f %%\n", grandTotalRedundantBytes * 100.0 / totalWritesByThread);
+    fprintf(gTraceFile, "\n Total dead bytes = (%.2e / %.2e) %f  %%\n", (double)grandTotalRedundantBytes, (double)totalWritesByThread, grandTotalRedundantBytes * 100.0 / totalWritesByThread);
     
     sort(tmpList.begin(), tmpList.end(), RedundacyCompare);
     int cntxtNum = 0;
@@ -1646,7 +1646,7 @@ static void PrintRedundancyPairs(int threadId) {
             } else {
                 PrintFullCallingContext((*listIt).dead);
             }
-            fprintf(gTraceFile, "\n---------------------Redundant load with---------------------------\n");
+            fprintf(gTraceFile, "\n---------------------killed by ---------------------------\n");
             PrintFullCallingContext((*listIt).kill);
         }
         else {
@@ -1664,7 +1664,9 @@ VOID ImageUnload(IMG img, VOID* v) {
     PIN_LockClient();
     for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
         if (DeadMap[i].empty())
-            break;
+            continue;
+        fprintf(gTraceFile, "\n Thread %d of %d \n", i, gClientNumThreads);
+
         PrintRedundancyPairs(i);
     }
     PIN_UnlockClient();
@@ -1672,6 +1674,9 @@ VOID ImageUnload(IMG img, VOID* v) {
     for(uint32_t i = 0 ; i < gClientNumThreads; i++) {
         DeadMap[i].clear();
     }
+    fprintf(gTraceFile, "\nRunning TotalBytesStored: %.2e \n", (double)grandTotBytesWritten);
+    fprintf(gTraceFile, "\nRunning RedundantBytesWritten: %.2e %f %%\n", (double)grandTotBytesDead, grandTotBytesDead * 100.0/grandTotBytesWritten);
+    fprintf(gTraceFile, "\n#eof");
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
