@@ -333,10 +333,31 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 #endif
 
-static inline bool IsFloatInstruction(ADDRINT ip) {
+// some mnemonics are not float even though they operate on FP operands
+// For example XED_ICLASS_FNSTCW class of instruction store FPU control word 
+// Certain FP instructions should not be approximated
+static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
+     xed_iclass_enum_t  iclass = xed_decoded_inst_get_iclass (&xedd);
+     switch(iclass) {
+        case XED_ICLASS_FLDENV:
+        case XED_ICLASS_FNSTENV:
+        case XED_ICLASS_FNSAVE:
+        case XED_ICLASS_FLDCW:
+        case XED_ICLASS_FNSTCW:
+        case XED_ICLASS_FNSTSW:
+        case XED_ICLASS_FXRSTOR:
+        case XED_ICLASS_FXRSTOR64:
+        case XED_ICLASS_FXSAVE:
+        case XED_ICLASS_FXSAVE64:
+                return false;
+        default:
+                return true;
+     }
+}
+
+static inline bool IsFloatInstructionAndOkToApproximate(ADDRINT ip) {
     xed_decoded_inst_t  xedd;
     xed_decoded_inst_zero_set_mode(&xedd, &RedSpyGlobals.xedState);
-
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
         switch (cat) {
@@ -373,7 +394,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
                     case XED_OPERAND_ELEMENT_TYPE_DOUBLE:
                     case XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE:
                     case XED_OPERAND_ELEMENT_TYPE_LONGBCD:
-                        return true;
+                        return IsOkToApproximate(xedd);
                     default:
                         return false;
                 }
@@ -384,7 +405,7 @@ static inline bool IsFloatInstruction(ADDRINT ip) {
                 //case XED_CATEGORY_LOGICAL_FP:
                 // assumption, the access length must be either 4 or 8 bytes else assert!!!
                 //assert(*accessLen == 4 || *accessLen == 8);
-                return true;
+                return IsOkToApproximate(xedd);
             case XED_CATEGORY_XSAVE:
             case XED_CATEGORY_AVX2GATHER:
             case XED_CATEGORY_STRINGOP:
@@ -429,6 +450,28 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
         if (TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE) {
             return 16;
         }
+
+#ifdef DEBUG_FPU_INS
+	switch (TypeOperand) {
+  		case XED_OPERAND_ELEMENT_TYPE_INVALID: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_INVALID"); break;
+  		case XED_OPERAND_ELEMENT_TYPE_UINT: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_UINT"); break;
+  		case XED_OPERAND_ELEMENT_TYPE_INT: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_INT"); break;
+  		case XED_OPERAND_ELEMENT_TYPE_SINGLE: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_SINGLE"); break;
+  		case XED_OPERAND_ELEMENT_TYPE_DOUBLE: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_DOUBLE"); break; 
+  		case XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE"); break; 
+  		case XED_OPERAND_ELEMENT_TYPE_LONGBCD: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_LONGBCD"); break; 
+  		case XED_OPERAND_ELEMENT_TYPE_STRUCT: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_STRUCT"); break; 
+  		case XED_OPERAND_ELEMENT_TYPE_VARIABLE: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_VARIABLE"); break; 
+  		case XED_OPERAND_ELEMENT_TYPE_FLOAT16: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_FLOAT16"); break; 
+  		case XED_OPERAND_ELEMENT_TYPE_LAST: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_LAST"); break; 
+	}
+
+	char xxx[200] = {0};
+	xed_decoded_inst_dump (&xedd, xxx, 200);
+	xed_format_context(XED_SYNTAX_ATT, &xedd, xxx, 200,  ip, 0, 0);
+	fprintf(stderr, " IP = %lx %s oper = %d\n", ip, xxx, oper);
+#endif // DEBUG_FPU_INS
+
         assert(0 && "float instruction with unknown operand\n");
         return 0;
     } else {
@@ -903,7 +946,7 @@ static inline void InstrumentAliasReg(INS ins, REG reg, uint16_t oper, uint32_t 
     uint32_t aliasIDs = GetAliasIDs(reg);
     uint8_t regId = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
     
-    if (IsFloatInstruction(INS_Address(ins))){
+    if (IsFloatInstructionAndOkToApproximate(INS_Address(ins))){
         switch (regSize) {
             case 1:
             case 2:
@@ -930,7 +973,7 @@ static inline void InstrumentAliasReg(INS ins, REG reg, uint16_t oper, uint32_t 
 static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_t opaqueHandle){
     uint32_t regSize = REG_Size(reg);
     
-    if (IsFloatInstruction(INS_Address(ins))){
+    if (IsFloatInstructionAndOkToApproximate(INS_Address(ins))){
         unsigned int operSize = FloatOperandSize(INS_Address(ins),oper);
         switch (regSize) {
             case 1:
@@ -1341,7 +1384,7 @@ struct RedSpyInstrument{
     static __attribute__((always_inline)) void InstrumentReadValueBeforeAndAfterWriting(INS ins, UINT32 memOp, uint32_t opaqueHandle){
         UINT32 refSize = INS_MemoryOperandSize(ins, memOp);
         
-        if (IsFloatInstruction(INS_Address(ins))) {
+        if (IsFloatInstructionAndOkToApproximate(INS_Address(ins))) {
             unsigned int operSize = FloatOperandSize(INS_Address(ins),INS_MemoryOperandIndexToOperandIndex(ins,memOp));
             switch(refSize) {
                 case 1:

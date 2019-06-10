@@ -274,6 +274,7 @@ static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
 	case XED_ICLASS_FNSAVE:
 	case XED_ICLASS_FLDCW:
 	case XED_ICLASS_FNSTCW:
+        case XED_ICLASS_FNSTSW:
 	case XED_ICLASS_FXRSTOR:
 	case XED_ICLASS_FXRSTOR64:
 	case XED_ICLASS_FXSAVE:
