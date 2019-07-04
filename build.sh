@@ -6,11 +6,11 @@
 set -ex
 #PATH_TO_PIN=/home/scratch/xl10/support/pin-2.14-71313-gcc.4.4.7-linux
 CUR_DIR=`pwd`
-PIN_REV=3.7-97619-g0d0c92f4f
-LinuxSuffix=gcc-linux.tar.gz
+PIN_REV=3.10-97971
+LinuxSuffix=gc5e41af74-gcc-linux.tar.gz
 MacSuffix=clang-mac.tar.gz
 
-PIN_WWW_PREFIX=http://software.intel.com/sites/landingpage/pintool/downloads/
+PIN_WWW_PREFIX=https://software.intel.com/sites/landingpage/pintool/downloads/
 WEB_FETCH=wget
 WEB_FETCH_OUTPUT_FLAG=" -O"
 os_type=`uname`

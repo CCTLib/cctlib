@@ -67,7 +67,7 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 
     // Data centric for mem inst
     // Skip call, ret and JMP instructions
-    if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {
+    if(INS_IsControlFlow(ins)) {
         return;
     }
 

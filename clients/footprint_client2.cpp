@@ -178,7 +178,7 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
     if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins)) return;
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
     {

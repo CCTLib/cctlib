@@ -1221,7 +1221,7 @@ VOID Instruction(INS ins, void* v, const uint32_t opaqueHandle) {
      prefixed instructions appear as predicated instructions in Pin. */
     // In Multi-threaded skip call, ret and JMP instructions
 #ifdef MULTI_THREADED
-    if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {
+    if(INS_IsControlFlow(ins)) {
         return;
     }
 

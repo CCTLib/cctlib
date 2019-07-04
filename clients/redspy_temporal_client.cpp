@@ -1438,7 +1438,7 @@ static inline bool INS_IsIgnorable(INS ins){
 #if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
        // INS_IsMaskedJump has disappeared in 3,7
 #else
-       || INS_IsMaskedJump(ins)
+       //|| INS_IsMaskedJump(ins)
 #endif
        )
         return true;
@@ -1466,7 +1466,7 @@ static inline bool REG_IsIgnorable(REG reg){
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_HasFallThrough(ins)) return;
     if (INS_IsIgnorable(ins))return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins)) return;
     
     //Instrument memory writes to find redundancy
     // Special case, if we have only one write operand
@@ -1579,7 +1579,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins)) continue;
             
             if(INS_IsMemoryWrite(ins)) {
                 totBytes += INS_MemoryWriteSize(ins);
@@ -1633,7 +1633,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins)) continue;
             
             if(INS_IsMemoryWrite(ins)) {
                 totBytes += INS_MemoryWriteSize(ins);

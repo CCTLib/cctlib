@@ -459,7 +459,7 @@ struct RedSpyInstrument{
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
     // if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins)) return;
     
     
     // Special case, if we have only one write operand

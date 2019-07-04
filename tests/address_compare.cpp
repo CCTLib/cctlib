@@ -223,7 +223,7 @@ VOID Checker(ADDRINT addr, ADDRINT ip, const CONTEXT *ctxt, UINT32 idx) {
 
 // Pin calls this function every time a new instruction is encountered
 VOID Instruction(INS ins, VOID *v) {
-	if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {
+	if(INS_IsControlFlow(ins)) {
 		return;
 	}
 

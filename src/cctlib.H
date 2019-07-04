@@ -15,6 +15,8 @@
 #define MAX_CCT_PATH_DEPTH (100)
 #define MAX_FILE_PATH   (200)
 
+using namespace std;
+
 namespace PinCCTLib {
 
     typedef uint32_t ContextHandle_t;

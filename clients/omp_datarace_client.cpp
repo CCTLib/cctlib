@@ -706,7 +706,7 @@ static inline bool IsIgnorableIns(INS ins){
         return true;
     
     // skip call, ret and JMP instructions
-    if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)){
+    if(INS_IsControlFlow(ins)){
         return true;
     }
     // If ins is in libgomp.so, or /lib64/ld-linux-x86-64.so.2 skip it
