@@ -140,10 +140,12 @@ static PIN_MUTEX  gMutex;
 // If it is one of ignoreable instructions, then skip instrumentation.
 bool IsIgnorableIns(INS ins){
     if( INS_IsFarJump(ins) || INS_IsDirectFarJump(ins)
+#ifdef PIN_PRODUCT_VERSION_MAJOR
 #if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
        // INS_IsMaskedJump has disappeared in 3,7
 #else
        || INS_IsMaskedJump(ins)
+#endif
 #endif
        )
         return true;

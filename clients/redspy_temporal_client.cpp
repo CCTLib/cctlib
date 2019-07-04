@@ -1006,6 +1006,8 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
         }
     }else{
         
+
+#ifdef PIN_PRODUCT_VERSION_MAJOR
 #if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
         //TODO .. Follow up https://groups.yahoo.com/neo/groups/pinheads/conversations/messages/13041
         return;
@@ -1014,6 +1016,9 @@ static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_
             HANDLE_SPECIALREG(1,reg);
             return;
         }
+#endif
+#else
+	return;
 #endif
         switch(regSize) {
             case 1: HANDLE_GENERAL(uint8_t); break;
@@ -1602,7 +1607,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
         
         if (BBL_InsTail(bbl) == BBL_InsHead(bbl)) {
             BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32,totBytes, IARG_THREAD_ID, IARG_CALL_ORDER, CALL_ORDER_FIRST, IARG_END);
-        }else if(INS_IsIndirectBranchOrCall(BBL_InsTail(bbl))){
+        }else if(INS_IsIndirectControlFlow(BBL_InsTail(bbl))){
             BBL_InsertCall(bbl,IPOINT_BEFORE,(AFUNPTR)UpdateAndCheck,IARG_UINT32, totInsInBbl, IARG_UINT32,totBytes, IARG_THREAD_ID,IARG_CALL_ORDER, CALL_ORDER_FIRST, IARG_END);
         }else{
             if (check) {
