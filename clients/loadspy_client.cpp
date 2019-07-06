@@ -296,6 +296,7 @@ static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
         case XED_ICLASS_FISTTP:
         case XED_ICLASS_FISUB:
         case XED_ICLASS_FISUBR:
+		return false;
 	default:
 		return true;
      }
