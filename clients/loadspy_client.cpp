@@ -280,6 +280,22 @@ static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
 	case XED_ICLASS_FXSAVE:
 	case XED_ICLASS_FXSAVE64:
 		return false;
+// These operations work on an integer data type and convert to FP.
+// It would be really complicated to get their data type since xed_decoded_inst_operand_element_type() fails.
+// Milind: a conscious decion to not approximate these.
+        case XED_ICLASS_FIADD:
+        case XED_ICLASS_FICOM:
+        case XED_ICLASS_FICOMP:
+        case XED_ICLASS_FIDIV:
+        case XED_ICLASS_FIDIVR:
+        case XED_ICLASS_FILD:
+        case XED_ICLASS_FIMUL:
+        case XED_ICLASS_FINCSTP:
+        case XED_ICLASS_FIST:
+        case XED_ICLASS_FISTP:
+        case XED_ICLASS_FISTTP:
+        case XED_ICLASS_FISUB:
+        case XED_ICLASS_FISUBR:
 	default:
 		return true;
      }

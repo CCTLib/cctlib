@@ -1793,6 +1793,7 @@ namespace PinCCTLib {
      * determined on this OS.
      */
     size_t getPeakRSS() {
+#ifdef PIN_PRODUCT_VERSION_MAJOR
 #if (PIN_PRODUCT_VERSION_MAJOR >= 3) && (PIN_PRODUCT_VERSION_MINOR >= 7)
         // What a shame
         return (0);
@@ -1800,6 +1801,9 @@ namespace PinCCTLib {
         struct rusage rusage;
         getrusage(RUSAGE_SELF, &rusage);
         return (size_t)(rusage.ru_maxrss);
+#endif
+#else
+        return (0);
 #endif
     }
 

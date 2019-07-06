@@ -349,6 +349,23 @@ static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
         case XED_ICLASS_FXRSTOR64:
         case XED_ICLASS_FXSAVE:
         case XED_ICLASS_FXSAVE64:
+
+// These operations work on an integer data type and convert to FP.
+// It would be really complicated to get their data type since xed_decoded_inst_operand_element_type() fails.
+// Milind: a conscious decion to not approximate these.
+	case XED_ICLASS_FIADD: 	
+	case XED_ICLASS_FICOM:
+	case XED_ICLASS_FICOMP: 	
+	case XED_ICLASS_FIDIV: 	
+	case XED_ICLASS_FIDIVR: 	
+	case XED_ICLASS_FILD:	
+	case XED_ICLASS_FIMUL: 	
+	case XED_ICLASS_FINCSTP: 	
+	case XED_ICLASS_FIST:
+	case XED_ICLASS_FISTP: 	
+	case XED_ICLASS_FISTTP: 	
+	case XED_ICLASS_FISUB:	
+	case XED_ICLASS_FISUBR: 
                 return false;
         default:
                 return true;
@@ -442,16 +459,12 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
     
     if(XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
         xed_operand_element_type_enum_t TypeOperand = xed_decoded_inst_operand_element_type(&xedd,oper);
-        if(TypeOperand == XED_OPERAND_ELEMENT_TYPE_SINGLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_FLOAT16)
-            return 4;
-        if (TypeOperand == XED_OPERAND_ELEMENT_TYPE_DOUBLE) {
-            return 8;
-        }
-        if (TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE) {
-            return 16;
-        }
+ 
 
 #ifdef DEBUG_FPU_INS
+	int opWidth = xed_decoded_inst_get_operand_width(&xedd);
+	fprintf(stderr, " xed_decoded_inst_get_operand_width %d", opWidth);
+	fprintf(stderr, " xed_decoded_inst_operand_length = %d", xed_decoded_inst_operand_length(&xedd, oper));
 	switch (TypeOperand) {
   		case XED_OPERAND_ELEMENT_TYPE_INVALID: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_INVALID"); break;
   		case XED_OPERAND_ELEMENT_TYPE_UINT: fprintf(stderr, " float instruction %s", "XED_OPERAND_ELEMENT_TYPE_UINT"); break;
@@ -471,6 +484,15 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
 	xed_format_context(XED_SYNTAX_ATT, &xedd, xxx, 200,  ip, 0, 0);
 	fprintf(stderr, " IP = %lx %s oper = %d\n", ip, xxx, oper);
 #endif // DEBUG_FPU_INS
+        if(TypeOperand == XED_OPERAND_ELEMENT_TYPE_SINGLE || TypeOperand == XED_OPERAND_ELEMENT_TYPE_FLOAT16)
+            return 4;
+        if (TypeOperand == XED_OPERAND_ELEMENT_TYPE_DOUBLE) {
+            return 8;
+        }
+        if (TypeOperand == XED_OPERAND_ELEMENT_TYPE_LONGDOUBLE) {
+            return 16;
+        }
+
 
         assert(0 && "float instruction with unknown operand\n");
         return 0;
