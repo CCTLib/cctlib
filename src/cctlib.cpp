@@ -2988,6 +2988,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         }
 
 //#if DISABLE_EXCEPTION_HANDLING
+        // No unwinding for flatprofiles
+        if(false == GLOBAL_STATE.flatProfile) {
 #if 1
 
         // Look for unwinding related routines present in libc.so.x file only
@@ -3136,7 +3138,8 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
         } // end strstr
 
 #endif
-        //end DISABLE_EXCEPTION_HANDLING
+//#endif        //end DISABLE_EXCEPTION_HANDLING
+        } // end flatProfile
 
         // For new DW2 exception handling, we need to reset the shadow stack to the current handler in the following functions:
         // 1. _Unwind_Reason_Code _Unwind_RaiseException ( struct _Unwind_Exception *exception_object );
