@@ -35,13 +35,25 @@ AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
+CCTLIB_EXTRA_CXXFLAGS="-Wno-maybe-uninitialized -Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
 else
-  CCTLIB_EXTRA_CPPFLAGS+="-DNDEBUG"
+  CCTLIB_EXTRA_CPPFLAGS+=" -DNDEBUG "
 fi
+
+#GCC 5.x changes the ABI, and we need to support the older ABI for Pin 2.4
+if  test `g++ -dumpversion | awk '{print $1>=5.0?"1":"0"}'` = 1 ; then
+    CCTLIB_EXTRA_CPPFLAGS+=" -fabi-version=2 "
+    CCTLIB_EXTRA_LDFLAGS+=" -fabi-version=2 "
+fi
+
+#GCC 7.x introduces -faligned-new
+if  test `g++ -dumpversion | awk '{print $1>=7.0?"1":"0"}'` = 1  ; then
+    CCTLIB_EXTRA_CPPFLAGS+=" -faligned-new "
+fi
+
 
 #-------------------------------------------------
 # Look for libelf
