@@ -85,7 +85,7 @@ sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_71_0-install/ --with-libraries="file
 cd $CUR_DIR/
 
 PATH_TO_PIN=$PIN_ROOT
-PATH_TO_GOOGLE_SPARSE_HASH=$CUR_DIR/sparsehash-2.0.2-install/
+PATH_TO_GOOGLE_SPARSE_HASH=$CUR_DIR/sparsehash-2.0.3-95e5e93-install/
 PATH_TO_BOOST=$CUR_DIR/boost_1_71_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
 #develop is off by default
