@@ -70,7 +70,7 @@ cd $CUR_DIR/externals/
 tar zxvf sparsehash-2.0.3-95e5e93.tar.gz
 rm -rf $CUR_DIR/sparsehash-2.0.3-95e5e93-install/ 
 cd sparsehash-2.0.3-95e5e93
-./configure --prefix=$CUR_DIR/sparsehash-2.0.3-95e5e93-install/ CXXFLAGS="-std=c++11 -fabi-version=2 -Wno-class-memaccess" 
+./configure --prefix=$CUR_DIR/sparsehash-2.0.3-95e5e93-install/ CXXFLAGS="-std=c++11 -Wno-class-memaccess" 
 make
 make install
 #### Boost ##############################################
@@ -78,7 +78,7 @@ cd $CUR_DIR/externals/
 tar jxvf boost_1_71_0.tar.bz2
 rm -rf $CUR_DIR/boost_1_71_0-install/
 cd boost_1_71_0
-sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_71_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11 -fabi-version=2" 
+sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_71_0-install/ --with-libraries="filesystem"  cxxflags="-std=c++11" 
 ./b2 -j 4
 ./b2 filesystem install
 #### CCTLib #############################################
