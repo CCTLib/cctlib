@@ -64,12 +64,14 @@ int main(int argc, char* argv[]) {
     ClientInit(argc, argv);
     // Init CCTLib postmortem analysis
     PinCCTLibInitForPostmortemAnalysis(gTraceFile, "DeadSpy-CCTLib-database");
+#if 0
     vector<Context>  contextVec;
     // Gather full human-readable calling context for a reasonably expected value of context handle.
     ContextHandle_t ctxtHndl = 1234; // some reasonably OK handle number
     GetFullCallingContext(ctxtHndl, contextVec);
     // Print to the log file full human-readable calling context.
     PrintFullCallingContext(ctxtHndl);
+#endif
     return 0;
 }
 

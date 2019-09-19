@@ -1197,6 +1197,16 @@ VOID Instruction(INS ins, void* v, const uint32_t opaqueHandle) {
     }
 
 #endif //end MULTI_THREADED
+
+    // XSAVEC and XRSTOR are problematic since its access length is variable. 
+    // Execution of XSAVEC is similar to that of XSAVE. XSAVEC differs from XSAVE in that it uses compaction and that it may use the init optimization.
+    // It fails with "Cannot use IARG_MEMORYWRITE_SIZE on non-standard memory access of instruction at 0xfoo: xsavec ptr [rsp]" error.
+    // A correct solution should use INS_hasKnownMemorySize() which is not available in Pin 2.14.
+    if(INS_Mnemonic(ins) == "XSAVEC")
+        return;
+    if(INS_Mnemonic(ins) == "XRSTOR")
+        return;
+
     // How may memory operations?
     UINT32 memOperands = INS_MemoryOperandCount(ins);
 #ifdef MULTI_THREADED

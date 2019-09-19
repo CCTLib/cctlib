@@ -37,12 +37,12 @@
 #include <setjmp.h>
 #include <sstream>
 #include <limits.h>
+#include <dirent.h>
 #include <unwind.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 
 #ifdef USE_BOOST
-#include <boost/filesystem.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
 #endif
@@ -71,9 +71,6 @@ using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
 using namespace std;
 
-#ifdef USE_BOOST
-namespace boostFS = ::boost::filesystem;
-#endif
 namespace PinCCTLib {
 
 // All globals
@@ -224,6 +221,7 @@ namespace PinCCTLib {
 
 // should become TLS
     struct ThreadData {
+        uint8_t pad0[CACHE_LINE_SIZE];
 #ifndef USE_SPLAY_TREE
         sparse_hash_map<ADDRINT, TraceNode*>::iterator gTraceIter;
 #endif
@@ -257,16 +255,20 @@ namespace PinCCTLib {
         size_t tlsDynamicMemoryAllocationSize;
         ContextHandle_t tlsDynamicMemoryAllocationPathHandle;
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
-        uint32_t rwLockStatus __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint8_t pad1[CACHE_LINE_SIZE];
+        uint32_t rwLockStatus;
+        uint8_t pad2[CACHE_LINE_SIZE];
         struct ConcurrentReaderWriterTree_t* tlsLatestConcurrentTree;
+        uint8_t pad3[CACHE_LINE_SIZE];
         volatile uint8_t tlsMallocDSAccessStatus;
+        uint8_t pad4[CACHE_LINE_SIZE];
 #endif
         // TODO .. identify why perf screws up w/o this buffer
-        uint32_t DUMMY_HELPS_PERF  __attribute__((aligned(CACHE_LINE_SIZE)));
         // For hpcrun format -- report the number of new CCT nodes
         uint64_t nodeCount;
         NewIPNode *tlsHPCRunCCTRoot;
-    } __attribute__((aligned));
+        uint8_t pad5[CACHE_LINE_SIZE];
+    };
 
 
 //DO_DATA_CENTRIC
@@ -292,11 +294,11 @@ namespace PinCCTLib {
     }
 
     struct PendingOps_t {
+        uint8_t pad0[CACHE_LINE_SIZE];
         uint8_t operation;
         varType var;
         PendingOps_t(const uint8_t o, varType const& v): operation(o), var(v) {}
-
-    } __attribute__((aligned(CACHE_LINE_SIZE)));
+    };
 
     enum {INSERT = 0, DELETE = 1};
 
@@ -356,26 +358,37 @@ namespace PinCCTLib {
         vector<ThreadData> deserializedCCTs;
         //dense_hash_map<ADDRINT, void *> traceShadowMap;
         unordered_map<uint32_t, void*> traceShadowMap;
+        uint8_t pad13[CACHE_LINE_SIZE];
         PIN_LOCK lock;
+        uint8_t pad0[CACHE_LINE_SIZE];
         // key for accessing TLS storage in the threads. initialized once in main()
-        TLS_KEY CCTLibTlsKey __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
-        uint32_t numThreads __attribute__((aligned(CACHE_LINE_SIZE))); // initial value = 0  // align to eliminate any false sharing with other  members
-        uint32_t curPreAllocatedStringPoolIndex __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
-        uint64_t curPreAllocatedContextBufferIndex __attribute__((aligned(CACHE_LINE_SIZE))); // align to eliminate any false sharing with other  members
+        TLS_KEY CCTLibTlsKey; // align to eliminate any false sharing with other  members
+        uint8_t pad1[CACHE_LINE_SIZE];
+        uint32_t numThreads;// initial value = 0  // align to eliminate any false sharing with other  members
+        uint8_t pad2[CACHE_LINE_SIZE];
+        uint32_t curPreAllocatedStringPoolIndex; // align to eliminate any false sharing with other  members
+        uint8_t pad3[CACHE_LINE_SIZE];
+        uint64_t curPreAllocatedContextBufferIndex; // align to eliminate any false sharing with other  members
+        uint8_t pad4[CACHE_LINE_SIZE];
         // keys to associate parent child threads
-        volatile uint64_t threadCreateCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
-        volatile uint64_t threadCaptureCount __attribute__((aligned(CACHE_LINE_SIZE))) ; // initial value = 0  // align to eliminate any false sharing with other  members
-        volatile TraceNode* threadCreatorTraceNode __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        volatile ContextHandle_t threadCreatorCtxtHndl __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        volatile uint64_t threadCreateCount; // initial value = 0  // align to eliminate any false sharing with other  members
+        uint8_t pad5[CACHE_LINE_SIZE];
+        volatile uint64_t threadCaptureCount; // initial value = 0  // align to eliminate any false sharing with other  members
+        uint8_t pad6[CACHE_LINE_SIZE];
+        volatile TraceNode* threadCreatorTraceNode; // align to eliminate any false sharing with other  members
+        uint8_t pad7[CACHE_LINE_SIZE];
+        volatile ContextHandle_t threadCreatorCtxtHndl; // align to eliminate any false sharing with other  members
+        uint8_t pad8[CACHE_LINE_SIZE];
         volatile bool DSLock;
+        uint8_t pad9[CACHE_LINE_SIZE];
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
         //Data centric support
-        unordered_map<UINT32, vector<PendingOps_t> > staticVariablesInModule
-        __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        volatile ConcurrentReaderWriterTree_t* latestConcurrentTree
-        __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
-        ConcurrentReaderWriterTree_t concurrentReaderWriterTree[2]
-        __attribute__((aligned(CACHE_LINE_SIZE)));  // align to eliminate any false sharing with other  members
+        unordered_map<UINT32, vector<PendingOps_t> > staticVariablesInModule;
+        uint8_t pad10[CACHE_LINE_SIZE];
+        volatile ConcurrentReaderWriterTree_t* latestConcurrentTree;
+        uint8_t pad11[CACHE_LINE_SIZE];
+        ConcurrentReaderWriterTree_t concurrentReaderWriterTree[2];
+        uint8_t pad12[CACHE_LINE_SIZE];
 #endif
     } static GLOBAL_STATE;
 
@@ -1283,33 +1296,50 @@ namespace PinCCTLib {
     }
 
 
-// return the filenames of all files that have the specified extension
-// in the specified directory and all subdirectories
-    static void GetAllFilesInDirWithExtn(const boostFS::path& root, const string& ext, vector<boostFS::path>& ret) {
-        if(!boostFS::exists(root)) return;
+    static bool IsDirectory(const char *path) {
+	    struct stat statbuf;
+	    if (stat(path, &statbuf) != 0)
+		    return 0;
+	    return S_ISDIR(statbuf.st_mode);
+    }
 
-        if(boostFS::is_directory(root)) {
-            boostFS::directory_iterator it(root);
-            boostFS::directory_iterator endit;
+    static bool endsWithExtn(const string&  base, const string& ext) {
+	    if (ext.size() > base.size()) 
+		    return false;
+	    return std::equal(base.begin() + base.size() - ext.size(), base.end(), ext.begin());
+    }
 
-            while(it != endit) {
-                if(boostFS::is_regular_file(*it) && it->path().extension() == ext) {
-                    ret.push_back(boostFS::system_complete(it->path()));
-                }
-
-                ++it;
-            }
-        }
+    // return the filenames of all files that have the specified extension
+    // in the specified directory and all subdirectories
+    static void GetAllFilesInDirWithExtn(const string& root, const string& ext, vector<string>& ret) {
+	    char resolvedPath[PATH_MAX]; 
+	    realpath(root.c_str(), resolvedPath);
+	    DIR* dirp = opendir(resolvedPath);
+	    if (NULL == dirp) {
+		    throw string("Directory does not exits" + root);
+	    }
+	    struct dirent * dp;
+	    while ((dp = readdir(dirp)) != NULL) {
+		    char concatedPath[PATH_MAX] = {0}; 
+		    strcat(concatedPath, resolvedPath);
+		    strcat(concatedPath, "/");
+		    strcat(concatedPath, dp->d_name);
+		    if (IsDirectory(concatedPath))
+			    continue;
+		    if (!endsWithExtn(string(concatedPath), ext))
+			    continue;
+		    ret.push_back(string(concatedPath));
+	    }
+	    closedir(dirp);
     }
 
     static void DeserializeAllCCTs() {
         // Get all files with
-        vector<boostFS::path> serializedCCTFiles;
+        vector<string> serializedCCTFiles;
         GetAllFilesInDirWithExtn(GLOBAL_STATE.serializationDirectory, SERIALIZED_CCT_FILE_EXTN, serializedCCTFiles);
-
         for(uint32_t id = 0 ; id < serializedCCTFiles.size(); id++) {
             std::stringstream cctMapFilePath;
-            cctMapFilePath << serializedCCTFiles[id].native();
+            cctMapFilePath << serializedCCTFiles[id];
             //fprintf(stderr, "\nexists = %d\n",boostFS::exists(serializedCCTFiles[id]));
             FILE* fp = fopen(cctMapFilePath.str().c_str(), "rb");
 
