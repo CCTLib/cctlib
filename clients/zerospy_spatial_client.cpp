@@ -942,6 +942,16 @@ static inline bool INS_IsIgnorable(INS ins){
         return true;
     else if(INS_IsPrefetch(ins)) // Prefetch instructions might access addresses which are invalid.
         return true;
+    // XSAVEC and XRSTOR are problematic since its access length is variable. 
+    // Execution of XSAVEC is similar to that of XSAVE. XSAVEC differs from XSAVE in that it uses compaction and that it may use the init optimization.
+    // It fails with "Cannot use IARG_MEMORYWRITE_SIZE on non-standard memory access of instruction at 0xfoo: xsavec ptr [rsp]" error.
+    // A correct solution should use INS_hasKnownMemorySize() which is not available in Pin 2.14.
+    if(INS_Mnemonic(ins) == "XSAVEC")
+        return true;
+    if(INS_Mnemonic(ins) == "XSAVE")
+        return true;
+    if(INS_Mnemonic(ins) == "XRSTOR")
+         return true;
     return false;
 }
 
