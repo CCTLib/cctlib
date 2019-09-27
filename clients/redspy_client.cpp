@@ -469,6 +469,8 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         return;
     if(INS_Mnemonic(ins) == "XRSTOR")
         return;
+    if(INS_Mnemonic(ins) == "XSAVE")
+        return;
     
     // Special case, if we have only one write operand
     UINT32 whichOp = 0;
