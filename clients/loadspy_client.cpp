@@ -951,6 +951,8 @@ static inline bool INS_IsIgnorable(INS ins){
     // A correct solution should use INS_hasKnownMemorySize() which is not available in Pin 2.14.
     if(INS_Mnemonic(ins) == "XSAVEC")
         return true;
+    if(INS_Mnemonic(ins) == "XSAVE")
+        return true;
     if(INS_Mnemonic(ins) == "XRSTOR")
          return true;
     return false;

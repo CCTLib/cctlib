@@ -1204,6 +1204,8 @@ VOID Instruction(INS ins, void* v, const uint32_t opaqueHandle) {
     // A correct solution should use INS_hasKnownMemorySize() which is not available in Pin 2.14.
     if(INS_Mnemonic(ins) == "XSAVEC")
         return;
+    if(INS_Mnemonic(ins) == "XSAVE")
+        return;
     if(INS_Mnemonic(ins) == "XRSTOR")
         return;
 
