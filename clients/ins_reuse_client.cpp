@@ -247,64 +247,74 @@ static inline uint64_t ComputeBlockReuseDistance(uint64_t prevTick, uint64_t new
 
 
 static inline void AnalyzeInsLevelReuse(void * insAddr, uint32_t numInsInBBL,  THREADID threadId){
-    assert(0 != numInsInBBL);
-    InsReuseThreadData* tData = ClientGetTLS(threadId);
-    tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = tData->smIns.GetOrCreateShadowBaseAddress((uint64_t)insAddr);
-    uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)insAddr)]);
-    
-    
-    uint64_t prevTick = *shadowMemAddr;
-    uint64_t newTick = tData->numInsExecuted;
-    
-    // Update the number of instructions executed
-    if (prevTick == 0 /* first use */) {
-        // no update needed
-        // However, needs a new insertion
-        auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
-        tData->insRBTree.Insert(newNode);
-    } else {
-        uint64_t reuseDistance = ComputeInsReuseDistance(prevTick,  tData->numInsExecuted, numInsInBBL, tData, & tData->insRBTree);
-        assert(FIRST_USE != reuseDistance);
-        UpdateInsReuseStats(reuseDistance, numInsInBBL, tData);
-    }
-    *shadowMemAddr = tData->numInsExecuted;
-    tData->numInsExecuted += numInsInBBL;
+	assert(0 != numInsInBBL);
+	InsReuseThreadData* tData = ClientGetTLS(threadId);
+	tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = tData->smIns.GetOrCreateShadowBaseAddress((uint64_t)insAddr);
+	uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)insAddr)]);
+
+
+	uint64_t prevTick = *shadowMemAddr;
+	uint64_t newTick = tData->numInsExecuted;
+
+	// Update the number of instructions executed
+	if (prevTick == 0 /* first use */) {
+		tData->numInsExecuted += numInsInBBL;
+		// However, needs a new insertion
+		auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
+		tData->insRBTree.Insert(newNode);
+		*shadowMemAddr = tData->numInsExecuted;
+	} else {
+		// Update the tick if prevTick != newTick
+		if (prevTick != newTick) {
+			tData->numInsExecuted += numInsInBBL;
+		}
+		uint64_t reuseDistance = ComputeInsReuseDistance(prevTick,  tData->numInsExecuted, numInsInBBL, tData, & tData->insRBTree);
+		assert(FIRST_USE != reuseDistance);
+		UpdateInsReuseStats(reuseDistance, numInsInBBL, tData);
+		*shadowMemAddr = tData->numInsExecuted;
+	}
 }
 
 template <int blockSize, int blkIdx>
 static inline void AnalyzeBlockLevelReuse(void * block, uint32_t numInsInBlock,  THREADID threadId){
-    assert(0 != numInsInBlock);
-    // blockSize must be a power of 2.
-    assert(1 == __builtin_popcountll(blockSize));
-    const size_t blockBits = __builtin_ctzll(blockSize);
-    const size_t blockMask = ~(blockSize-1);
-    
-    InsReuseThreadData* tData = ClientGetTLS(threadId);
-    auto blockData = & (tData->blockData[blkIdx]);
-    tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = blockData->sm.GetOrCreateShadowBaseAddress((size_t)block);
-    uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((size_t)block)]);
-    uint64_t prevTick = *shadowMemAddr;
-    
-    if (prevTick == 0 /* first use */) {
-        // needs a new insertion
-        auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(blockData->numBlocksCounter, numInsInBlock);
-        blockData->rbTree.Insert(newNode);
-        
-        if (numInsInBlock > 1) {
-            // The rest of the instructions on the same cacheline have a zero distance
-            blockData->reuseHisto[0] += numInsInBlock-1;
-        }
-    } else {
-        // TODO: Optimization: if the last block access is same as this one, we can bypass this RB-Tree deletion, insertion
-        // and instead directly increment the key. Need to be careful not to violate any tree properties.
-        // May have to check to make sure that the node value is also unchanged.
-        uint64_t reuseDistance = ComputeBlockReuseDistance(prevTick, blockData->numBlocksCounter, numInsInBlock, tData, & blockData->rbTree);
-        assert(FIRST_USE != reuseDistance);
-        UpdateBlockReuseStats(reuseDistance, numInsInBlock, blockData->reuseHisto);
-    }
-    *shadowMemAddr = blockData->numBlocksCounter;
-    // Update the tick
-    blockData->numBlocksCounter++;
+	assert(0 != numInsInBlock);
+	// blockSize must be a power of 2.
+	assert(1 == __builtin_popcountll(blockSize));
+	const size_t blockBits = __builtin_ctzll(blockSize);
+	const size_t blockMask = ~(blockSize-1);
+
+	InsReuseThreadData* tData = ClientGetTLS(threadId);
+	auto blockData = & (tData->blockData[blkIdx]);
+	tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = blockData->sm.GetOrCreateShadowBaseAddress((size_t)block);
+	uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((size_t)block)]);
+	uint64_t prevTick = *shadowMemAddr;
+
+	if (prevTick == 0 /* first use */) {
+		blockData->numBlocksCounter++;
+		// needs a new insertion
+		//auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(blockData->numBlocksCounter, numInsInBlock);
+		auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(blockData->numBlocksCounter, 1);
+		blockData->rbTree.Insert(newNode);
+
+		if (numInsInBlock > 1) {
+			// The rest of the instructions on the same cacheline have a zero distance
+			blockData->reuseHisto[0] += numInsInBlock-1;
+		}
+		*shadowMemAddr = blockData->numBlocksCounter;
+	} else {
+		// Update the tick if prevTick != blockData->numBlocksCounter
+		if (prevTick != blockData->numBlocksCounter) {
+			blockData->numBlocksCounter++;
+		}
+		// TODO: Optimization: if the last block access is same as this one, we can bypass this RB-Tree deletion, insertion
+		// and instead directly increment the key. Need to be careful not to violate any tree properties.
+		// May have to check to make sure that the node value is also unchanged.
+		//uint64_t reuseDistance = ComputeBlockReuseDistance(prevTick, blockData->numBlocksCounter, numInsInBlock, tData, & blockData->rbTree);
+		uint64_t reuseDistance = ComputeBlockReuseDistance(prevTick, blockData->numBlocksCounter, 1, tData, & blockData->rbTree);
+		assert(FIRST_USE != reuseDistance);
+		UpdateBlockReuseStats(reuseDistance, numInsInBlock, blockData->reuseHisto);
+		*shadowMemAddr = blockData->numBlocksCounter;
+	}
 }
 
 

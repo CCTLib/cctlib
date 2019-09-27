@@ -3,7 +3,7 @@
 CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
 include $(CONFIG_ROOT)/makefile.config
 
-APP_ROOTS = deadWrites threaded 
+APP_ROOTS = deadWrites threaded  reuseApp
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
 ALLOW_UNUSED_BUT_SET= -Wno-unused-but-set-variable

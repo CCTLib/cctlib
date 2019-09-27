@@ -220,7 +220,7 @@ top_srcdir = @top_srcdir@
 #include ../Makefile.inc
 #PIN_ROOT=$(PIN_PATH)
 CONFIG_ROOT = $(PIN_ROOT)/source/tools/Config
-APP_ROOTS = deadWrites threaded 
+APP_ROOTS = deadWrites threaded  reuseApp
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 ALLOW_UNUSED_BUT_SET = -Wno-unused-but-set-variable
 CCTLIB_TEST_FLAGS = $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)

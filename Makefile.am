@@ -32,6 +32,7 @@ if OPT_USE_BOOST
 endif
 #	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -ifeellucky -t tests/$(OBJDIR)/cct_data_centric_client_tree_based$(PINTOOL_SUFFIX)  -- tests/$(OBJDIR)/threaded > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "---TEST8 (patience)-----" && $(PIN_ROOT)/pin.sh -ifeellucky -t clients/$(OBJDIR)/redspy_client$(PINTOOL_SUFFIX)  -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "---TEST9 -----" && $(PIN_ROOT)/pin.sh -ifeellucky -t clients/$(OBJDIR)/ins_reuse_client$(PINTOOL_SUFFIX)  -- apps/$(OBJDIR)/reuseApp > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "*************************************************"
 	@echo "************* ALL TESTS PASSED ******************"
 	@echo "*************************************************"
