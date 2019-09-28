@@ -53,16 +53,13 @@ using namespace PinCCTLib;
 
 #define CACHELINE_BIT (6)
 #define CACHELINE_SIZE (1L<<CACHELINE_BIT)
-#define CACHELINE_MASK (CACHELINE_SIZE-1)
 
-#define GET_CACHELINE(addr) (((size_t)addr) & (~(CACHELINE_MASK)))
-#define GET_CACHELINE(addr) (((size_t)addr) & (~(CACHELINE_MASK)))
-
-#define NUM_BLOCKS (2)
+#define NUM_BLOCKS (3)
 
 #define FIRST_USE (ULLONG_MAX)
 
 #define MULTI_THREADED
+
 
 struct{
     char dummy1[128];
@@ -71,6 +68,15 @@ struct{
 } InsReuseGlobals;
 
 using RBTree_t = RBTree<uint64_t, uint32_t, uint64_t>;
+
+constexpr struct {
+  size_t blkSize;
+  char * blkDescription;
+} BLK_INFO[NUM_BLOCKS] = {
+  {CACHELINE_SIZE, (char *) "64B CacheLineReuse"},
+  {4096, (char *) "4K OS PageSizeReuse"},
+  {1L<<21, (char *) "2M Huge PageSizeReuse"},
+};
 
 struct InsReuseThreadData{
     char padding1[128];
@@ -90,6 +96,18 @@ struct InsReuseThreadData{
     bool sampleFlag;
     char padding2[128];
 };
+
+static struct {
+    PIN_LOCK lock;
+    uint64_t numInsExecuted;
+    uint64_t insReuseHisto[MAX_REUSE_DISTANCE_BINS];
+    struct{
+        uint64_t numBlocksCounter;
+        uint64_t reuseHisto[MAX_REUSE_DISTANCE_BINS];
+    } blockData[NUM_BLOCKS];
+} GLOBAL_STATS;
+
+
 
 // key for accessing TLS storage in the threads. initialized once in main()
 static  TLS_KEY client_tls_key;
@@ -170,6 +188,19 @@ static void ClientInit(int argc, char* argv[]) {
     // Init Xed
     // Init XED for decoding instructions
     xed_state_init(&InsReuseGlobals.xedState, XED_MACHINE_MODE_LONG_64, (xed_address_width_enum_t) 0, XED_ADDRESS_WIDTH_64b);
+
+    // init some globals
+    PIN_InitLock (&GLOBAL_STATS.lock);
+    GLOBAL_STATS.numInsExecuted = 0;
+    for (int i=0; i < MAX_REUSE_DISTANCE_BINS; i++) {
+    	GLOBAL_STATS.insReuseHisto[i] = 0;
+    }
+    for (int j = 0; j < NUM_BLOCKS; j++) { 
+        GLOBAL_STATS.blockData[j].numBlocksCounter = 0;
+        for (int i=0; i < MAX_REUSE_DISTANCE_BINS; i++) {
+    	    GLOBAL_STATS.blockData[j].reuseHisto[i] = 0;
+        }
+    } 
 }
 
 static inline void UpdateInsReuseStats(uint64_t distance, uint64_t count, InsReuseThreadData* tData){
@@ -380,8 +411,11 @@ static void InstrumentMemBlockLevelReuse(TRACE trace, void* f) {
 //instrument the trace, count the number of ins in the trace and instrument each BBL
 static void InstrumentTrace(TRACE trace, void* f) {
     InstrumentInsLevelReuse(trace, f);
-    InstrumentMemBlockLevelReuse<CACHELINE_SIZE, 0>(trace, f);
-    InstrumentMemBlockLevelReuse<4096, 1>(trace, f);
+    
+    // Not using a loop yet, although it can be done. I want to write it such that porting to non c++11 is not too hard.
+    InstrumentMemBlockLevelReuse<BLK_INFO[0].blkSize, 0>(trace, f);
+    InstrumentMemBlockLevelReuse<BLK_INFO[1].blkSize, 1>(trace, f);
+    InstrumentMemBlockLevelReuse<BLK_INFO[2].blkSize, 2>(trace, f);
 }
 
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
@@ -391,9 +425,6 @@ static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     PIN_LockClient();
     PIN_UnlockClient();
-}
-
-static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
 }
 
 static void DumpHisto(uint64_t * histo, string key){
@@ -406,6 +437,32 @@ static void DumpHisto(uint64_t * histo, string key){
         subNode.put(to_string(i), histo[i]);
     }
     ptTree.add_child(key, subNode);
+}
+
+static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
+    InsReuseThreadData* tData = ClientGetTLS(threadid);
+
+    // Take the good old lock (don't expect much contention unless threads are created and destroyed as if there is no tomorrow)
+    PIN_GetLock(&GLOBAL_STATS.lock, threadid);
+
+    GLOBAL_STATS.numInsExecuted += tData->numInsExecuted;
+    for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
+        GLOBAL_STATS.insReuseHisto[i] += tData->insReuseHisto[i];
+    }
+    fprintf(gTraceFile, "\nTID %d instruction-reuse histo", threadid);
+    DumpHisto(tData->insReuseHisto, "InsReuse");
+    
+    for(int j = 0; j < NUM_BLOCKS; j++) {
+        GLOBAL_STATS.blockData[j].numBlocksCounter += tData->blockData[j].numBlocksCounter;
+        for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
+            GLOBAL_STATS.blockData[j].reuseHisto[i] += tData->blockData[j].reuseHisto[i];
+        }
+        fprintf(gTraceFile, "\nTID %d %s histo", threadid, BLK_INFO[j].blkDescription);
+        DumpHisto(tData->blockData[j].reuseHisto, BLK_INFO[j].blkDescription);
+    }
+
+    // release the lock
+    PIN_ReleaseLock(&GLOBAL_STATS.lock);
 }
 
 /*
@@ -426,16 +483,14 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     struct timeval ut = rusage.ru_utime;
     struct timeval st = rusage.ru_stime;
     
-    
     THREADID  threadId =  PIN_ThreadId();
     InsReuseThreadData* tData = ClientGetTLS(threadId);
-    fprintf(gTraceFile, "\nInstruction-reuse histo");
-    DumpHisto(tData->insReuseHisto, "InsReuse");
-    fprintf(gTraceFile, "\nCL-reuse histo");
-    DumpHisto(tData->blockData[0].reuseHisto, "CacheLineReuse");
-    fprintf(gTraceFile, "\nOSPage-reuse histo");
-    DumpHisto(tData->blockData[1].reuseHisto, "OSPageReuse");
-    
+    fprintf(gTraceFile, "\nWhole program instruction-reuse histo (total ins executed = %lu)", GLOBAL_STATS.numInsExecuted);
+    DumpHisto(GLOBAL_STATS.insReuseHisto, "InsReuse");
+    for(int i = 0; i < NUM_BLOCKS; i++) {
+        fprintf(gTraceFile, "\nWhole program %s histo (total blks accessed = %lu)", BLK_INFO[i].blkDescription, GLOBAL_STATS.blockData[i].numBlocksCounter);
+        DumpHisto(GLOBAL_STATS.blockData[0].reuseHisto, BLK_INFO[i].blkDescription);
+    }
     ptTree.put("utime", to_string(ut.tv_sec * 1000000 + ut.tv_usec));
     ptTree.put("stime", to_string(st.tv_sec * 1000000 + st.tv_usec));
     ptTree.put("RSS", to_string(peakRSS));
