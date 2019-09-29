@@ -449,7 +449,8 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, V
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
         GLOBAL_STATS.insReuseHisto[i] += tData->insReuseHisto[i];
     }
-    fprintf(gTraceFile, "\nTID %d instruction-reuse histo", threadid);
+    fprintf(gTraceFile, "\nTID %d instruction-reuse histo (total ins executed = %lu)", threadid, tData->numInsExecuted);
+
     DumpHisto(tData->insReuseHisto, "InsReuse");
     
     for(int j = 0; j < NUM_BLOCKS; j++) {
@@ -457,7 +458,8 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, V
         for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
             GLOBAL_STATS.blockData[j].reuseHisto[i] += tData->blockData[j].reuseHisto[i];
         }
-        fprintf(gTraceFile, "\nTID %d %s histo", threadid, BLK_INFO[j].blkDescription);
+        fprintf(gTraceFile, "\nTID %d %s histo (total %zu byte blks accessed = %lu)", threadid, BLK_INFO[j].blkDescription, BLK_INFO[j].blkSize, tData->blockData[j].numBlocksCounter);
+
         DumpHisto(tData->blockData[j].reuseHisto, BLK_INFO[j].blkDescription);
     }
 
@@ -488,9 +490,16 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     fprintf(gTraceFile, "\nWhole program instruction-reuse histo (total ins executed = %lu)", GLOBAL_STATS.numInsExecuted);
     DumpHisto(GLOBAL_STATS.insReuseHisto, "InsReuse");
     for(int i = 0; i < NUM_BLOCKS; i++) {
-        fprintf(gTraceFile, "\nWhole program %s histo (total blks accessed = %lu)", BLK_INFO[i].blkDescription, GLOBAL_STATS.blockData[i].numBlocksCounter);
-        DumpHisto(GLOBAL_STATS.blockData[0].reuseHisto, BLK_INFO[i].blkDescription);
+        fprintf(gTraceFile, "\nWhole program %s histo (total %zu byte blks accessed = %lu)", BLK_INFO[i].blkDescription, BLK_INFO[i].blkSize, GLOBAL_STATS.blockData[i].numBlocksCounter);
+        DumpHisto(GLOBAL_STATS.blockData[i].reuseHisto, BLK_INFO[i].blkDescription);
     }
+
+    fprintf(gTraceFile, "\n ------- \n");
+    fprintf(gTraceFile, "\nutime: %lu", ut.tv_sec * 1000000 + ut.tv_usec);
+    fprintf(gTraceFile, "\nstime: %lu", st.tv_sec * 1000000 + st.tv_usec);
+    fprintf(gTraceFile, "\nRSS: %zu", peakRSS);
+    fprintf(gTraceFile, "\n EOF");
+
     ptTree.put("utime", to_string(ut.tv_sec * 1000000 + ut.tv_usec));
     ptTree.put("stime", to_string(st.tv_sec * 1000000 + st.tv_usec));
     ptTree.put("RSS", to_string(peakRSS));
