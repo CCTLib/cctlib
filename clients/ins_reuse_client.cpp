@@ -428,8 +428,12 @@ static VOID ImageUnload(IMG img, VOID* v) {
 }
 
 static void DumpHisto(uint64_t * histo, string key){
+    double total = 0;
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
-        fprintf(gTraceFile, "\n %d %lu", i, histo[i]);
+        total += histo[i];
+    }
+    for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
+        fprintf(gTraceFile, "\n %2d %e (%.2lf%%)", i, (double) histo[i], histo[i]/total*100);
     }
     
     pt::ptree subNode;
