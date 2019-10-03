@@ -201,6 +201,7 @@ static void ClientInit(int argc, char* argv[]) {
     	    GLOBAL_STATS.blockData[j].reuseHisto[i] = 0;
         }
     } 
+    fflush(gTraceFile);
 }
 
 static inline void UpdateInsReuseStats(uint64_t distance, uint64_t count, InsReuseThreadData* tData){
@@ -435,6 +436,7 @@ static void DumpHisto(uint64_t * histo, string key){
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
         fprintf(gTraceFile, "\n %2d %e (%.2lf%%)", i, (double) histo[i], histo[i]/total*100);
     }
+    fflush(gTraceFile);
     
     pt::ptree subNode;
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
