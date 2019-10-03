@@ -4077,7 +4077,7 @@ CCTLIB_EXTRA_CXXFLAGS="-Wno-maybe-uninitialized -Wno-unused-result -Wno-unused-v
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
 else
-  CCTLIB_EXTRA_CPPFLAGS+=" -DNDEBUG "
+  CCTLIB_EXTRA_CPPFLAGS+=" -DNDEBUG -g "
 fi
 
 #GCC 5.x changes the ABI, and we need to support the older ABI for Pin 2.4
