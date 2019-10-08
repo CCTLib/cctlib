@@ -90,6 +90,7 @@ struct InsReuseThreadData{
         RBTree_t rbTree;
         uint64_t numBlocksCounter;
         uint64_t reuseHisto[MAX_REUSE_DISTANCE_BINS];
+        void * prevBlock;
         ShadowMemory<uint64_t> sm;
     } blockData[NUM_BLOCKS];
     
@@ -240,7 +241,9 @@ static inline void UpdateBlockReuseStats(uint64_t distance, uint64_t count, uint
     // One instruction is at this distance
     reuseHisto[bin] ++;
     // The rest of the instructions on the same cacheline have a zero distance
-    reuseHisto[0] += count-1;
+    if (count > 1) {
+        reuseHisto[0] += count-1;
+    }
 }
 
 static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData * tData, RBTree_t * rbt){
@@ -312,41 +315,42 @@ static inline void AnalyzeBlockLevelReuse(void * block, uint32_t numInsInBlock, 
 	assert(0 != numInsInBlock);
 	// blockSize must be a power of 2.
 	assert(1 == __builtin_popcountll(blockSize));
-	const size_t blockBits = __builtin_ctzll(blockSize);
-	const size_t blockMask = ~(blockSize-1);
 
 	InsReuseThreadData* tData = ClientGetTLS(threadId);
 	auto blockData = & (tData->blockData[blkIdx]);
+
+	// Fast path: if block == prevBlock, simply increment the histo with 0 reuse distance and return
+	if (blockData->prevBlock == block) {
+		UpdateBlockReuseStats(0 /*reuseDistance*/, numInsInBlock, blockData->reuseHisto);
+		return;
+	}
+	// update blockData->prevBlock to block.
+	blockData->prevBlock = block;
+
 	tuple<uint64_t[SHADOW_PAGE_SIZE]> &t = blockData->sm.GetOrCreateShadowBaseAddress((size_t)block);
 	uint64_t * shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((size_t)block)]);
 	uint64_t prevTick = *shadowMemAddr;
+	uint64_t newTick = ++blockData->numBlocksCounter;
 
 	if (prevTick == 0 /* first use */) {
-		blockData->numBlocksCounter++;
 		// needs a new insertion
-		//auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(blockData->numBlocksCounter, numInsInBlock);
-		auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(blockData->numBlocksCounter, 1);
+		auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(newTick, 1);
 		blockData->rbTree.Insert(newNode);
 
 		if (numInsInBlock > 1) {
 			// The rest of the instructions on the same cacheline have a zero distance
 			blockData->reuseHisto[0] += numInsInBlock-1;
 		}
-		*shadowMemAddr = blockData->numBlocksCounter;
 	} else {
-		// Update the tick if prevTick != blockData->numBlocksCounter
-		if (prevTick != blockData->numBlocksCounter) {
-			blockData->numBlocksCounter++;
-		}
 		// TODO: Optimization: if the last block access is same as this one, we can bypass this RB-Tree deletion, insertion
 		// and instead directly increment the key. Need to be careful not to violate any tree properties.
 		// May have to check to make sure that the node value is also unchanged.
 		//uint64_t reuseDistance = ComputeBlockReuseDistance(prevTick, blockData->numBlocksCounter, numInsInBlock, tData, & blockData->rbTree);
-		uint64_t reuseDistance = ComputeBlockReuseDistance(prevTick, blockData->numBlocksCounter, 1, tData, & blockData->rbTree);
+		uint64_t reuseDistance = ComputeBlockReuseDistance(prevTick, newTick, 1, tData, &blockData->rbTree);
 		assert(FIRST_USE != reuseDistance);
 		UpdateBlockReuseStats(reuseDistance, numInsInBlock, blockData->reuseHisto);
-		*shadowMemAddr = blockData->numBlocksCounter;
 	}
+	*shadowMemAddr = newTick;
 }
 
 
@@ -522,6 +526,7 @@ static void InitThreadData(InsReuseThreadData* tdata){
 
     for (int i = 0; i < NUM_BLOCKS; i++) {
         tdata->blockData[i].numBlocksCounter = 0x42; // the start of clock
+        tdata->blockData[i].prevBlock = NULL; // last accessed block
         memset(tdata->blockData[i].reuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
     }
     
