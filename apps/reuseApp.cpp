@@ -6,7 +6,7 @@
 #include<assert.h>
 #define RET 0xC3
 #define NOP 0x90
-#define MAX_SZ (15)
+#define MAX_SZ (17)
 #define REUSE_ITER (4000)
 
 typedef void (*FTR)();
