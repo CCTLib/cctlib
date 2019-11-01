@@ -3866,8 +3866,10 @@ hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE
   mdesc.description = (char*) name; // TODO
   mdesc.period = period;
   mdesc.flags.fields.ty        = MetricFlags_Ty_Raw;
-  MetricFlags_ValFmt_t valFmt  = (MetricFlags_ValFmt_t) 1;
+  MetricFlags_ValFmt_t valFmt  = (MetricFlags_ValFmt_t) 2;
   mdesc.flags.fields.valFmt    = valFmt;
+  mdesc.flags.fields.show      = true;
+  mdesc.flags.fields.showPercent  = true;
   mdesc.formula = NULL;
   mdesc.format = NULL;
   mdesc.is_frequency_metric = 0;
@@ -3883,7 +3885,7 @@ hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE
   // write auxaliary description to the table.
   // These values are only related to perf, not applicable to cctlib, so set all to 0
   hpcfmt_int2_fwrite(0, fs);
-  hpcfmt_int8_fwrite(0, fs);
+  hpcfmt_int8_fwrite(0, fs); 
   hpcfmt_int8_fwrite(0, fs);
 }
 
