@@ -3866,7 +3866,7 @@ hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period, FILE
   mdesc.description = (char*) name; // TODO
   mdesc.period = period;
   mdesc.flags.fields.ty        = MetricFlags_Ty_Raw;
-  MetricFlags_ValFmt_t valFmt  = (MetricFlags_ValFmt_t) 2;
+  MetricFlags_ValFmt_t valFmt  = (MetricFlags_ValFmt_t) 1;
   mdesc.flags.fields.valFmt    = valFmt;
   mdesc.flags.fields.show      = true;
   mdesc.flags.fields.showPercent  = true;
