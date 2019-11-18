@@ -23,6 +23,7 @@
 #include <bits/stdc++.h>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/optional.hpp>
 
 #include "pin.H"
 #include "cctlib.H"
@@ -432,7 +433,7 @@ static VOID ImageUnload(IMG img, VOID* v) {
     PIN_UnlockClient();
 }
 
-static void DumpHisto(uint64_t * histo, string key){
+static void DumpHisto(uint64_t * histo, uint64_t footprint, string key1, string key2){
     double total = 0;
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
         total += histo[i];
@@ -442,11 +443,27 @@ static void DumpHisto(uint64_t * histo, string key){
     }
     fflush(gTraceFile);
     
-    pt::ptree subNode;
+    pt::ptree  subNode;
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
-        subNode.put(to_string(i), histo[i]);
+        pt::ptree children;
+        pt::ptree child1, child2;
+        child1.put("", histo[i]);
+        child2.put("", histo[i]/total*100);
+        children.push_back(std::make_pair("", child1));
+        children.push_back(std::make_pair("", child2));
+        subNode.push_back(std::make_pair(to_string(i), children));
     }
-    ptTree.add_child(key, subNode);
+    subNode.put("footprint", footprint);
+    
+    auto c = ptTree.get_child_optional(key1);
+    if (!c) {
+        pt::ptree p;
+        p.push_back(std::make_pair(key2, subNode));
+        ptTree.push_back(std::make_pair(key1, p));
+    } else {
+        c.get().push_back(std::make_pair(key2, subNode));
+    }
+    
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
@@ -461,7 +478,7 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, V
     }
     fprintf(gTraceFile, "\nTID %d instruction-reuse histo (total ins executed = %lu)", threadid, tData->numInsExecuted);
 
-    DumpHisto(tData->insReuseHisto, "InsReuse");
+    DumpHisto(tData->insReuseHisto, tData->numInsExecuted,"TID " + to_string(threadid), "InsReuse");
     
     for(int j = 0; j < NUM_BLOCKS; j++) {
         GLOBAL_STATS.blockData[j].numBlocksCounter += tData->blockData[j].numBlocksCounter;
@@ -470,7 +487,7 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, V
         }
         fprintf(gTraceFile, "\nTID %d %s histo (total %zu byte blks accessed = %lu)", threadid, BLK_INFO[j].blkDescription, BLK_INFO[j].blkSize, tData->blockData[j].numBlocksCounter);
 
-        DumpHisto(tData->blockData[j].reuseHisto, BLK_INFO[j].blkDescription);
+        DumpHisto(tData->blockData[j].reuseHisto, tData->blockData[j].numBlocksCounter, "TID " + to_string(threadid), BLK_INFO[j].blkDescription);
     }
 
     // release the lock
@@ -498,10 +515,11 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     THREADID  threadId =  PIN_ThreadId();
     InsReuseThreadData* tData = ClientGetTLS(threadId);
     fprintf(gTraceFile, "\nWhole program instruction-reuse histo (total ins executed = %lu)", GLOBAL_STATS.numInsExecuted);
-    DumpHisto(GLOBAL_STATS.insReuseHisto, "InsReuse");
+    DumpHisto(GLOBAL_STATS.insReuseHisto, GLOBAL_STATS.numInsExecuted, "Whole program", "InsReuse");
     for(int i = 0; i < NUM_BLOCKS; i++) {
         fprintf(gTraceFile, "\nWhole program %s histo (total %zu byte blks accessed = %lu)", BLK_INFO[i].blkDescription, BLK_INFO[i].blkSize, GLOBAL_STATS.blockData[i].numBlocksCounter);
-        DumpHisto(GLOBAL_STATS.blockData[i].reuseHisto, BLK_INFO[i].blkDescription);
+	DumpHisto(GLOBAL_STATS.blockData[i].reuseHisto, GLOBAL_STATS.blockData[i].numBlocksCounter, "Whole program", BLK_INFO[i].blkDescription);
+
     }
 
     fprintf(gTraceFile, "\n ------- \n");
