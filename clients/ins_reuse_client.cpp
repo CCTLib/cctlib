@@ -85,11 +85,13 @@ struct InsReuseThreadData{
     long long numIns;
     RBTree_t insRBTree;
     uint64_t numInsExecuted;
+    uint64_t footprint;
     uint64_t insReuseHisto[MAX_REUSE_DISTANCE_BINS];
     ShadowMemory<uint64_t> smIns;
     struct{
         RBTree_t rbTree;
         uint64_t numBlocksCounter;
+        uint64_t footprint;
         uint64_t reuseHisto[MAX_REUSE_DISTANCE_BINS];
         void * prevBlock;
         ShadowMemory<uint64_t> sm;
@@ -102,9 +104,11 @@ struct InsReuseThreadData{
 static struct {
     PIN_LOCK lock;
     uint64_t numInsExecuted;
+    uint64_t footprint;
     uint64_t insReuseHisto[MAX_REUSE_DISTANCE_BINS];
     struct{
         uint64_t numBlocksCounter;
+        uint64_t footprint;
         uint64_t reuseHisto[MAX_REUSE_DISTANCE_BINS];
     } blockData[NUM_BLOCKS];
 } GLOBAL_STATS;
@@ -194,11 +198,13 @@ static void ClientInit(int argc, char* argv[]) {
     // init some globals
     PIN_InitLock (&GLOBAL_STATS.lock);
     GLOBAL_STATS.numInsExecuted = 0;
+    GLOBAL_STATS.footprint = 0;
     for (int i=0; i < MAX_REUSE_DISTANCE_BINS; i++) {
     	GLOBAL_STATS.insReuseHisto[i] = 0;
     }
     for (int j = 0; j < NUM_BLOCKS; j++) { 
         GLOBAL_STATS.blockData[j].numBlocksCounter = 0;
+        GLOBAL_STATS.blockData[j].footprint = 0;
         for (int i=0; i < MAX_REUSE_DISTANCE_BINS; i++) {
     	    GLOBAL_STATS.blockData[j].reuseHisto[i] = 0;
         }
@@ -295,6 +301,7 @@ static inline void AnalyzeInsLevelReuse(void * insAddr, uint32_t numInsInBBL,  T
 	// Update the number of instructions executed
 	if (prevTick == 0 /* first use */) {
 		tData->numInsExecuted += numInsInBBL;
+		tData->footprint += numInsInBBL;
 		// However, needs a new insertion
 		auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
 		tData->insRBTree.Insert(newNode);
@@ -337,6 +344,7 @@ static inline void AnalyzeBlockLevelReuse(void * block, uint32_t numInsInBlock, 
 		// needs a new insertion
 		auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(newTick, 1);
 		blockData->rbTree.Insert(newNode);
+		blockData->footprint ++;
 
 		if (numInsInBlock > 1) {
 			// The rest of the instructions on the same cacheline have a zero distance
@@ -447,13 +455,19 @@ static void DumpHisto(uint64_t * histo, uint64_t footprint, string key1, string 
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
         pt::ptree children;
         pt::ptree child1, child2;
-        child1.put("", histo[i]);
-        child2.put("", histo[i]/total*100);
+	std::stringstream ss;
+	ss << std::scientific << (double)histo[i];
+        child1.put("", ss.str());
+	std::stringstream ss2;
+	ss2 << std::scientific << histo[i]/total*100;
+        child2.put("", ss2.str());
         children.push_back(std::make_pair("", child1));
         children.push_back(std::make_pair("", child2));
         subNode.push_back(std::make_pair(to_string(i), children));
     }
-    subNode.put("footprint", footprint);
+    std::stringstream ss;
+    ss << std::scientific << (double)footprint;
+    subNode.put("footprint", ss.str());
     
     auto c = ptTree.get_child_optional(key1);
     if (!c) {
@@ -473,21 +487,23 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, V
     PIN_GetLock(&GLOBAL_STATS.lock, threadid);
 
     GLOBAL_STATS.numInsExecuted += tData->numInsExecuted;
+    // can't add the footprint because it is not additive (non unique)
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
         GLOBAL_STATS.insReuseHisto[i] += tData->insReuseHisto[i];
     }
-    fprintf(gTraceFile, "\nTID %d instruction-reuse histo (total ins executed = %lu)", threadid, tData->numInsExecuted);
+    fprintf(gTraceFile, "\nTID %d instruction-reuse histo (ins footprint = %e)", threadid, (double)tData->footprint);
 
-    DumpHisto(tData->insReuseHisto, tData->numInsExecuted,"TID " + to_string(threadid), "InsReuse");
+    DumpHisto(tData->insReuseHisto, tData->footprint,"TID " + to_string(threadid), "InsReuse");
     
     for(int j = 0; j < NUM_BLOCKS; j++) {
         GLOBAL_STATS.blockData[j].numBlocksCounter += tData->blockData[j].numBlocksCounter;
+	// can't add the footprint because it is not additive (non unique)
         for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
             GLOBAL_STATS.blockData[j].reuseHisto[i] += tData->blockData[j].reuseHisto[i];
         }
-        fprintf(gTraceFile, "\nTID %d %s histo (total %zu byte blks accessed = %lu)", threadid, BLK_INFO[j].blkDescription, BLK_INFO[j].blkSize, tData->blockData[j].numBlocksCounter);
+        fprintf(gTraceFile, "\nTID %d %s histo (%zu byte blks footprint = %e)", threadid, BLK_INFO[j].blkDescription, BLK_INFO[j].blkSize, (double) tData->blockData[j].footprint);
 
-        DumpHisto(tData->blockData[j].reuseHisto, tData->blockData[j].numBlocksCounter, "TID " + to_string(threadid), BLK_INFO[j].blkDescription);
+        DumpHisto(tData->blockData[j].reuseHisto, tData->blockData[j].footprint, "TID " + to_string(threadid), BLK_INFO[j].blkDescription);
     }
 
     // release the lock
@@ -514,11 +530,11 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     
     THREADID  threadId =  PIN_ThreadId();
     InsReuseThreadData* tData = ClientGetTLS(threadId);
-    fprintf(gTraceFile, "\nWhole program instruction-reuse histo (total ins executed = %lu)", GLOBAL_STATS.numInsExecuted);
-    DumpHisto(GLOBAL_STATS.insReuseHisto, GLOBAL_STATS.numInsExecuted, "Whole program", "InsReuse");
+    fprintf(gTraceFile, "\nWhole program instruction-reuse histo ((ins footprint = %e)", (double)GLOBAL_STATS.footprint);
+    DumpHisto(GLOBAL_STATS.insReuseHisto, GLOBAL_STATS.footprint /* basically 0 */, "Whole program", "InsReuse");
     for(int i = 0; i < NUM_BLOCKS; i++) {
-        fprintf(gTraceFile, "\nWhole program %s histo (total %zu byte blks accessed = %lu)", BLK_INFO[i].blkDescription, BLK_INFO[i].blkSize, GLOBAL_STATS.blockData[i].numBlocksCounter);
-	DumpHisto(GLOBAL_STATS.blockData[i].reuseHisto, GLOBAL_STATS.blockData[i].numBlocksCounter, "Whole program", BLK_INFO[i].blkDescription);
+        fprintf(gTraceFile, "\nWhole program %s histo (%zu byte blks footprint = %e)", BLK_INFO[i].blkDescription, BLK_INFO[i].blkSize, (double)GLOBAL_STATS.blockData[i].footprint);
+	DumpHisto(GLOBAL_STATS.blockData[i].reuseHisto, GLOBAL_STATS.blockData[i].footprint /* basically 0*/, "Whole program", BLK_INFO[i].blkDescription);
 
     }
 
@@ -544,11 +560,13 @@ static void InitThreadData(InsReuseThreadData* tdata){
 
     for (int i = 0; i < NUM_BLOCKS; i++) {
         tdata->blockData[i].numBlocksCounter = 0x42; // the start of clock
+        tdata->blockData[i].footprint = 0; // the start of clock
         tdata->blockData[i].prevBlock = NULL; // last accessed block
         memset(tdata->blockData[i].reuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
     }
     
     tdata->numInsExecuted = 0x42; // the start of clock
+    tdata->footprint = 0x0; // the start of clock
     memset(tdata->insReuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
 }
 
