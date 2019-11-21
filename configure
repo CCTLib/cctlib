@@ -592,6 +592,7 @@ LIBOBJS
 CCTLIB_EXTRA_CXXFLAGS
 CCTLIB_EXTRA_CPPFLAGS
 DEBUG
+JSON_PATH
 LIBELF_PATH
 BOOST_PATH
 SPARSEHASH_PATH
@@ -702,6 +703,7 @@ enable_maintainer_mode
 enable_dependency_tracking
 enable_develop
 with_libelf
+with_json
 with_Pin
 with_boost
 with_sparse_hash
@@ -1357,6 +1359,8 @@ Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-libelf=PATH      use given libelf installation (absolute path) with
+                          CCTLib
+  --with-json=PATH        use given json installation (absolute path) with
                           CCTLib
   --with-Pin=PATH         use given Pin installation (absolute path) with
                           CCTLib
@@ -4105,6 +4109,7 @@ PIN_PATH=
 PIN_ROOT=
 SPARSEHASH_PATH=
 BOOST_PATH=
+JSON_PATH=
 LIBELF_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
@@ -4123,6 +4128,22 @@ fi
 if test "$LIBELF_PATH" = "" ; then
 as_fn_error $? "--with-libelf requires absolute path as argument; given '${withval}'" "$LINENO" 5
 fi
+
+
+# Check whether --with-json was given.
+if test "${with_json+set}" = set; then :
+  withval=$with_json; if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       as_fn_error $? "--with-json requires absolute path as argument; given '${withval}'" "$LINENO" 5
+     fi
+     JSON_PATH=${withval}
+
+fi
+
+
+if test "$JSON_PATH" = "" ; then
+as_fn_error $? "--with-json requires absolute path as argument; given '${withval}'" "$LINENO" 5
+fi
+
 
 
 
@@ -4193,6 +4214,7 @@ fi
 
 
 
+
 #AC_SUBST([CCTLIB_INCLUDES])
 #AC_SUBST([CCTLIB_LIBRARIES])
 
@@ -4204,6 +4226,8 @@ $as_echo "$as_me:   Google sparse hash:         ${SPARSEHASH_PATH}" >&6;}
 $as_echo "$as_me:   Boost:         ${BOOST_PATH}" >&6;}
 { $as_echo "$as_me:${as_lineno-$LINENO}:   Libelf:         ${LIBELF_PATH}" >&5
 $as_echo "$as_me:   Libelf:         ${LIBELF_PATH}" >&6;}
+{ $as_echo "$as_me:${as_lineno-$LINENO}:   Json:         ${JSON_PATH}" >&5
+$as_echo "$as_me:   Json:         ${JSON_PATH}" >&6;}
 
 # Write generated configuration file
 ac_config_files="$ac_config_files Makefile src/Makefile tests/Makefile clients/Makefile apps/Makefile"

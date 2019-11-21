@@ -68,6 +68,7 @@ PIN_PATH=
 PIN_ROOT=
 SPARSEHASH_PATH=
 BOOST_PATH=
+JSON_PATH=
 LIBELF_PATH=
 CCTLIB_INCLUDES=
 CCTLIB_LINKFLAGS=
@@ -84,6 +85,20 @@ AC_ARG_WITH([libelf],
 if test "$LIBELF_PATH" = "" ; then 
 AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
 fi
+
+AC_ARG_WITH([json],
+  AS_HELP_STRING([--with-json=PATH],
+                 [use given json installation (absolute path) with CCTLib]),
+   [if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
+       AC_MSG_ERROR([--with-json requires absolute path as argument; given '${withval}'])
+     fi
+     JSON_PATH=${withval}
+   ])
+
+if test "$JSON_PATH" = "" ; then 
+AC_MSG_ERROR([--with-json requires absolute path as argument; given '${withval}'])
+fi
+
 
 
 AC_ARG_WITH([Pin],
@@ -134,6 +149,7 @@ AC_SUBST([PIN_ROOT])
 AC_SUBST([SPARSEHASH_PATH])
 AC_SUBST([BOOST_PATH])
 AC_SUBST([LIBELF_PATH])
+AC_SUBST([JSON_PATH])
 AC_SUBST([CXXFLAGS])
 AC_SUBST([CPPFLAGS])
 AC_SUBST([LDFLAGS])
@@ -147,6 +163,7 @@ AC_MSG_NOTICE([  Pin:         ${PIN_PATH}])
 AC_MSG_NOTICE([  Google sparse hash:         ${SPARSEHASH_PATH}])
 AC_MSG_NOTICE([  Boost:         ${BOOST_PATH}])
 AC_MSG_NOTICE([  Libelf:         ${LIBELF_PATH}])
+AC_MSG_NOTICE([  Json:         ${JSON_PATH}])
 
 # Write generated configuration file
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile clients/Makefile apps/Makefile])

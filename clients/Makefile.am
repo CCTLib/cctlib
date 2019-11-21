@@ -8,7 +8,7 @@ APP_ROOTS = deadWrites threaded
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 
 ALLOW_UNUSED_BUT_SET= -Wno-unused-but-set-variable
-CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
+CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(JSON_PATH)/include  -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
 
 if OPT_USE_BOOST
 	CCTLIB_TEST_FLAGS +=  -I$(BOOST_PATH)/include 

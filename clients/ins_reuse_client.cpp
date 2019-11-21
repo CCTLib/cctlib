@@ -21,9 +21,9 @@
 #include <algorithm>
 #include <list>
 #include <bits/stdc++.h>
-#include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/optional.hpp>
+#include <nlohmann/json.hpp>
 
 #include "pin.H"
 #include "cctlib.H"
@@ -43,6 +43,7 @@ extern "C" {
 #include <google/dense_hash_map>
 using google::sparse_hash_map;  // namespace where class lives by default
 using google::dense_hash_map;
+using json = nlohmann::json;
 
 // Short alias for this namespace
 namespace pt = boost::property_tree;
@@ -144,9 +145,6 @@ static INT32 Usage() {
 static FILE* gTraceFile;
 static ofstream gJSONFile;
 
-// Create a pt root
-static pt::ptree ptTree;
-
 // Initialized the needed data structures before launching the target program
 static void ClientInit(int argc, char* argv[]) {
     // Create output file
@@ -180,16 +178,18 @@ static void ClientInit(int argc, char* argv[]) {
             break;
         }
     }
+    json j;
     if (i < argc) {
-        ptTree.put("exe", argv[i]);
+        j["exe"] =  argv[i];
         i++;
     }
     stringstream ss;
     for(; i < argc; i++) {
         ss << argv[i] <<" ";
     }
-    ptTree.put("args", ss.str());
+    j["args"] =  ss.str();
     gJSONFile.open(string(name) + ".json");
+    gJSONFile << j.dump(4) << "\n";
     
     // Init Xed
     // Init XED for decoding instructions
@@ -210,6 +210,7 @@ static void ClientInit(int argc, char* argv[]) {
         }
     } 
     fflush(gTraceFile);
+    gJSONFile.flush();
 }
 
 static inline void UpdateInsReuseStats(uint64_t distance, uint64_t count, InsReuseThreadData* tData){
@@ -451,33 +452,15 @@ static void DumpHisto(uint64_t * histo, uint64_t footprint, string key1, string 
     }
     fflush(gTraceFile);
     
-    pt::ptree  subNode;
+    json j;
+    j["Source"] = key1;
+    j["Metric"] = key2;
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
-        pt::ptree children;
-        pt::ptree child1, child2;
-	std::stringstream ss;
-	ss << std::scientific << (double)histo[i];
-        child1.put("", ss.str());
-	std::stringstream ss2;
-	ss2 << std::scientific << histo[i]/total*100;
-        child2.put("", ss2.str());
-        children.push_back(std::make_pair("", child1));
-        children.push_back(std::make_pair("", child2));
-        subNode.push_back(std::make_pair(to_string(i), children));
+	j["raw"].push_back(histo[i]);
+	j["relative"].push_back(histo[i]*1.0/total);
     }
-    std::stringstream ss;
-    ss << std::scientific << (double)footprint;
-    subNode.put("footprint", ss.str());
-    
-    auto c = ptTree.get_child_optional(key1);
-    if (!c) {
-        pt::ptree p;
-        p.push_back(std::make_pair(key2, subNode));
-        ptTree.push_back(std::make_pair(key1, p));
-    } else {
-        c.get().push_back(std::make_pair(key2, subNode));
-    }
-    
+    j["Footprint"] = footprint;
+    gJSONFile << j.dump(4) << "\n";
 }
 
 static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v) {
@@ -544,11 +527,12 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     fprintf(gTraceFile, "\nRSS: %zu", peakRSS);
     fprintf(gTraceFile, "\n EOF");
 
-    ptTree.put("utime", to_string(ut.tv_sec * 1000000 + ut.tv_usec));
-    ptTree.put("stime", to_string(st.tv_sec * 1000000 + st.tv_usec));
-    ptTree.put("RSS", to_string(peakRSS));
+    json j;
+    j["utime"] = ut.tv_sec * 1000000 + ut.tv_usec;
+    j["stime"] = st.tv_sec * 1000000 + st.tv_usec;
+    j["RSS"] = peakRSS;
     
-    pt::write_json(gJSONFile, ptTree);
+    gJSONFile << j.dump(4) << "\n";
     gJSONFile.close();
     fclose(gTraceFile);
 }

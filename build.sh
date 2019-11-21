@@ -73,6 +73,14 @@ cd sparsehash-2.0.3-95e5e93
 ./configure --prefix=$CUR_DIR/sparsehash-2.0.3-95e5e93-install/ CXXFLAGS="-std=c++11 -Wno-class-memaccess -fabi-version=2 -D_GLIBCXX_USE_CXX11_ABI=0 " 
 make
 make install
+#### json ################################
+cd $CUR_DIR/externals/
+tar zxvf json-v3.7.3.tar.gz
+rm -rf $CUR_DIR/json-v3.7.3-install/ 
+cd json-3.7.3
+cmake -DCMAKE_INSTALL_PREFIX=$CUR_DIR/json-v3.7.3-install/ .
+make -j
+make install
 #### Boost ##############################################
 cd $CUR_DIR/externals/
 tar jxvf boost_1_71_0.tar.bz2
@@ -85,12 +93,13 @@ sh ./bootstrap.sh --prefix=$CUR_DIR/boost_1_71_0-install/ --with-libraries="file
 cd $CUR_DIR/
 
 PATH_TO_PIN=$PIN_ROOT
+PATH_TO_JSON=$CUR_DIR/json-v3.7.3-install/
 PATH_TO_GOOGLE_SPARSE_HASH=$CUR_DIR/sparsehash-2.0.3-95e5e93-install/
 PATH_TO_BOOST=$CUR_DIR/boost_1_71_0-install/
 PATH_TO_LIBELF=$CUR_DIR/libelf-0.8.9-install/
 #develop is off by default
 #./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --enable-develop
-./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF
+./configure --with-Pin=$PATH_TO_PIN --with-boost=$PATH_TO_BOOST --with-sparse-hash=$PATH_TO_GOOGLE_SPARSE_HASH --with-libelf=$PATH_TO_LIBELF --with-json=$PATH_TO_JSON
 make -j
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 # uncomment to run sanity tests

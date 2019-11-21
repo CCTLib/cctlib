@@ -147,6 +147,7 @@ INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+JSON_PATH = @JSON_PATH@
 LDFLAGS = @LDFLAGS@
 LIBELF_PATH = @LIBELF_PATH@
 LIBOBJS = @LIBOBJS@
@@ -224,7 +225,7 @@ TEST_TOOL_ROOTS = deadspy_client redspy_client loadspy_client redspy_temporal_cl
 APP_ROOTS = deadWrites threaded 
 #all:  cct_client.so  deadspy_client.so cct_data_centric_client.so cct_client_mem_only.so cct_data_centric_client_tree_based.so deadWrites 
 ALLOW_UNUSED_BUT_SET = -Wno-unused-but-set-variable
-CCTLIB_TEST_FLAGS = $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
+CCTLIB_TEST_FLAGS = $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(JSON_PATH)/include  -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
 LIBELF_LD_FLAGS = -L$(LIBELF_PATH)/lib -Wl,-rpath $(LIBELF_PATH)/lib
 LIBELF_LIBS = -lelf
 CLIENT_LD_FLAGS = $(CCTLIB_EXTRA_LDFLAGS) $(BOOST_LD_FLAGS) $(LIBELF_LD_FLAGS)
