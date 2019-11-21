@@ -531,7 +531,6 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     j["utime"] = ut.tv_sec * 1000000 + ut.tv_usec;
     j["stime"] = st.tv_sec * 1000000 + st.tv_usec;
     j["RSS"] = peakRSS;
-    
     gJSONFile << j.dump(4) << "\n";
     gJSONFile.close();
     fclose(gTraceFile);
