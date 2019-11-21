@@ -75,12 +75,8 @@ make
 make install
 #### json ################################
 cd $CUR_DIR/externals/
-tar zxvf json-v3.7.3.tar.gz
 rm -rf $CUR_DIR/json-v3.7.3-install/ 
-cd json-3.7.3
-cmake -DCMAKE_INSTALL_PREFIX=$CUR_DIR/json-v3.7.3-install/ .
-make -j
-make install
+unzip -d $CUR_DIR/json-v3.7.3-install/ json-v3.7.3.zip
 #### Boost ##############################################
 cd $CUR_DIR/externals/
 tar jxvf boost_1_71_0.tar.bz2
