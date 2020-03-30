@@ -24,7 +24,6 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/optional.hpp>
 #include <nlohmann/json.hpp>
-
 #include "pin.H"
 #include "cctlib.H"
 #include "shadow_memory.H"
