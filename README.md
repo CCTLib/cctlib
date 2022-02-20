@@ -2,6 +2,10 @@
 
 CCTLib is a library to ubiquitously collect calling contexts as well as attribute costs to data objects in an execution of a program.
 
+--------------------------------------------------
+	 Project Status
+--------------------------------------------------
+This project is not maintained any more. The next generation of CCTLib is named DrCCTProf, which is at https://github.com/Xuhpclab/DrCCTProf. DrCCTProf inherits all the features of CCTLib but has improved applicability and capability.
 
 --------------------------------------------------
 	Supported platforms
