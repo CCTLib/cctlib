@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <list>
 #include "pin.H"
+#include "pin_isa_compat.H"
 #include "cctlib.H"
 #include "shadow_memory.H"
 #include <xmmintrin.h>
@@ -745,11 +746,11 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     printf("\nINFO : In InstrumentInsCallback\n");
     if (!INS_HasFallThrough(ins)) {printf("\nINFO : Exit InstrumentInsCallback !INS_HasFallThrough\n");return;}
     if (INS_IsIgnorable(ins)){printf("\nINFO : Exit InstrumentInsCallback INS_IsIgnorable\n");return;}
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {printf("\nINFO : Exit InstrumentInsCallback INS_IsBranchOrCall(ins) || INS_IsRet(ins)\n");return;}
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) {printf("\nINFO : Exit InstrumentInsCallback INS_IsControlFlow(ins) || INS_IsRet(ins)\n");return;}
 #else
     if (!INS_HasFallThrough(ins)) return;
     if (INS_IsIgnorable(ins))return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) return;
 #endif
     
     //Instrument memory reads to find redundancy
@@ -795,7 +796,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryRead(ins)) {
                 totBytes += INS_MemoryReadSize(ins);

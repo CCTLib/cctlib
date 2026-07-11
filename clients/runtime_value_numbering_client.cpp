@@ -6,7 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "pin.H"
-#include "pin_isa.H"
+// pin_isa.H was merged into pin.H in Pin 4.x; use our compat header for
+// removed/renamed APIs (INS_IsMaskedJump, INS_IsIndirectBranchOrCall,
+// INS_MemoryReadSize/WriteSize, PIN_REGISTER, REG_is_in_X87).
+#include "pin_isa_compat.H"
 #include <map>
 #include <unordered_map>
 #include <list>
@@ -50,6 +53,9 @@ using namespace PinCCTLib;
 #define PAGE_OFFSET(addr) ( addr & 0xFFFF)
 #define PAGE_OFFSET_MASK ( 0xFFFF)
 
+// Pin 4.x's musl <limits.h> defines a system PAGE_SIZE; undef before we
+// redefine to our shadow-page constant.
+#undef PAGE_SIZE
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
@@ -696,6 +702,15 @@ VOID valueNumberingMem1(void * op, void * addr, uint32_t rMem, uint32_t wMem, bo
 
             checkMovValueNum(opinfo->opCode, value, opinfo->tRegs[0], threadID, ip, opHandle);
         } else {
+            // TODO(preexisting-bug): this assert fires on `mov imm, [mem]`
+            // which is extremely common in libc; the code below already
+            // has an `else if(immediateCount == 1)` branch that handles
+            // the immediate-source case correctly. The assert should be
+            // dropped (or relaxed to `sRegsCount + immediateCount >= 1`)
+            // and the `else` case given a real "unknown source" sentinel.
+            // Restoring the original assert to scope this change strictly
+            // to porting; a proper fix belongs with the broader RVN
+            // correctness pass.
             assert(sRegsCount == 1);
             if(sRegsCount == 1)
                 value = getRegValueNum(opinfo->sRegs[0], threadID);
@@ -1187,7 +1202,18 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
     UINT32 wMemCount = 0;
     vector<int> rMem;
     vector<int> wMem;
-    
+
+    // TODO(preexisting-bug): the two calls below use INS_IsMemoryRead(ins)
+    // and INS_IsMemoryWrite(ins) -- both are WHOLE-INSTRUCTION predicates,
+    // not per-operand. Inside a per-operand loop they misclassify multi-
+    // memop instructions (any memop bumps every counter). The correct
+    // per-operand APIs are INS_MemoryOperandIsRead(ins, memOp) and
+    // INS_MemoryOperandIsWritten(ins, memOp). Additionally, single-memop
+    // read-modify-write instructions (xchg/xadd/cmpxchg/inc [mem]/...)
+    // aren't dispatched to a matching handler and can crash the analysis
+    // routine later. Fix requires (a) correct per-op predicates here AND
+    // (b) a new valueNumberingMemRW analysis handler for RMW single memops
+    // -- both belong with a broader RVN correctness pass, not this port.
     for(UINT32 memOp = 0; memOp < memOpCount; memOp++) {
         if (INS_IsMemoryRead(ins)){
             rMemCount++;

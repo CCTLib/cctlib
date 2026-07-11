@@ -10,6 +10,8 @@
 #include "pin.H"
 #include <stdint.h>
 #include <stdio.h>
+#include <string>
+#include <vector>
 
 #define MAX_CCT_PRINT_DEPTH (20)
 #define MAX_CCT_PATH_DEPTH (100)
@@ -41,9 +43,9 @@ namespace PinCCTLib {
 
     // Data type returned when a client tool queries  GetFullCallingContext
     typedef struct Context {
-        string functionName;
-        string filePath;
-        string disassembly;
+        std::string functionName;
+        std::string filePath;
+        std::string disassembly;
         ContextHandle_t ctxtHandle;
         uint32_t lineNo;
         ADDRINT ip;
@@ -94,7 +96,7 @@ namespace PinCCTLib {
     int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
 
     /*
-    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, std::string serializedFilesDirectory);
             Description:
                     Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
             Arguments:
@@ -103,7 +105,7 @@ namespace PinCCTLib {
 
                     Caution: This should never be called with PinCCTLibInit().
     */
-    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, std::string serializedFilesDirectory);
 
     /*
             Description:
@@ -143,7 +145,7 @@ namespace PinCCTLib {
                     ctxtHandle: is the context handle for which the full call path is requested.
                     contextVec: is a vector that will be populated with the full call path.
     */
-    VOID GetFullCallingContext(const ContextHandle_t ctxtHandle, vector<Context>& contextVec);
+    VOID GetFullCallingContext(const ContextHandle_t ctxtHandle, std::vector<Context>& contextVec);
 
     /*
             Description:
@@ -152,7 +154,7 @@ namespace PinCCTLib {
             Arguments:
                     directoryForSerializationFiles: directory where serialized files are written.
     */
-    void SerializeMetadata(string directoryForSerializationFiles = "");
+    void SerializeMetadata(std::string directoryForSerializationFiles = "");
 
     /*
        Description:
@@ -179,18 +181,18 @@ namespace PinCCTLib {
 #define USE_SHADOW_FOR_DATA_CENTRIC
 #endif
 
-void AppendLoadModulesToStream(iostream &ios);
-void LogContexts(iostream & ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2);
+void AppendLoadModulesToStream(std::iostream &ios);
+void LogContexts(std::iostream & ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 
     // write the output into hpcviewer's format
     int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void *src)=NULL, uint64_t (*computeMetricVal)(void *metric)=NULL, bool skip=false);
     int hpcrun_create_metric(const char *name);
     int newCCT_hpcrun_write(THREADID threadid);
-    int newCCT_hpcrun_build_cct(vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
+    int newCCT_hpcrun_build_cct(std::vector<HPCRunCCT_t *> &OldNodes, THREADID threadid);
     int newCCT_hpcrun_selection_write(THREADID threadid);
 
 
-void GetParentIPs(ContextHandle_t ctxtHandle, vector<ADDRINT>& parentIPs);
+void GetParentIPs(ContextHandle_t ctxtHandle, std::vector<ADDRINT>& parentIPs);
 }
 
 #endif

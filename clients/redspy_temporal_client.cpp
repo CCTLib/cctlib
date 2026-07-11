@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <list>
 #include "pin.H"
+#include "pin_isa_compat.H"
 #include "cctlib.H"
 #include "shadow_memory.H"
 #include <xmmintrin.h>
@@ -968,86 +969,86 @@ static inline uint32_t GetAliasIDs(REG reg){
     uint8_t byteInd = 0;
     uint8_t type = 0;
     switch (reg) {
-        case REG_RAX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RAX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_EAX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_AX: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_AH: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
         case REG_AL: regGroup = ALIAS_REG_A; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
             
-        case REG_RBX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RBX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_EBX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_BX: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_BH: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
         case REG_BL: regGroup = ALIAS_REG_B; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
             
-        case REG_RCX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RCX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_ECX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_CX: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_CH: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
         case REG_CL: regGroup = ALIAS_REG_C; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
             
-        case REG_RDX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RDX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_EDX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_DX: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_DH: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_H; type = ALIAS_HIGH_BYTE; break;
         case REG_DL: regGroup = ALIAS_REG_D; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_LOW_BYTE; break;
             
-        case REG_RBP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RBP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_EBP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_BP: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_BPL: regGroup = ALIAS_REG_BP; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
             
-        case REG_RDI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RDI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_EDI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_DI: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_DIL: regGroup = ALIAS_REG_DI; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
             
-        case REG_RSI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RSI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_ESI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_SI: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_SIL: regGroup = ALIAS_REG_SI; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
             
-        case REG_RSP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_RSP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_ESP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_SP: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_SPL: regGroup = ALIAS_REG_SP; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
             
-        case REG_R8: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R8: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R8D: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R8W: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R8B: regGroup = ALIAS_REG_R8; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
             
-        case REG_R9: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R9: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R9D: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R9W: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R9B: regGroup = ALIAS_REG_R9; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
 
-        case REG_R10: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R10: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R10D: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R10W: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R10B: regGroup = ALIAS_REG_R10; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
 
-        case REG_R11: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R11: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R11D: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R11W: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R11B: regGroup = ALIAS_REG_R11; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
 
-        case REG_R12: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R12: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R12D: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R12W: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R12B: regGroup = ALIAS_REG_R12; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
 
-        case REG_R13: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R13: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R13D: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R13W: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R13B: regGroup = ALIAS_REG_R13; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
 
-        case REG_R14: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R14: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R14D: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R14W: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R14B: regGroup = ALIAS_REG_R14; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
 
-        case REG_R15: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
+        case LEVEL_BASE::REG_R15: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_64; type = ALIAS_GENERIC; break;
         case REG_R15D: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_32; type = ALIAS_GENERIC; break;
         case REG_R15W: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_16; type = ALIAS_GENERIC; break;
         case REG_R15B: regGroup = ALIAS_REG_R15; byteInd = ALIAS_BYTES_INDEX_8_L; type = ALIAS_GENERIC; break;
@@ -1060,10 +1061,10 @@ static inline uint32_t GetAliasIDs(REG reg){
 
 inline bool RegHasAlias(REG reg){
     switch(reg){
-        case REG_RAX:
-        case REG_RBX:
-        case REG_RCX:
-        case REG_RDX:
+        case LEVEL_BASE::REG_RAX:
+        case LEVEL_BASE::REG_RBX:
+        case LEVEL_BASE::REG_RCX:
+        case LEVEL_BASE::REG_RDX:
         case REG_EAX:
         case REG_EBX:
         case REG_ECX:
@@ -1080,51 +1081,51 @@ inline bool RegHasAlias(REG reg){
         case REG_BL:
         case REG_CL:
         case REG_DL:
-        case REG_RBP:
+        case LEVEL_BASE::REG_RBP:
         case REG_EBP:
         case REG_BP:
         case REG_BPL:
-        case REG_RDI:
+        case LEVEL_BASE::REG_RDI:
         case REG_EDI:
         case REG_DI:
         case REG_DIL:
-        case REG_RSI:
+        case LEVEL_BASE::REG_RSI:
         case REG_ESI:
         case REG_SI:
         case REG_SIL:
-        case REG_RSP:
+        case LEVEL_BASE::REG_RSP:
         case REG_ESP:
         case REG_SP:
         case REG_SPL:
-        case REG_R8:
+        case LEVEL_BASE::REG_R8:
         case REG_R8D:
         case REG_R8W:
         case REG_R8B:
-        case REG_R9:
+        case LEVEL_BASE::REG_R9:
         case REG_R9D:
         case REG_R9W:
         case REG_R9B:
-        case REG_R10:
+        case LEVEL_BASE::REG_R10:
         case REG_R10D:
         case REG_R10W:
         case REG_R10B:
-        case REG_R11:
+        case LEVEL_BASE::REG_R11:
         case REG_R11D:
         case REG_R11W:
         case REG_R11B:
-        case REG_R12:
+        case LEVEL_BASE::REG_R12:
         case REG_R12D:
         case REG_R12W:
         case REG_R12B:
-        case REG_R13:
+        case LEVEL_BASE::REG_R13:
         case REG_R13D:
         case REG_R13W:
         case REG_R13B:
-        case REG_R14:
+        case LEVEL_BASE::REG_R14:
         case REG_R14D:
         case REG_R14W:
         case REG_R14B:
-        case REG_R15:
+        case LEVEL_BASE::REG_R15:
         case REG_R15D:
         case REG_R15W:
         case REG_R15B:
@@ -1182,7 +1183,12 @@ INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR) Check10BytesReg, IARG_CONT
 #endif
 
 static inline void InstrumentAliasReg(INS ins, REG reg, uint16_t oper, uint32_t opaqueHandle){
-    
+    // All registers that reach this function are GR sub-registers
+    // (AL/AH/AX/EAX/RAX, ..., R15B/R15W/R15D/R15) hardcoded in RegHasAlias().
+    // Every one of them is <=8 bytes and valid for IARG_REG_VALUE, so no
+    // REG_valid_for_iarg_reg_value guard is needed here. K-mask, PIN-internal
+    // and other IARG_REG_VALUE-incompatible registers can only reach the
+    // sibling InstrumentGeneralReg(), which does the real filtering.
     uint32_t regSize = REG_Size(reg);
     uint32_t aliasIDs = GetAliasIDs(reg);
     uint8_t regId = static_cast<uint8_t>(((aliasIDs)  & 0x00ffffff) >> 16 );
@@ -1212,6 +1218,26 @@ static inline void InstrumentAliasReg(INS ins, REG reg, uint16_t oper, uint32_t 
 }
 
 static inline void InstrumentGeneralReg(INS ins, REG reg, uint16_t oper, uint32_t opaqueHandle){
+    // HACK(port-blocker, missing-feature): Pin 4.x can surface register
+    // classes that IARG_REG_VALUE cannot serve -- notably AVX-512 opmask
+    // registers K0-K7 (Pin refuses IARG_REG_VALUE on them and aborts at
+    // instrumentation time). These now show up unavoidably even on trivial
+    // workloads because modern libc/ld.so uses kmov* in paths like
+    // _dl_deallocate_tls; without this early-return the tool refuses to
+    // load on /bin/echo. The early-return silently drops these register
+    // writes from the temporal-redundancy analysis, so they are simply
+    // not measured.
+    //
+    // Proper fix (deferred, MISSING FEATURE):
+    //   1. Filter at the CALLER (InstrumentInsCallback's dispatch loop that
+    //      selects InstrumentAliasReg vs InstrumentGeneralReg) so this
+    //      function never receives an unsupported register.
+    //   2. Add a dedicated K-mask analysis routine that uses
+    //      IARG_REG_CONST_REFERENCE and reads PINTOOL_REGISTER::qword[0]
+    //      (K regs are 64 bits) -- essentially routing K writes through
+    //      HandleSpecialRegisters<1>::CheckRegValues.
+    // Both belong in a separate AVX-512 feature change, not this port.
+    if (!REG_valid_for_iarg_reg_value(reg)) return;
     uint32_t regSize = REG_Size(reg);
     
     if (IsFloatInstruction(INS_Address(ins))){
@@ -1723,7 +1749,7 @@ static inline bool REG_IsIgnorable(REG reg){
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_HasFallThrough(ins)) return;
     if (INS_IsIgnorable(ins))return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) return;
     
     //Instrument memory writes to find redundancy
     // Special case, if we have only one write operand
@@ -1836,7 +1862,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryWrite(ins)) {
                 totBytes += INS_MemoryWriteSize(ins);
@@ -1890,7 +1916,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryWrite(ins)) {
                 totBytes += INS_MemoryWriteSize(ins);

@@ -76,95 +76,95 @@ xed_uint64_t watchpointRegisterValueCallback(xed_reg_enum_t reg, void * _ctxt, x
 		case XED_REG_EAX:
 		case XED_REG_AX:
 		case XED_REG_AL:
-			return PIN_GetContextReg(ctxt, REG_RAX);
+			return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RAX);
 		case XED_REG_AH: assert(0 && "NYI"); *error=1;
 
 
 		case XED_REG_RCX:
 		case XED_REG_ECX:
 		case XED_REG_CX:
-				 return PIN_GetContextReg(ctxt,REG_RCX);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RCX);
 		case XED_REG_CH: assert(0 && "NYI"); *error=1;
 
 		case XED_REG_RDX:
 		case XED_REG_EDX:
 		case XED_REG_DX:
-				 return PIN_GetContextReg(ctxt, REG_RDX);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RDX);
 		case XED_REG_DH: assert(0 && "NYI"); *error=1;
 
 		case XED_REG_RBX:
 		case XED_REG_EBX:
 		case XED_REG_BX:
-				 return PIN_GetContextReg(ctxt,REG_RBX);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RBX);
 		case XED_REG_BH: assert(0 && "NYI"); *error=1;
 
 		case XED_REG_RSP:
 		case XED_REG_ESP:
 		case XED_REG_SP:
-				 return PIN_GetContextReg(ctxt,REG_RSP);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RSP);
 
 		case XED_REG_RBP:
 		case XED_REG_EBP:
 		case XED_REG_BP:
-				 return PIN_GetContextReg(ctxt,REG_RBP);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RBP);
 
 		case XED_REG_RSI:
 		case XED_REG_ESI:
 		case XED_REG_SI:
-				 return PIN_GetContextReg(ctxt,REG_RSI);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RSI);
 
 		case XED_REG_RDI:
 		case XED_REG_EDI:
 		case XED_REG_DI:
-				 return PIN_GetContextReg(ctxt,REG_RDI);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RDI);
 
 		case XED_REG_R8:
 		case XED_REG_R8D:
 		case XED_REG_R8W:
-				 return PIN_GetContextReg(ctxt,REG_R8);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R8);
 
 		case XED_REG_R9:
 		case XED_REG_R9D:
 		case XED_REG_R9W:
-				 return PIN_GetContextReg(ctxt,REG_R9);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R9);
 
 		case XED_REG_R10:
 		case XED_REG_R10D:
 		case XED_REG_R10W:
-				 return PIN_GetContextReg(ctxt,REG_R10);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R10);
 
 		case XED_REG_R11:
 		case XED_REG_R11D:
 		case XED_REG_R11W:
-				 return PIN_GetContextReg(ctxt,REG_R11);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R11);
 
 		case XED_REG_R12:
 		case XED_REG_R12D:
 		case XED_REG_R12W:
-				 return PIN_GetContextReg(ctxt,REG_R12);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R12);
 
 		case XED_REG_R13:
 		case XED_REG_R13D:
 		case XED_REG_R13W:
-				 return PIN_GetContextReg(ctxt,REG_R13);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R13);
 
 		case XED_REG_R14:
 		case XED_REG_R14D:
 		case XED_REG_R14W:
-				 return PIN_GetContextReg(ctxt,REG_R14);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R14);
 
 		case XED_REG_R15:
 		case XED_REG_R15D:
 		case XED_REG_R15W:
-				 return PIN_GetContextReg(ctxt,REG_R15);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_R15);
 
 		case XED_REG_EFLAGS:
-				 return PIN_GetContextReg(ctxt,REG_EFLAGS);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_EFLAGS);
 
 		case XED_REG_RIP:
 		case XED_REG_EIP:
 		case XED_REG_IP:
-				 return PIN_GetContextReg(ctxt,REG_RIP);
+				 return PIN_GetContextReg(ctxt, LEVEL_BASE::REG_RIP);
 
 		case XED_REG_DS: *error=1; assert(0 && "NYI"); break;
 		case XED_REG_ES: *error=1; assert(0 && "NYI"); break;
@@ -172,11 +172,11 @@ xed_uint64_t watchpointRegisterValueCallback(xed_reg_enum_t reg, void * _ctxt, x
 
 		case XED_REG_CS:
 				 /* Linux stores CS, GS, FS, PAD into one 64b word. */
-				 return (uint32_t) PIN_GetContextReg(ctxt,REG_SEG_CS);
+				 return (uint32_t) PIN_GetContextReg(ctxt, LEVEL_BASE::REG_SEG_CS);
 		case XED_REG_FS:
-				 return (uint32_t) PIN_GetContextReg(ctxt, REG_SEG_FS);
+				 return (uint32_t) PIN_GetContextReg(ctxt, LEVEL_BASE::REG_SEG_FS);
 		case XED_REG_GS:
-				 return (uint32_t) PIN_GetContextReg(ctxt, REG_SEG_GS);
+				 return (uint32_t) PIN_GetContextReg(ctxt, LEVEL_BASE::REG_SEG_GS);
 		default:
 				 *error=1;
 				 assert(0 && "NYI");
@@ -215,7 +215,7 @@ VOID Checker(ADDRINT addr, ADDRINT ip, const CONTEXT *ctxt, UINT32 idx) {
 
 // Pin calls this function every time a new instruction is encountered
 VOID Instruction(INS ins, VOID *v) {
-	if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {
+	if(INS_IsControlFlow(ins) || INS_IsRet(ins)) {
 		return;
 	}
 

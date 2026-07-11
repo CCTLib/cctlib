@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include "pin.H"
+#include "pin_isa_compat.H"
 #include "cctlib.H"
 using namespace std;
 using namespace PinCCTLib;
@@ -29,6 +30,7 @@ using namespace PinCCTLib;
 #define PAGE_OFFSET(addr) ( addr & 0xFFFF)
 #define PAGE_OFFSET_MASK ( 0xFFFF)
 
+#undef PAGE_SIZE
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
@@ -459,7 +461,7 @@ struct RedSpyInstrument{
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
     // if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) return;
     
     // XSAVEC and XRSTOR are problematic since its access length is variable. 
     // Execution of XSAVEC is similar to that of XSAVE. XSAVEC differs from XSAVE in that it uses compaction and that it may use the init optimization.

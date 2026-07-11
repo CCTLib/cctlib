@@ -32,6 +32,7 @@
 #include <sstream>
 #include <pthread.h>
 #include "pin.H"
+#include "pin_isa_compat.H"
 #include "cctlib.H"
 #include "shadow_memory.H"
 
@@ -706,7 +707,7 @@ static inline bool IsIgnorableIns(INS ins){
         return true;
     
     // skip call, ret and JMP instructions
-    if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)){
+    if(INS_IsControlFlow(ins) || INS_IsRet(ins)){
         return true;
     }
     // If ins is in libgomp.so, or /lib64/ld-linux-x86-64.so.2 skip it
@@ -968,7 +969,7 @@ VOID ThreadStart(THREADID threadid, CONTEXT *ctxt, INT32 flags, VOID *v) {
 }
 
 static inline VOID InstrumentImageLoad(IMG img, VOID *v){
-    for(uint i = 0; i < MAX_SKIP_IMAGES; i++) {
+    for(unsigned int i = 0; i < MAX_SKIP_IMAGES; i++) {
         if(IMG_Name(img) == skipImages[i]){
             gSkipImageAddressRanges[gNumCurSkipImages][0] = IMG_LowAddress(img);
             gSkipImageAddressRanges[gNumCurSkipImages][1]  = IMG_HighAddress(img);

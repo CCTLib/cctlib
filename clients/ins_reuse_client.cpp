@@ -9,6 +9,7 @@
 #include <atomic>
 #include <malloc.h>
 #include <iostream>
+#include <fstream>
 #include <unistd.h>
 #include <assert.h>
 #include <string.h>
@@ -20,9 +21,11 @@
 #include <unordered_map>
 #include <algorithm>
 #include <list>
-#include <bits/stdc++.h>
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/optional.hpp>
+// bits/stdc++.h is a libstdc++ extension and is not available under Pin 4.x's
+// libc++/musl CRT. The individual STL headers we actually need are already
+// included above.
+// Legacy boost::property_tree usage removed; JSON parsing now uses
+// nlohmann/json (included below). Pin RT does not support Boost.
 #include <nlohmann/json.hpp>
 #include "pin.H"
 #include "cctlib.H"
@@ -44,8 +47,6 @@ using google::sparse_hash_map;  // namespace where class lives by default
 using google::dense_hash_map;
 using json = nlohmann::json;
 
-// Short alias for this namespace
-namespace pt = boost::property_tree;
 using namespace std;
 using namespace PinCCTLib;
 

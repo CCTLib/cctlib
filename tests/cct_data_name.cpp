@@ -10,7 +10,9 @@
 #include <unistd.h>
 #include <assert.h>
 #include <string>
-#include <boost/algorithm/string.hpp>
+// (Boost dropped: CCTLib no longer depends on Boost. Pin RT does not
+// support Boost anyway. The `using namespace boost;` below was never
+// actually consumed by this file.)
 #include <math.h> //Du
 #include <sstream>
 #include <locale>
@@ -25,7 +27,7 @@
 #define USE_TREE_BASED_FOR_DATA_CENTRIC
 #include "cctlib.H"
 using namespace std;
-using namespace boost;
+// removed: using namespace boost;
 using namespace PinCCTLib;
 
 
@@ -369,7 +371,7 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 
     // Data centric for mem inst
     // Skip call, ret and JMP instructions
-    if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {
+    if(INS_IsControlFlow(ins) || INS_IsRet(ins)) {
         return;
     }
 

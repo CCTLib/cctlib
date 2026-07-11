@@ -20,6 +20,9 @@
  #include <sys/time.h>
        #include <sys/resource.h>
 #include "pin.H"
+// Compat shims for Pin 4.x APIs (INS_MemoryWriteSize is a Pin 3.x name that
+// was removed; the shim reimplements it via INS_MemoryOperandSize loops).
+#include "pin_isa_compat.H"
 using namespace std;
 
 static INT32 Usage() {
@@ -96,6 +99,15 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 }
 
 
+// TODO(preexisting-bug): these two arrays are ~80 MB per thread at
+// CACHE_INDEX_BITS=20. Pin 4.x's libc++ TLS descriptor cannot hold objects
+// this large; the tool CRASHES at ThreadStart under Pin 4.x when the TLS
+// slot is materialized. Proper fix: allocate cache/stats on the heap in
+// InitThreadData, hang them off RedSpyThreadData (already Pin-TLS-managed
+// via client_tls_key), and update the IS_VALID/SET_TAG/WAS_DIFFERENT macros
+// (or their callers) to reach through tData. Do NOT replace with file-scope
+// globals — that would introduce a real data race on every access. See
+// git history for the full refactor sketch.
 thread_local Stats_t stats;
 
 
@@ -162,6 +174,13 @@ static inline void OnAccess(void ** address, uint64_t accessLen, bool isWrite){
     if(CACHE_LINE_INDEX(address) == CACHE_LINE_INDEX((size_t)(address) + accessLen - 1)) {
         HandleOneCacheLine(address, isWrite);
     } else {
+        // TODO(preexisting-bug): `address` is void**, so `address + accessLen`
+        // and `cur += CACHE_LINE_SZ` scale by sizeof(void**)=8, running off
+        // the end of the accessed region by 8x. Under Pin 4.x this causes
+        // OnEvict to memcpy through arbitrary memory and segfault on real
+        // workloads (e.g., /bin/echo). Fix: iterate byte-accurate with
+        // `char*` (`char* end = (char*)address + accessLen; for (char* cur =
+        // (char*)address; cur < end; cur += CACHE_LINE_SZ) ...`).
         for(void ** cur = address; cur < address + accessLen; cur += CACHE_LINE_SZ){
             HandleOneCacheLine(cur, isWrite);
         }
@@ -266,6 +285,15 @@ struct RedSpyAnalysis{
     }
 };
 
+// TODO(preexisting-bug): buffer[bufferOffset].value is MAX_WRITE_OP_LENGTH
+// (512) bytes; xsave/xsaveopt/fxsave write 512-10KB of state and modern
+// AVX-512 tile ops write >512B too. accessLen can exceed 512 and this
+// memcpy overflows into whatever follows AddrValPair in RedSpyThreadData.
+// Proper fix: filter at instrumentation time -- in InstrumentInsCallback,
+// skip the RedSpyInstrument path for any operand whose INS_MemoryOperandSize
+// exceeds MAX_WRITE_OP_LENGTH so this analysis routine never sees an
+// oversized accessLen. (Alternative: bump MAX_WRITE_OP_LENGTH to 16 KB and
+// pay the ~128 KB/thread buffer cost.)
 static inline VOID RecordValueBeforeLargeWrite(void* addr, UINT32 accessLen,  uint32_t bufferOffset, THREADID threadId){
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     memcpy(& (tData->buffer[bufferOffset].value), addr, accessLen);

@@ -18,7 +18,6 @@ AC_PROG_RANLIB
 AC_MSG_CHECKING([whether DEVELOP mode is enabled])
 
 OPT_ENABLE_DEVELOP=no
-OPT_USE_BOOST=no
 
 AC_ARG_ENABLE([develop],
   AS_HELP_STRING([--enable-develop],
@@ -35,7 +34,11 @@ AM_CONDITIONAL(OPT_ENABLE_DEVELOP, [test "${OPT_ENABLE_DEVELOP}" = "yes"])
 
 DEBUG=0
 CCTLIB_EXTRA_CPPFLAGS=
-CCTLIB_EXTRA_CXXFLAGS="-Wno-maybe-uninitialized -Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function -std=c++11"
+# Pin >= 4.0 uses its own libc++/musl-based CRT and its makefiles force
+# -std=c++17. Do not force -std=c++11 or the libstdc++-specific ABI flags
+# (-fabi-version=2, -D_GLIBCXX_USE_CXX11_ABI=0) here; they either conflict
+# with Pin's toolchain or have no effect under libc++.
+CCTLIB_EXTRA_CXXFLAGS="-Wno-maybe-uninitialized -Wno-unused-result -Wno-unused-variable -Wno-unused-local-typedefs -Wno-unused-function"
 
 if test "$OPT_ENABLE_DEVELOP" = "yes" ; then
   DEBUG=1
@@ -43,35 +46,19 @@ else
   CCTLIB_EXTRA_CPPFLAGS+=" -DNDEBUG -g "
 fi
 
-#GCC 5.x changes the ABI, and we need to support the older ABI for Pin 2.4
-if  test `g++ -dumpversion | awk '{print $1>=5.0?"1":"0"}'` = 1 ; then
-    CCTLIB_EXTRA_CPPFLAGS+=" -fabi-version=2 -D_GLIBCXX_USE_CXX11_ABI=0 "
-    CCTLIB_EXTRA_LDFLAGS+=" -fabi-version=2 -D_GLIBCXX_USE_CXX11_ABI=0 "
-fi
-
-#GCC 7.x introduces -faligned-new
-if  test `g++ -dumpversion | awk '{print $1>=7.0?"1":"0"}'` = 1  ; then
-    CCTLIB_EXTRA_CPPFLAGS+=" -faligned-new "
-fi
-
 
 #-------------------------------------------------
-# Look for libelf
+# Locate dependencies
 #-------------------------------------------------
-#AC_CHECK_LIB([elf], [elf_version],[echo "OK!"], [echo "Not found!"; exit -1])
-
-#AC_CHECK_HEADER(libelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
-#AC_CHECK_HEADER(gelf.h, [echo "OK!"], [echo "Not found!"; exit -1])
-
+# Boost was dropped entirely: Pin RT explicitly does not support Boost
+# (no RTTI in Pin's libcxx), and the two tiny helpers we used from Boost
+# (lexical_cast, algorithm::trim) are now handled with C++11.
 
 PIN_PATH=
 PIN_ROOT=
 SPARSEHASH_PATH=
-BOOST_PATH=
 JSON_PATH=
 LIBELF_PATH=
-CCTLIB_INCLUDES=
-CCTLIB_LINKFLAGS=
 
 AC_ARG_WITH([libelf],
   AS_HELP_STRING([--with-libelf=PATH],
@@ -82,7 +69,7 @@ AC_ARG_WITH([libelf],
      LIBELF_PATH=${withval}
    ])
 
-if test "$LIBELF_PATH" = "" ; then 
+if test "$LIBELF_PATH" = "" ; then
 AC_MSG_ERROR([--with-libelf requires absolute path as argument; given '${withval}'])
 fi
 
@@ -95,10 +82,9 @@ AC_ARG_WITH([json],
      JSON_PATH=${withval}
    ])
 
-if test "$JSON_PATH" = "" ; then 
+if test "$JSON_PATH" = "" ; then
 AC_MSG_ERROR([--with-json requires absolute path as argument; given '${withval}'])
 fi
-
 
 
 AC_ARG_WITH([Pin],
@@ -110,25 +96,11 @@ AC_ARG_WITH([Pin],
      PIN_PATH=${withval}
    ])
 
-if test "$PIN_PATH" = "" ; then 
+if test "$PIN_PATH" = "" ; then
 AC_MSG_ERROR([--with-Pin requires absolute path as argument; given '${withval}'])
 fi
 
 PIN_ROOT=$PIN_PATH
-
-AC_ARG_WITH([boost],
-  AS_HELP_STRING([--with-boost=PATH],
-                 [use given boost installation (absolute path) with CCTLib]),
-   [if ( echo "${withval}" | grep -v "^/" >/dev/null 2>&1 ); then
-       AC_MSG_ERROR([--with-boost requires absolute path as argument; given '${withval}'])
-     fi
-     BOOST_PATH=${withval}
-     CCTLIB_EXTRA_CXXFLAGS+=" -DUSE_BOOST"
-     OPT_USE_BOOST="yes"
-   ])
-
-AC_MSG_RESULT([${OPT_USE_BOOST}])
-AM_CONDITIONAL(OPT_USE_BOOST, [test "${OPT_USE_BOOST}" = "yes"])
 
 AC_ARG_WITH([sparse-hash],
   AS_HELP_STRING([--with-sparse-hash=PATH],
@@ -147,7 +119,6 @@ fi
 AC_SUBST([PIN_PATH])
 AC_SUBST([PIN_ROOT])
 AC_SUBST([SPARSEHASH_PATH])
-AC_SUBST([BOOST_PATH])
 AC_SUBST([LIBELF_PATH])
 AC_SUBST([JSON_PATH])
 AC_SUBST([CXXFLAGS])
@@ -156,14 +127,11 @@ AC_SUBST([LDFLAGS])
 AC_SUBST([DEBUG])
 AC_SUBST([CCTLIB_EXTRA_CPPFLAGS])
 AC_SUBST([CCTLIB_EXTRA_CXXFLAGS])
-#AC_SUBST([CCTLIB_INCLUDES])
-#AC_SUBST([CCTLIB_LIBRARIES])
 
-AC_MSG_NOTICE([  Pin:         ${PIN_PATH}])
-AC_MSG_NOTICE([  Google sparse hash:         ${SPARSEHASH_PATH}])
-AC_MSG_NOTICE([  Boost:         ${BOOST_PATH}])
-AC_MSG_NOTICE([  Libelf:         ${LIBELF_PATH}])
-AC_MSG_NOTICE([  Json:         ${JSON_PATH}])
+AC_MSG_NOTICE([  Pin:                ${PIN_PATH}])
+AC_MSG_NOTICE([  Google sparse hash: ${SPARSEHASH_PATH}])
+AC_MSG_NOTICE([  Libelf:             ${LIBELF_PATH}])
+AC_MSG_NOTICE([  Json:               ${JSON_PATH}])
 
 # Write generated configuration file
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile clients/Makefile apps/Makefile])

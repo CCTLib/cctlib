@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <list>
 #include "pin.H"
+#include "pin_isa_compat.H"
 #include "cctlib.H"
 #include "shadow_memory.H"
 #include <xmmintrin.h>
@@ -961,7 +962,7 @@ static inline bool INS_IsIgnorable(INS ins){
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_HasFallThrough(ins)) return;
     if (INS_IsIgnorable(ins))return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) return;
     
     //Instrument memory reads to find redundancy
     // Special case, if we have only one read operand
@@ -1025,7 +1026,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryRead(ins)) {
                 totBytes += INS_MemoryReadSize(ins);
@@ -1065,7 +1066,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryRead(ins)) {
                 totBytes += INS_MemoryReadSize(ins);

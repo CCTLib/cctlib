@@ -34,6 +34,7 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 #include <setjmp.h>
 #include <sstream>
 #include <limits.h>
@@ -42,10 +43,18 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 
-#ifdef USE_BOOST
-#include <boost/lexical_cast.hpp>
-#include <boost/algorithm/string.hpp>
-#endif
+// CCTLib historically had an optional Boost dependency (guarded by USE_BOOST)
+// for two tiny things -- std::to_string() didn't exist pre-C++11 and there
+// was no std trim. Both are handled with C++11 now. Boost is also
+// explicitly unsupported by Pin RT (no RTTI in Pin's libcxx), so we do not
+// include or link Boost anywhere.
+static inline void CCTLibTrimInPlace(std::string& s) {
+    const char* ws = " \t\n\r\f\v";
+    size_t b = s.find_first_not_of(ws);
+    if (b == std::string::npos) { s.clear(); return; }
+    size_t e = s.find_last_not_of(ws);
+    s = s.substr(b, e - b + 1);
+}
 
 #ifdef TARGET_MAC
 #include <libelf/libelf.h>
@@ -161,10 +170,8 @@ namespace PinCCTLib {
     static inline void GetLineFromInfo(const ADDRINT& ip, uint32_t& lineNo, string& filePath);
 
     static inline bool IsValidIP(ADDRINT ip);
-    
-#ifdef USE_BOOST
+
     static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp);
-#endif
     enum CCTLibUsageMode {CCT_LIB_MODE_COLLECTION = 1, CCT_LIB_MODE_POSTMORTEM = 2};
 
 
@@ -1168,7 +1175,8 @@ namespace PinCCTLib {
 
 #endif
 
-#ifdef USE_BOOST
+// Serialization of CCTs, module info, and trace IPs. Previously guarded by
+// USE_BOOST as an opt-in; now always compiled in since Boost is gone.
 
 // Visit all nodes of the splay tree of child traces.
     static void VisitAllNodesOfSplayTree(TraceSplay* node, FILE* const fp) {
@@ -1316,6 +1324,14 @@ namespace PinCCTLib {
 	    realpath(root.c_str(), resolvedPath);
 	    DIR* dirp = opendir(resolvedPath);
 	    if (NULL == dirp) {
+		    // TODO(preexisting-bug): the original code throws here.
+		    // Pin's analysis-dispatch loop does not unwind through C++
+		    // exceptions even under `-fexceptions`; an unhandled throw
+		    // will terminate the tool with std::terminate rather than a
+		    // clean error. Convert to an error-return contract (or wrap
+		    // the caller under PIN_LockClient with a try/catch). Not
+		    // reached by `make check`; restoring the original throw to
+		    // scope this change strictly to porting.
 		    throw string("Directory does not exits" + root);
 	    }
 	    struct dirent * dp;
@@ -1340,7 +1356,7 @@ namespace PinCCTLib {
         for(uint32_t id = 0 ; id < serializedCCTFiles.size(); id++) {
             std::stringstream cctMapFilePath;
             cctMapFilePath << serializedCCTFiles[id];
-            //fprintf(stderr, "\nexists = %d\n",boostFS::exists(serializedCCTFiles[id]));
+            //fprintf(stderr, "\nexists = %d\n", 0);
             FILE* fp = fopen(cctMapFilePath.str().c_str(), "rb");
 
             if(fp == NULL) {
@@ -1585,14 +1601,8 @@ namespace PinCCTLib {
         fclose(fp);
     }
 
-#endif // USE_BOOST
-
 
     void SerializeMetadata(string directoryForSerializationFiles) {
-#ifndef USE_BOOST
-        fprintf(stderr, "\n SerializeMetadata should not be called when USE_BOOST is not set\n");
-        PIN_ExitProcess(-1);
-#else
         if(directoryForSerializationFiles != "") {
             GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
         } else {
@@ -1605,30 +1615,36 @@ namespace PinCCTLib {
             GLOBAL_STATE.serializationDirectory = ss.str();
         }
 
-        // create directory
-        string cmd = "mkdir -p " + GLOBAL_STATE.serializationDirectory;
-        int result = system(cmd.c_str());
-
-        if(result != 0) {
-            fprintf(stderr, "\n failed to call system()");
+        // create directory. Using system("mkdir -p ...") here spawns /bin/sh,
+        // which Pin has to follow into via ptrace. On modern kernels with
+        // ptrace_scope=1 that attach is denied. Use direct syscalls instead.
+        {
+            const string& dir = GLOBAL_STATE.serializationDirectory;
+            struct stat st;
+            if (stat(dir.c_str(), &st) != 0) {
+                size_t pos = 0;
+                while (pos != string::npos) {
+                    pos = dir.find('/', pos + 1);
+                    string sub = (pos == string::npos) ? dir : dir.substr(0, pos);
+                    if (sub.empty()) continue;
+                    if (mkdir(sub.c_str(), 0755) != 0 && errno != EEXIST) {
+                        fprintf(stderr, "\n failed to create directory %s: %s", sub.c_str(), strerror(errno));
+                        break;
+                    }
+                }
+            }
         }
 
         SerializeAllCCTs();
         SerializeMouleInfo();
         SerializeTraceIps();
-#endif //USE_BOOST
     }
     
     void DeserializeMetadata(string directoryForSerializationFiles) {
-#ifndef USE_BOOST
-        fprintf(stderr, "\n DeserializeMetadata should not be called when USE_BOOST is not set\n");
-        PIN_ExitProcess(-1);
-#else
         GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
         DeserializeAllCCTs();
         DeserializeTraceIps();
         DeserializeMouleInfo();
-#endif // USE_BOOST
     }
     
     /**
@@ -1966,10 +1982,6 @@ namespace PinCCTLib {
 
 
     static VOID GetFullCallingContextPostmortem(ContextHandle_t curCtxtHndle, vector<Context>& contextVec) {
-#ifndef USE_BOOST
-        fprintf(stderr, "\n GetFullCallingContextPostmortem should not be called when USE_BOOST is not set\n");
-        PIN_ExitProcess(-1);
-#else
         int depth = 0;
 #ifdef MULTI_THREADED
         int root;
@@ -1983,7 +1995,7 @@ namespace PinCCTLib {
             int threadCtx = 0;
 
             if((threadCtx = IsARootIPNode(curCtxtHndle)) != NOT_ROOT_CTX) {
-                Context ctxt = {"THREAD[" +  boost::lexical_cast<std::string>(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curCtxtHndle /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
+                Context ctxt = {"THREAD[" +  std::to_string(threadCtx) + "]_ROOT_CTXT" /*functionName*/, "" /*filePath */, "" /*disassembly*/, curCtxtHndle /*ctxtHandle*/, 0 /*lineNo*/, 0 /*ip*/};
                 contextVec.push_back(ctxt);
                 // if the thread has a parent, recurse over it.
                 ContextHandle_t parentThreadCtxtHndl = GLOBAL_STATE.deserializedCCTs[threadCtx].tlsParentThreadCtxtHndl;
@@ -2033,9 +2045,9 @@ namespace PinCCTLib {
 
                 pclose(fp);
                 string fnName(functionName);
-                boost::algorithm::trim(fnName);
+                CCTLibTrimInPlace(fnName);
                 string flName(fileName);
-                boost::algorithm::trim(flName);
+                CCTLibTrimInPlace(flName);
                 Context ctxt = {fnName/*functionName*/, flName /*filePath */, "TODO-Disassmebly" /*disassembly*/, curCtxtHndle /*ctx
 tHandle*/, lineNo /*lineNo*/, ip /*ip*/
                                };
@@ -2046,7 +2058,6 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 
         //reset sig handler
         sigaction(SIGSEGV, &old, 0);
-#endif // USE_BOOST
     }
 
 
@@ -3152,6 +3163,13 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
 // create a new node type to substitute IPNode and TraceNode
 struct NewIPNode {
 	vector<NewIPNode*> childIPNodes;
+	// TODO(preexisting-perf): findSameIP scans childIPNodes linearly on every
+	// insertion, making tranverseIPs / mergeIP total cost O(N^2) in
+	// per-parent child count. For workloads whose CCT has many unique
+	// callee IPs under one caller (e.g. reuseApp's JIT'd NOP sleds) this
+	// makes newCCT_hpcrun_write functionally non-terminating. Fix by
+	// mirroring inserts into an unordered_map<ADDRINT, NewIPNode*> for
+	// O(1) findSameIP. Not required for `make check`.
 	NewIPNode* parentIPNode;
 	ADDRINT IPAddress;
 	int32_t parentID;
@@ -3853,7 +3871,7 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t 
 }
 
 
-// Check to see whether another IPNode has the same address under the same parent
+// Check to see whether another IPNode has the same address under the same parent.
 NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
   size_t i;
   ADDRINT address = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(node));
@@ -3929,6 +3947,9 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
 
 
 // Tranverse and print the calling context tree (nodes first)
+// Pass `nodes` by const reference; the original by-value signature copied
+// the whole child vector on every recursive call and made hpcrun emission
+// quadratic in tree size.
 void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
 
   if (nodes.size() == 0) return;
@@ -4091,15 +4112,15 @@ int hpcrun_create_metric(const char *name){
  */
 int newCCT_hpcrun_write(THREADID threadid) {
 
-  
-  FILE *fs = lazy_open_data_file(int (threadid), filename); 
+
+  FILE *fs = lazy_open_data_file(int (threadid), filename);
   if(!fs) return -1;
 
   uint32_t i;
   ThreadData* tdata = CCTLibGetTLS(threadid);
   TraceNode* cctlib = tdata->tlsRootTraceNode;
   vector<NewIPNode*> IPHandle;
-  
+
   // find the main node (the entry point by the programmer)
   IPNode *mainNode = NULL;
   if (GLOBAL_STATE.skip) {
@@ -4119,7 +4140,7 @@ int newCCT_hpcrun_write(THREADID threadid) {
     GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx)->metric = NULL;
 #endif
   }
-  
+
   for(i = 0; i < cctlib->nSlots; i++) {
     NewIPNode* nIP = constructIPNode(NULL, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), 0, &tdata->nodeCount);
     IPHandle.push_back(nIP);

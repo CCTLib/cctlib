@@ -29,6 +29,7 @@ using namespace PinCCTLib;
 #define PAGE_OFFSET(addr) ( addr & 0xFFFF)
 #define PAGE_OFFSET_MASK ( 0xFFFF)
 
+#undef PAGE_SIZE
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
@@ -332,7 +333,7 @@ static inline VOID RecordLargeMemWrite(void* addr, UINT32 accessLen, uint32_t op
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins)) return;
     if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) return;
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     
     for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
@@ -371,7 +372,7 @@ static void DecodingFootPrint(const THREADID threadid,  ContextHandle_t myHandle
         uint64_t refSize = DECODE_ACCESS_LEN(*it);
         uint64_t addr = DECODE_ADDRESS(*it);
         assert(refSize != 0);
-        for(uint i=0; i<refSize; i++) {
+        for(unsigned int i=0; i<refSize; i++) {
             hset->addressSetDecoded.insert(addr+i);
         }
     }

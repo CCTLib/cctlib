@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <list>
 #include "pin.H"
+#include "pin_isa_compat.H"
 
 #define SKIP_SMALL_VARS
 #ifdef SKIP_SMALL_VARS
@@ -108,6 +109,7 @@ using namespace PinCCTLib;
 #define delta 0.01
 
 #define CACHE_LINE_SIZE (64)
+#undef PAGE_SIZE
 #define PAGE_SIZE (4*1024)
 
 
@@ -958,7 +960,7 @@ static inline bool INS_IsIgnorable(INS ins){
 static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle) {
     if (!INS_HasFallThrough(ins)) return;
     if (INS_IsIgnorable(ins))return;
-    if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) return;
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) return;
     //printf("\n In InstrumentInsCallback Begin \n");
     //Instrument memory reads to find redundancy
     // Special case, if we have only one read operand
@@ -1023,7 +1025,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryRead(ins)) {
                 totBytes += INS_MemoryReadSize(ins);
@@ -1065,7 +1067,7 @@ static void InstrumentTrace(TRACE trace, void* f) {
             
             if (!INS_HasFallThrough(ins)) continue;
             if (INS_IsIgnorable(ins)) continue;
-            if (INS_IsBranchOrCall(ins) || INS_IsRet(ins)) continue;
+            if (INS_IsControlFlow(ins) || INS_IsRet(ins)) continue;
             
             if(INS_IsMemoryRead(ins)) {
                 totBytes += INS_MemoryReadSize(ins);

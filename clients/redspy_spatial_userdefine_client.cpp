@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include "pin.H"
+#include "pin_isa_compat.H"
 
 //enable Data-centric
 #define USE_TREE_BASED_FOR_DATA_CENTRIC
@@ -165,24 +166,24 @@ static void CheckRegValues(CONTEXT * ctxt,THREADID threadId){
         genRegs[i] = (UINT8 *)malloc(GEN_REG_LEN * sizeof(UINT8));
     }
     
-    PIN_GetContextRegval(ctxt,REG_RAX,genRegs[0]);
-    PIN_GetContextRegval(ctxt,REG_RBX,genRegs[1]);
-    PIN_GetContextRegval(ctxt,REG_RCX,genRegs[2]);
-    PIN_GetContextRegval(ctxt,REG_RDX,genRegs[3]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RAX,genRegs[0]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RBX,genRegs[1]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RCX,genRegs[2]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RDX,genRegs[3]);
     
-    PIN_GetContextRegval(ctxt,REG_RBP,genRegs[4]);
-    PIN_GetContextRegval(ctxt,REG_RDI,genRegs[5]);
-    PIN_GetContextRegval(ctxt,REG_RSI,genRegs[6]);
-    PIN_GetContextRegval(ctxt,REG_RSP,genRegs[7]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RBP,genRegs[4]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RDI,genRegs[5]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RSI,genRegs[6]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_RSP,genRegs[7]);
     
-    PIN_GetContextRegval(ctxt,REG_R8,genRegs[8]);
-    PIN_GetContextRegval(ctxt,REG_R9,genRegs[9]);
-    PIN_GetContextRegval(ctxt,REG_R10,genRegs[10]);
-    PIN_GetContextRegval(ctxt,REG_R11,genRegs[11]);
-    PIN_GetContextRegval(ctxt,REG_R12,genRegs[12]);
-    PIN_GetContextRegval(ctxt,REG_R13,genRegs[13]);
-    PIN_GetContextRegval(ctxt,REG_R14,genRegs[14]);
-    PIN_GetContextRegval(ctxt,REG_R15,genRegs[15]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R8,genRegs[8]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R9,genRegs[9]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R10,genRegs[10]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R11,genRegs[11]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R12,genRegs[12]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R13,genRegs[13]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R14,genRegs[14]);
+    PIN_GetContextRegval(ctxt,LEVEL_BASE::REG_R15,genRegs[15]);
     
     //get values for X87 registers
     UINT8 ** x87Regs;

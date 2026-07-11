@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include "pin.H"
 #include <map>
-#include <tr1/unordered_map>
+#include <unordered_map>
 #include <list>
 #include <inttypes.h>
 #include <stdint.h>
@@ -40,7 +40,6 @@
 using google::sparse_hash_map;      // namespace where class lives by default
 using google::dense_hash_map;      // namespace where class lives by default
 using namespace std;
-using namespace std::tr1;
 
 
 #include "cctlib.H"
@@ -67,6 +66,7 @@ using namespace PinCCTLib;
 #define PAGE_OFFSET(addr) ( addr & 0xFFFF)
 #define PAGE_OFFSET_MASK ( 0xFFFF)
 
+#undef PAGE_SIZE
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
@@ -283,7 +283,15 @@ static void InstrumentTrace(TRACE trace, void* f) {
             // Instruction(ins, 0);
             if(INS_IsMemoryWrite(ins)) {
                 // get instruction info in trace
-                USIZE writeSize = INS_MemoryWriteSize(ins);
+                // INS_MemoryWriteSize was removed in Pin 4.x; use INS_MemoryOperandSize
+                // over all write operands (typically a single operand for stores).
+                USIZE writeSize = 0;
+                UINT32 nOps = INS_MemoryOperandCount(ins);
+                for (UINT32 op = 0; op < nOps; op++) {
+                    if (INS_MemoryOperandIsWritten(ins, op)) {
+                        writeSize += INS_MemoryOperandSize(ins, op);
+                    }
+                }
 
                 switch(writeSize) {
                 case 1:
@@ -1192,7 +1200,7 @@ VOID Instruction(INS ins, void* v, const uint32_t opaqueHandle) {
      prefixed instructions appear as predicated instructions in Pin. */
     // In Multi-threaded skip call, ret and JMP instructions
 #ifdef MULTI_THREADED
-    if(INS_IsBranchOrCall(ins) || INS_IsRet(ins)) {
+    if(INS_IsControlFlow(ins) || INS_IsRet(ins)) {
         return;
     }
 
