@@ -106,4 +106,39 @@ format:
 format-check:
 	@$(CLANG_FORMAT) --dry-run --Werror $(FORMAT_FILES)
 
+# Coverage: builds the host gtest suite with gcov instrumentation, runs it,
+# and produces coverage/index.html via lcov+genhtml. Pin-tool coverage is
+# intentionally NOT collected -- Pin's runtime is a closed-source ELF that
+# hosts the instrumented process, and instrumenting the Pin tools with gcov
+# collides with Pin's TLS/instrumentation machinery.
+#
+# Usage:  make coverage
+#         xdg-open coverage/index.html
+
+LCOV       ?= lcov
+GENHTML    ?= genhtml
+GTEST_DIR  ?= tests/gtest
+
+.PHONY: coverage
+coverage:
+	rm -rf coverage
+	rm -rf $(GTEST_DIR)/obj-cov
+	$(MAKE) -C $(GTEST_DIR) test COVERAGE=1 OBJDIR=obj-cov
+	mkdir -p coverage
+	$(LCOV) --capture --directory $(GTEST_DIR)/obj-cov \
+	        --output-file coverage/raw.info 2>&1 | tail -3
+	$(LCOV) --extract coverage/raw.info \
+	        '*/src/*' '*/clients/*' '*/tests/gtest/*' \
+	        --output-file coverage/filtered.info 2>&1 | tail -3
+	$(GENHTML) coverage/filtered.info \
+	           --output-directory coverage \
+	           --title "CCTLib host tests" \
+	           --show-details 2>&1 | tail -5
+	@echo "Coverage report: coverage/index.html"
+
+.PHONY: coverage-clean
+coverage-clean:
+	rm -rf coverage
+	rm -rf $(GTEST_DIR)/obj-cov
+
 include $(TOOLS_ROOT)/Config/makefile.default.rules
