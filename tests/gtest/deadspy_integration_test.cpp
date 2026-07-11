@@ -249,8 +249,11 @@ INSTANTIATE_TEST_SUITE_P(
         IsaVictim{"deadspy_partial_qword_then_byte_high_tp", 15000},
         // 100 iters * 512 qwords * 8B = 409600 dead bytes from rep stosq.
         IsaVictim{"deadspy_repstos_tp",                  200000},
-        // 20000 iters * 8B dead per iter = 160000 dead bytes from LOCK xchg.
-        IsaVictim{"deadspy_xchg_tp",                     100000},
+        // NOTE: deadspy_xchg_tp used to live here with a 100K threshold. That
+        // was wrong -- XCHG is RMW so pairs produce ZERO dead writes at -O2.
+        // The test only passed because -O0 stack noise from unused locals
+        // dominated. Now reclassified as deadspy_xchg_tn.c and asserted
+        // separately by DeadspyIsa.XchgIsNotFalselyDead below.
         // 20000 iters * 8B dead per iter = 160000 dead bytes with SIB
         // (register+idx*scale) addressing.
         IsaVictim{"deadspy_addressing_tp",               100000},
@@ -283,8 +286,7 @@ INSTANTIATE_TEST_SUITE_P(
 // read-then-write ordering and is now over-reporting on atomic ops --
 // bad for downstream users of the tool.
 //
-// Contrast: XCHG's memory operand is classified as write-only by Pin, so
-// XCHG PAIRS DO produce dead writes (see deadspy_xchg_tp).
+// Same principle applies to XCHG (see XchgIsNotFalselyDead below).
 TEST_F(DeadspyIsa, CmpxchgIsNotFalselyDead) {
     long baseline = run_and_parse_dead(root_ + "/tests/gtest/obj/apps/deadspy_tp_minimal");
     long isa = run_and_parse_dead(root_ + "/tests/gtest/obj/apps/isa/deadspy_cmpxchg_tn");
@@ -295,6 +297,25 @@ TEST_F(DeadspyIsa, CmpxchgIsNotFalselyDead) {
     // dead we'd see ~80000 extra dead bytes.
     EXPECT_LT(isa - baseline, 5000)
         << "cmpxchg pair falsely reported as dead. isa=" << isa
+        << " baseline=" << baseline;
+}
+
+// LOCK XCHG negative test: XCHG r, m is a read-modify-write per Intel
+// SDM. Pin correctly classifies its memory operand as read+written; the
+// read side clears deadspy's shadow before the write side checks it,
+// so two consecutive XCHGs to the same address produce NO dead writes.
+//
+// If a Pin update reclassifies XCHG as write-only, or a deadspy change
+// loses the read-before-write callback ordering, we'd start seeing
+// ~8B * 20000 = 160000 extra dead bytes here. Threshold at 5000 (same
+// as CMPXCHG) catches that regression while tolerating baseline noise.
+TEST_F(DeadspyIsa, XchgIsNotFalselyDead) {
+    long baseline = run_and_parse_dead(root_ + "/tests/gtest/obj/apps/deadspy_tp_minimal");
+    long isa = run_and_parse_dead(root_ + "/tests/gtest/obj/apps/isa/deadspy_xchg_tn");
+    ASSERT_GE(baseline, 0);
+    ASSERT_GE(isa, 0);
+    EXPECT_LT(isa - baseline, 5000)
+        << "xchg pair falsely reported as dead. isa=" << isa
         << " baseline=" << baseline;
 }
 

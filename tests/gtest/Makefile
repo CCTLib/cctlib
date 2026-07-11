@@ -61,7 +61,7 @@ VICTIMS := \
     $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_tp \
     $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_high_tp \
     $(OBJDIR)/apps/isa/deadspy_repstos_tp \
-    $(OBJDIR)/apps/isa/deadspy_xchg_tp \
+    $(OBJDIR)/apps/isa/deadspy_xchg_tn \
     $(OBJDIR)/apps/isa/deadspy_addressing_tp \
     $(OBJDIR)/apps/isa/deadspy_cross_page_qword_tp \
     $(OBJDIR)/apps/isa/deadspy_pushpop_dead_tp \
