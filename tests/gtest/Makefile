@@ -24,16 +24,59 @@ TESTS := \
     $(OBJDIR)/shadow_memory_test \
     $(OBJDIR)/splay_deserialize_test \
     $(OBJDIR)/rbtree_test \
-    $(OBJDIR)/cctlib_integration_test
+    $(OBJDIR)/cctlib_integration_test \
+    $(OBJDIR)/deadspy_integration_test
+
+# Victim programs used by integration tests. Built with the HOST toolchain
+# (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
+# themselves. -O0 keeps the compiler from collapsing the write patterns
+# each test measures.
+VICTIM_CFLAGS := -O0 -g -Wall
+VICTIMS := \
+    $(OBJDIR)/apps/deadspy_tp_simple \
+    $(OBJDIR)/apps/deadspy_tn_simple \
+    $(OBJDIR)/apps/deadspy_tp_sizes \
+    $(OBJDIR)/apps/deadspy_tp_minimal \
+    $(OBJDIR)/apps/isa/deadspy_sse16_tp \
+    $(OBJDIR)/apps/isa/deadspy_avx32_tp \
+    $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_tp \
+    $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_high_tp \
+    $(OBJDIR)/apps/isa/deadspy_repstos_tp \
+    $(OBJDIR)/apps/isa/deadspy_xchg_tp \
+    $(OBJDIR)/apps/isa/deadspy_addressing_tp \
+    $(OBJDIR)/apps/isa/deadspy_cross_page_qword_tp \
+    $(OBJDIR)/apps/isa/deadspy_pushpop_dead_tp \
+    $(OBJDIR)/apps/isa/deadspy_cmpxchg_tn \
+    $(OBJDIR)/apps/isa/deadspy_movnti_tp
+
+# ISA victims that use SSE / AVX need the corresponding CPU feature enabled
+# at compile time. -O0 preserves inline asm exactly.
+ISA_CFLAGS := -O0 -g -Wall -mavx -mavx2 -msse4.2
+
+# ISA victims that use SSE / AVX need the corresponding CPU feature enabled
+# at compile time. -O0 preserves inline asm exactly.
+ISA_CFLAGS := -O0 -g -Wall -mavx -mavx2 -msse4.2
 
 .PHONY: all test clean
-all: $(TESTS)
+all: $(TESTS) $(VICTIMS)
 
 $(OBJDIR)/%: %.cpp | $(OBJDIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
 
+$(OBJDIR)/apps/%: apps/%.c | $(OBJDIR)/apps
+	$(CC) $(VICTIM_CFLAGS) $< -o $@
+
+$(OBJDIR)/apps/isa/%: apps/isa/%.c | $(OBJDIR)/apps/isa
+	$(CC) $(ISA_CFLAGS) $< -o $@
+
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
+
+$(OBJDIR)/apps:
+	mkdir -p $(OBJDIR)/apps
+
+$(OBJDIR)/apps/isa:
+	mkdir -p $(OBJDIR)/apps/isa
 
 # Run each test binary. GoogleTest exits non-zero on failure, propagating
 # through the `for` loop's `|| exit $$?`. Integration tests need PIN_ROOT
@@ -41,7 +84,7 @@ $(OBJDIR):
 # levels up from this Makefile).
 CCTLIB_ROOT ?= $(abspath $(CURDIR)/../..)
 
-test: $(TESTS)
+test: $(TESTS) $(VICTIMS)
 	@for t in $(TESTS); do \
 	    echo "== $$t =="; \
 	    PIN_ROOT="$(PIN_ROOT)" CCTLIB_ROOT="$(CCTLIB_ROOT)" \
