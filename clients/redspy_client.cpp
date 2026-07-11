@@ -462,7 +462,12 @@ struct RedSpyInstrument {
 
         default: {
             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)RecordValueBeforeLargeWrite, IARG_MEMORYOP_EA, memOp, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_THREAD_ID, IARG_END);
-            INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)CheckAfterLargeWrite, IARG_MEMORYREAD_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
+            // Bug fix: was IARG_MEMORYREAD_SIZE, which is 0 for pure store
+            // instructions (SSE/AVX vmovdqu etc), so accessLen reaching
+            // CheckAfterLargeWrite was 0 and large SIMD stores were never
+            // classified as redundant. Surfaced by
+            // tests/gtest/apps/isa/redspy_avx32_tp.
+            INS_InsertPredicatedCall(ins, IPOINT_AFTER, (AFUNPTR)CheckAfterLargeWrite, IARG_MEMORYWRITE_SIZE, IARG_UINT32, readBufferSlotIndex, IARG_UINT32, opaqueHandle, IARG_THREAD_ID, IARG_END);
         }
         }
     }
