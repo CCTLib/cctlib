@@ -499,6 +499,36 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
         return;
     }
 
+    // TODO(deadcode-suspect): This multi-write-operand path passes `whichOp`
+    // (the LAST write op found by GetNumWriteOperandsInIns) to every switch
+    // case instead of `memOp` (the current loop iterand). If Pin ever
+    // exposes an instruction with 2+ memory-write operands, only the last
+    // write op gets instrumented -- N times into N different buffer slots
+    // -- and the earlier write ops are silently missed, while the last one
+    // is double-counted.
+    //
+    // Empirically unreachable on x86-64 with Pin 4.3: scans of an inline-
+    // asm zoo (XCHG, CMPXCHG16B, XADD, ENTER at nested levels 0/1/3/8,
+    // FSAVE, FXSAVE, STMXCSR, FNSTENV, PUSHF, all string ops, all SSE/AVX
+    // loads/stores, LOCK BTS/BTR/BTC, MOVBE, MOVNTI, MOVNT DQ, VMOVNTDQ)
+    // and of real workloads (gcc -O2 -c, python3 zlib+sha256, ls -laR,
+    // tar cf) produced ZERO instructions Pin classifies as ops>=2 with
+    // 2+ operands marked write. Compare with loadspy_client.cpp:1005,
+    // which handles the analogous multi-read path correctly by passing
+    // `memOp` instead of `whichOp`.
+    //
+    // Not patching yet because:
+    //   (a) can't construct an ASM victim that triggers the bug, so any
+    //       fix would be unverifiable;
+    //   (b) if a Pin/ISA change makes it reachable, the failure mode is
+    //       silently-wrong redundancy counts, not a crash -- so a blind
+    //       fix could mask a genuine detection regression.
+    // Deserves more investigation: (i) check AVX-512 scatter (VPSCATTER*)
+    // via INS_HasScatteredMemoryAccess + IARG_REWRITE_SCATTERED_MEMOP,
+    // which none of the clients currently handle; (ii) check whether any
+    // future Pin classifier changes surface multi-write ops on system
+    // instructions (CALL FAR through m16:64, INT n, ENTER at higher
+    // nesting levels).
     UINT32 memOperands = INS_MemoryOperandCount(ins);
     int readBufferSlotIndex = 0;
     for (UINT32 memOp = 0; memOp < memOperands; memOp++) {
