@@ -26,7 +26,8 @@ TESTS := \
     $(OBJDIR)/rbtree_test \
     $(OBJDIR)/cctlib_integration_test \
     $(OBJDIR)/deadspy_integration_test \
-    $(OBJDIR)/redspy_integration_test
+    $(OBJDIR)/redspy_integration_test \
+    $(OBJDIR)/loadspy_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
 # (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
@@ -41,6 +42,8 @@ VICTIMS := \
     $(OBJDIR)/apps/redspy_tp_simple \
     $(OBJDIR)/apps/redspy_tn_simple \
     $(OBJDIR)/apps/redspy_tp_sizes \
+    $(OBJDIR)/apps/loadspy_tp_simple \
+    $(OBJDIR)/apps/loadspy_tn_simple \
     $(OBJDIR)/apps/isa/deadspy_sse16_tp \
     $(OBJDIR)/apps/isa/deadspy_avx32_tp \
     $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_tp \
@@ -58,7 +61,12 @@ VICTIMS := \
     $(OBJDIR)/apps/isa/redspy_partial_qword_then_byte_tp \
     $(OBJDIR)/apps/isa/redspy_zero_fill_tp \
     $(OBJDIR)/apps/isa/redspy_scalar_sse_tp \
-    $(OBJDIR)/apps/isa/redspy_cross_page_tp
+    $(OBJDIR)/apps/isa/redspy_cross_page_tp \
+    $(OBJDIR)/apps/isa/loadspy_sse16_tp \
+    $(OBJDIR)/apps/isa/loadspy_avx32_tp \
+    $(OBJDIR)/apps/isa/loadspy_repmovs_tp \
+    $(OBJDIR)/apps/isa/loadspy_cross_page_tp \
+    $(OBJDIR)/apps/isa/loadspy_mixed_widths_tp
 
 # ISA victims that use SSE / AVX need the corresponding CPU feature enabled
 # at compile time. -O0 preserves inline asm exactly.
