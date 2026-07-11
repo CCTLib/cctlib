@@ -21,6 +21,7 @@ check:
 	rm -f deadspy.out.* client.out.*
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
 	@echo "----UNITTEST: shadow_memory----" && $(MAKE) -C tests shadow_memory_unittest_run > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----UNITTEST: splay_deserialize----" && $(MAKE) -C tests splay_deserialize_test_run > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "-----Testing Pin---------" && $(PIN_ROOT)/pin -- echo hi > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST1----------" && $(PIN_ROOT)/pin -t tests/$(OBJDIR)/cct_client$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST2----------" && $(PIN_ROOT)/pin -t tests/$(OBJDIR)/cct_client_mem_only$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)

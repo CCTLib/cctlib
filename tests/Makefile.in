@@ -469,6 +469,16 @@ $(OBJDIR)shadow_memory_unittest: shadow_memory_unittest.cpp ../src/shadow_memory
 shadow_memory_unittest_run: $(OBJDIR)shadow_memory_unittest
 	./$(OBJDIR)shadow_memory_unittest
 
+# Standalone unit test for the CCT deserialize splay-tree insertion pattern
+# (src/cctlib.cpp DeserializeCCTNode). Verifies both the buggy and fixed
+# variants and asserts the buggy variant fails as expected.
+$(OBJDIR)splay_deserialize_test: splay_deserialize_test.cpp ../src/splay-macros.h
+	$(CXX) -O2 -std=c++17 -Wall -Wextra -I../src $< -o $@
+
+.PHONY: splay_deserialize_test_run
+splay_deserialize_test_run: $(OBJDIR)splay_deserialize_test
+	./$(OBJDIR)splay_deserialize_test
+
 include $(TOOLS_ROOT)/Config/makefile.default.rules
 
 clean-local:
