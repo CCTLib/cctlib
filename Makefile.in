@@ -850,6 +850,25 @@ compile_commands.json:
 	@echo "    make clean && bear -- make" >&2
 	@exit 1
 
+# Formatting: clang-format driven by .clang-format at the repo root.
+# `make format` reformats all C/C++ sources in place.
+# `make format-check` fails if any file would change (for CI).
+# Override FORMAT_FILES to reformat a subset.
+
+CLANG_FORMAT ?= clang-format-15
+FORMAT_FILES ?= $(wildcard src/*.cpp src/*.H src/*.h) \
+                $(wildcard clients/*.cpp) \
+                $(wildcard tests/*.cpp)
+
+.PHONY: format
+format:
+	@$(CLANG_FORMAT) -i $(FORMAT_FILES)
+	@echo "formatted $(words $(FORMAT_FILES)) files"
+
+.PHONY: format-check
+format-check:
+	@$(CLANG_FORMAT) --dry-run --Werror $(FORMAT_FILES)
+
 include $(TOOLS_ROOT)/Config/makefile.default.rules
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.

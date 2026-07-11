@@ -45,7 +45,7 @@
 
 struct TraceSplay {
     uintptr_t key;
-    int value;                  // scalar so we can spot the leak
+    int value; // scalar so we can spot the leak
     TraceSplay* left;
     TraceSplay* right;
 };
@@ -73,28 +73,31 @@ static void insert(TraceSplay** rootp, uintptr_t key, int value, bool apply_fix)
         *rootp = newNode;
     }
     if (key < found->key) {
-        newNode->left  = found->left;
+        newNode->left = found->left;
         newNode->right = found;
-        found->left    = nullptr;
+        found->left = nullptr;
     } else {
-        newNode->left  = found;
+        newNode->left = found;
         newNode->right = found->right;
-        found->right   = nullptr;
+        found->right = nullptr;
     }
 }
 // NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 
 // Collect all keys reachable from `root` via left/right pointers.
 static void collect_keys(TraceSplay* root, std::set<uintptr_t>& out) {
-    if (!root) return;
-    if (!out.insert(root->key).second) return;   // cycle safety
+    if (!root)
+        return;
+    if (!out.insert(root->key).second)
+        return; // cycle safety
     collect_keys(root->left, out);
     collect_keys(root->right, out);
 }
 
 // Try to find `key` by repeatedly splaying and checking the root's key.
 static bool splay_finds(TraceSplay** rootp, uintptr_t key) {
-    if (!*rootp) return false;
+    if (!*rootp)
+        return false;
     *rootp = splay(*rootp, key);
     return (*rootp)->key == key;
 }
@@ -113,7 +116,8 @@ static bool run_scenario(bool apply_fix, const char* label,
 
     size_t missing_reachable = 0;
     for (uintptr_t k : insertion_order) {
-        if (!reachable.count(k)) ++missing_reachable;
+        if (!reachable.count(k))
+            ++missing_reachable;
     }
 
     // Independently, try splay-based lookup (this is how any real caller
@@ -122,7 +126,8 @@ static bool run_scenario(bool apply_fix, const char* label,
     // when the outer pointer went stale.
     size_t missing_splay = 0;
     for (uintptr_t k : insertion_order) {
-        if (!splay_finds(&root, k)) ++missing_splay;
+        if (!splay_finds(&root, k))
+            ++missing_splay;
     }
 
     fprintf(stderr,
@@ -138,11 +143,14 @@ int main() {
     // Sequences chosen so the splay+split path fires often. First insert is
     // always the "root=null" case; each subsequent insert exercises the
     // buggy `else` branch.
-    std::vector<uintptr_t> asc  = {100, 200, 300, 400, 500, 600, 700, 800};
+    std::vector<uintptr_t> asc = {100, 200, 300, 400, 500, 600, 700, 800};
     std::vector<uintptr_t> desc = {800, 700, 600, 500, 400, 300, 200, 100};
-    std::vector<uintptr_t> mix  = {500, 100, 900, 300, 700, 200, 800, 400, 600};
+    std::vector<uintptr_t> mix = {500, 100, 900, 300, 700, 200, 800, 400, 600};
 
-    struct Case { const char* name; const std::vector<uintptr_t>* seq; };
+    struct Case {
+        const char* name;
+        const std::vector<uintptr_t>* seq;
+    };
     Case cases[] = {
         {"ascending", &asc},
         {"descending", &desc},

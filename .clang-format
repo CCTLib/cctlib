@@ -1,0 +1,76 @@
+# Conservative clang-format style for CCTLib.
+#
+# Design goals:
+#   - Preserve the file's existing 4-space indent + attached-brace style.
+#   - No column limit -- most instrumentation code has long calls
+#     (INS_InsertPredicatedCall with 10+ arguments) that would become
+#     unreadable if forcibly wrapped.
+#   - Keep existing wrapping choices where possible; only fix obvious
+#     inconsistencies (tabs -> spaces, trailing whitespace, brace placement).
+#
+# To format a single file:  clang-format-15 -i src/cctlib.cpp
+# To check without modifying: clang-format-15 --dry-run --Werror src/cctlib.cpp
+# To format the tree in one go: git ls-files '*.cpp' '*.H' '*.h' | xargs clang-format-15 -i
+
+BasedOnStyle: LLVM
+
+Language: Cpp
+Standard: c++17
+
+# Indentation.
+IndentWidth: 4
+UseTab: Never
+TabWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -2
+NamespaceIndentation: None
+IndentCaseLabels: false
+IndentPPDirectives: None
+
+# Column: unset -> use LLVM default of 0 = no column limit.
+ColumnLimit: 0
+
+# Braces: attached, `else` on same line as closing brace.
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+
+# Spacing.
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyBlock: false
+SpaceAfterCStyleCast: false
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeAssignmentOperators: true
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpacesInAngles: false
+
+# Alignment.
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignTrailingComments: false
+
+# Pointer / reference alignment.
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+# Includes: don't reorder -- Pin's headers must come in a specific order
+# (pin.H before others) and reordering silently breaks builds.
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# Line endings and other hygiene.
+InsertTrailingCommas: None
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+
+# Don't reflow comments -- long block comments in this codebase are
+# hand-formatted and reflow would just churn the diff.
+ReflowComments: false

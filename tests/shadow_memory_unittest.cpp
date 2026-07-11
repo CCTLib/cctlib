@@ -36,25 +36,27 @@
 static int g_failures = 0;
 static int g_checks = 0;
 
-#define CHECK_EQ(actual, expected, msg) do {                                  \
-    ++g_checks;                                                               \
-    auto _a = (actual);                                                       \
-    auto _e = (expected);                                                     \
-    if (_a != _e) {                                                           \
-        ++g_failures;                                                         \
-        fprintf(stderr, "  FAIL %s:%d %s: got %lld expected %lld\n",          \
-                __FILE__, __LINE__, msg,                                      \
-                (long long)_a, (long long)_e);                                \
-    }                                                                         \
-} while (0)
+#define CHECK_EQ(actual, expected, msg)                                  \
+    do {                                                                 \
+        ++g_checks;                                                      \
+        auto _a = (actual);                                              \
+        auto _e = (expected);                                            \
+        if (_a != _e) {                                                  \
+            ++g_failures;                                                \
+            fprintf(stderr, "  FAIL %s:%d %s: got %lld expected %lld\n", \
+                    __FILE__, __LINE__, msg,                             \
+                    (long long)_a, (long long)_e);                       \
+        }                                                                \
+    } while (0)
 
-#define RUN_TEST(fn) do {                                                     \
-    int before = g_failures;                                                  \
-    fprintf(stderr, "[RUN ] %s\n", #fn);                                      \
-    fn();                                                                     \
-    fprintf(stderr, "[%s] %s\n",                                              \
-            (g_failures == before) ? "PASS" : "FAIL", #fn);                   \
-} while (0)
+#define RUN_TEST(fn)                                            \
+    do {                                                        \
+        int before = g_failures;                                \
+        fprintf(stderr, "[RUN ] %s\n", #fn);                    \
+        fn();                                                   \
+        fprintf(stderr, "[%s] %s\n",                            \
+                (g_failures == before) ? "PASS" : "FAIL", #fn); \
+    } while (0)
 
 
 // ---------------------------------------------------------------------------
@@ -94,10 +96,10 @@ static void test_shadow_multiple_pages() {
     ShadowMemory<uint64_t> sm;
     const size_t addrs[] = {
         0x0000'0000ULL,
-        0x0001'0000ULL,               // next l2 slot
-        0x0000'1000'0000ULL,          // next l1 slot
-        0x1234'5678'0000ULL,          // arbitrary
-        0x7fff'ffff'0000ULL,          // near top of a 47-bit user space
+        0x0001'0000ULL, // next l2 slot
+        0x0000'1000'0000ULL, // next l1 slot
+        0x1234'5678'0000ULL, // arbitrary
+        0x7fff'ffff'0000ULL, // near top of a 47-bit user space
     };
     const int n = sizeof(addrs) / sizeof(addrs[0]);
     for (int i = 0; i < n; ++i) {
@@ -215,7 +217,7 @@ static void test_concurrent_multi_thread() {
     ConcurrentShadowMemory<uint64_t> sm;
     const int nthreads = 8;
     const int per_thread = 1024;
-    const size_t stride = 0x100'0000ULL;   // one entry per l2 slot
+    const size_t stride = 0x100'0000ULL; // one entry per l2 slot
 
     std::atomic<int> mismatches{0};
 
@@ -227,19 +229,24 @@ static void test_concurrent_multi_thread() {
     };
     std::vector<std::thread> ts;
     ts.reserve(nthreads);
-    for (int t = 0; t < nthreads; ++t) ts.emplace_back(writer, t);
-    for (auto& th : ts) th.join();
+    for (int t = 0; t < nthreads; ++t)
+        ts.emplace_back(writer, t);
+    for (auto& th : ts)
+        th.join();
 
     auto reader = [&](int tid) {
         for (int i = 0; i < per_thread; ++i) {
             size_t addr = (size_t)tid * stride + (size_t)i * 8;
             uint64_t v = *GetOrCreateShadowAddress<0>(sm, addr);
-            if (v != (uint64_t)tid * 1000000ULL + i) mismatches.fetch_add(1);
+            if (v != (uint64_t)tid * 1000000ULL + i)
+                mismatches.fetch_add(1);
         }
     };
     ts.clear();
-    for (int t = 0; t < nthreads; ++t) ts.emplace_back(reader, t);
-    for (auto& th : ts) th.join();
+    for (int t = 0; t < nthreads; ++t)
+        ts.emplace_back(reader, t);
+    for (auto& th : ts)
+        th.join();
 
     CHECK_EQ(mismatches.load(), 0, "concurrent multi-thread write/read mismatches");
 }
@@ -249,14 +256,17 @@ static void test_concurrent_multi_thread() {
 // If the free-function overload does not persist writes, GetDataObjectHandle
 // will silently return the zero-initialized shadow forever.
 static void test_concurrent_init_pattern_data_centric_shape() {
-    struct FakeHandle { uint8_t type; uint32_t path; };  // ~ DataHandle_t
+    struct FakeHandle {
+        uint8_t type;
+        uint32_t path;
+    }; // ~ DataHandle_t
     ConcurrentShadowMemory<FakeHandle> sm;
 
     const size_t base = 0x7ff0'0000'0000ULL;
     const int n = 128;
     for (int i = 0; i < n; ++i) {
         FakeHandle* slot = GetOrCreateShadowAddress<0>(sm, base + i);
-        slot->type = 2;                       // DYNAMIC_OBJECT
+        slot->type = 2; // DYNAMIC_OBJECT
         slot->path = 0xabc00000u + (uint32_t)i;
     }
     for (int i = 0; i < n; ++i) {
