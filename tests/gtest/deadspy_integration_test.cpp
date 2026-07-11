@@ -263,7 +263,12 @@ INSTANTIATE_TEST_SUITE_P(
         // Exercises implicit RSP arithmetic and rsp-relative addressing.
         IsaVictim{"deadspy_pushpop_dead_tp",             40000},
         // Non-temporal MOVNTI stores. 10000 * 8B dead per iter.
-        IsaVictim{"deadspy_movnti_tp",                   40000}),
+        IsaVictim{"deadspy_movnti_tp",                   40000},
+        // PREFETCH must not clear the shadow "was-written" bit. Prime +
+        // (store, prefetch, store) per iter -> 20000 * 16B dead expected.
+        // If a regression makes prefetch behave like a real read, the
+        // dead count collapses to baseline (<20K) and this trips.
+        IsaVictim{"deadspy_prefetch_tp",                 200000}),
     [](const testing::TestParamInfo<IsaVictim>& info) {
         return info.param.name;
     });

@@ -1212,6 +1212,16 @@ VOID Instruction(INS ins, void* v, const uint32_t opaqueHandle) {
     if (INS_Mnemonic(ins) == "XRSTOR")
         return;
 
+    // Prefetch instructions have no architectural effect on program state:
+    // they only hint to the hardware cache subsystem. Pin classifies them
+    // as a memory read (e.g. "PREFETCHT0 [64:R-]") so if we let them through
+    // Record*MemRead would set the shadow to READ_ACTION and erase the
+    // "was-written" marker set by a preceding store. A subsequent store to
+    // the same address would then be missed as a dead write. Filter them
+    // out so prefetch hints don't gate dead-write detection.
+    if (INS_IsPrefetch(ins))
+        return;
+
     // How may memory operations?
     UINT32 memOperands = INS_MemoryOperandCount(ins);
 #ifdef MULTI_THREADED

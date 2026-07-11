@@ -67,6 +67,7 @@ VICTIMS := \
     $(OBJDIR)/apps/isa/deadspy_pushpop_dead_tp \
     $(OBJDIR)/apps/isa/deadspy_cmpxchg_tn \
     $(OBJDIR)/apps/isa/deadspy_movnti_tp \
+    $(OBJDIR)/apps/isa/deadspy_prefetch_tp \
     $(OBJDIR)/apps/isa/redspy_sse16_tp \
     $(OBJDIR)/apps/isa/redspy_avx32_tp \
     $(OBJDIR)/apps/isa/redspy_immediate_tp \
