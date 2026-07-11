@@ -36,4 +36,53 @@ check:
 	@echo "************* ALL TESTS PASSED ******************"
 	@echo "*************************************************"
 
+
+# Linting: clang-tidy driven by a bear-captured compile_commands.json.
+#
+# One-time setup on a fresh checkout:
+#   sudo apt install clang-tidy bear   # or your distro's equivalent
+#   make clean && bear -- make          # produce compile_commands.json
+# Then `make lint` (all sources) or `make lint FILES="src/cctlib.cpp"`.
+#
+# CLANG_TIDY / PIN paths are overridable from the command line.
+
+CLANG_TIDY ?= clang-tidy-15
+# cct_data_name and snippet are documentation examples, not part of the build,
+# and reference APIs not present in the default configuration. Exclude them
+# from the default lint set; caller can add them back via LINT_FILES=... .
+LINT_FILES ?= src/cctlib.cpp $(wildcard clients/*.cpp) \
+              $(filter-out tests/cct_data_name.cpp tests/snippet.cpp, $(wildcard tests/*.cpp))
+LINT_CLANG_RESOURCE_DIR ?= /usr/lib/llvm-15/lib/clang/15.0.6
+
+# Pin runtime extras that pin-g++ adds internally to gcc but which
+# bear does not capture (pin-g++ is a wrapper script). clang-tidy needs
+# these to parse pin.H, musl libc, libc++. LINT_CLANG_RESOURCE_DIR
+# supplies clang's own intrinsic headers (xmmintrin.h, unwind.h, ...)
+# that -nostdinc otherwise hides.
+LINT_PIN_EXTRA_ARGS = \
+  --extra-arg=-Wno-unknown-warning-option \
+  --extra-arg=-nostdinc --extra-arg=-nostdinc++ \
+  --extra-arg=-isystem --extra-arg=$(PIN_ROOT)/intel64/pinrt/include/c++ \
+  --extra-arg=-isystem --extra-arg=$(PIN_ROOT)/intel64/pinrt/include \
+  --extra-arg=-isystem --extra-arg=$(PIN_ROOT)/intel64/pinrt/include/pinos \
+  --extra-arg=-idirafter --extra-arg=$(LINT_CLANG_RESOURCE_DIR)/include \
+  --extra-arg=-DPIN_CRT=1 --extra-arg=-DPIN_RT \
+  --extra-arg=-DTARGET_LINUX --extra-arg=-DTARGET_IA32E --extra-arg=-DHOST_IA32E \
+  --extra-arg=-D_LIBCPP_HAS_MUSL_LIBC \
+  --extra-arg=-D_LIBCPP_DISABLE_AVAILABILITY \
+  --extra-arg=-D_arch_long=long
+
+.PHONY: lint
+lint: compile_commands.json
+	@for f in $(LINT_FILES); do \
+	    printf '=== %s ===\n' $$f; \
+	    $(CLANG_TIDY) -p . $(LINT_PIN_EXTRA_ARGS) $$f 2>&1 \
+	        | grep -E ':[0-9]+:[0-9]+: (warning|error):' || true; \
+	done
+
+compile_commands.json:
+	@echo "Missing compile_commands.json. Run:" >&2
+	@echo "    make clean && bear -- make" >&2
+	@exit 1
+
 include $(TOOLS_ROOT)/Config/makefile.default.rules

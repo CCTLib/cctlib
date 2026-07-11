@@ -1,0 +1,35 @@
+# Build artifacts
+obj-intel64/
+apps/obj-intel64/
+clients/obj-intel64/
+src/obj-intel64/
+tests/obj-intel64/
+
+# Autotools generated
+Makefile
+!/Makefile.am
+!*/Makefile.am
+autom4te.cache/
+config.log
+config.status
+configure~
+src/config.h
+src/config.h.in~
+src/stamp-h1
+
+# External deps (unpacked / installed by build.sh)
+externals/libelf-*/
+externals/sparsehash-*/
+json-*-install/
+libelf-*-install/
+sparsehash-*-install/
+
+# Runtime output from Pin tools
+*.out.*
+DeadSpy-CCTLib-database/
+cctlib-database-*/
+hpctoolkit-*-measurements/
+*.redmap
+
+# Linting
+compile_commands.json

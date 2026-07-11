@@ -1,0 +1,43 @@
+# Conservative clang-tidy config for CCTLib.
+#
+# Scope: catch real bugs and performance issues on the code as-it-stands,
+# without demanding wholesale rewrites. Style-only families (readability,
+# modernize, google, cppcoreguidelines, hicpp, fuchsia, llvm) are disabled.
+#
+# HeaderFilterRegex only reports on our own headers under src/, clients/,
+# tests/. Diagnostics from Pin's musl/libc++ headers, sparsehash, and
+# nlohmann/json are suppressed as non-user code.
+#
+# The Pin runtime include paths and macros needed to actually parse
+# pin.H / musl / libc++ are not in this file -- they are supplied by
+# `make lint`, which knows $(PIN_ROOT). Invoking clang-tidy directly on
+# a Pin-using file will therefore fail to parse; use `make lint`.
+
+Checks: >-
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-macro-parentheses,
+  -bugprone-reserved-identifier,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-forwarding-reference-overload,
+  performance-*,
+  -performance-avoid-endl,
+  -performance-no-int-to-ptr,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  clang-analyzer-deadcode.*,
+  clang-analyzer-security.*,
+  clang-analyzer-unix.*,
+  misc-redundant-expression,
+  misc-unused-using-decls
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '^.*/(src|clients|tests)/[^/]+\.(H|h|hpp)$'
+FormatStyle: none
+
+CheckOptions:
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: 'false'
