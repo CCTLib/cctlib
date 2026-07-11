@@ -33,3 +33,8 @@ hpctoolkit-*-measurements/
 
 # Linting
 compile_commands.json
+
+# Host-side test binaries (built by tests/gtest/Makefile with system g++)
+tests/gtest/obj/
+tests/gtest/obj-cov/
+coverage/
