@@ -39,7 +39,9 @@ typedef PINTOOL_REGISTER PIN_REGISTER;
 
 // REG_is_in_X87(reg) -> REG_is_st(reg). Same semantics: true iff `reg` is
 // one of the x87 stack registers ST0..ST7 (REG_CLASS_ST).
-static inline BOOL REG_is_in_X87(REG reg) { return REG_is_st(reg); }
+static inline BOOL REG_is_in_X87(REG reg) {
+    return REG_is_st(reg);
+}
 
 // -----------------------------------------------------------------------
 // Instruction predicates
@@ -60,15 +62,15 @@ static inline BOOL INS_IsIndirectBranchOrCall(INS ins) {
 // therefore safe and matches the historical semantics.
 static inline BOOL INS_IsMaskedJump(INS ins) {
     switch (INS_Opcode(ins)) {
-        case XED_ICLASS_JECXZ:
-        case XED_ICLASS_JCXZ:
-        case XED_ICLASS_JRCXZ:
-        case XED_ICLASS_LOOP:
-        case XED_ICLASS_LOOPE:
-        case XED_ICLASS_LOOPNE:
-            return TRUE;
-        default:
-            return FALSE;
+    case XED_ICLASS_JECXZ:
+    case XED_ICLASS_JCXZ:
+    case XED_ICLASS_JRCXZ:
+    case XED_ICLASS_LOOP:
+    case XED_ICLASS_LOOPE:
+    case XED_ICLASS_LOOPNE:
+        return TRUE;
+    default:
+        return FALSE;
     }
 }
 

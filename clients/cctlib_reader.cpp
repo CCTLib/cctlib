@@ -22,7 +22,6 @@ static INT32 Usage() {
 }
 
 
-
 // Main for DeadSpy, initialize the tool, register instrumentation functions and call the target program.
 FILE* gTraceFile;
 
@@ -33,7 +32,7 @@ void ClientInit(int argc, char* argv[]) {
     char name[MAX_FILE_PATH] = "client.out.";
     char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
-    if(envPath) {
+    if (envPath) {
         // assumes max of MAX_FILE_PATH
         snprintf(name, sizeof(name), "%s", envPath);
     }
@@ -46,7 +45,7 @@ void ClientInit(int argc, char* argv[]) {
     // print the arguments passed
     fprintf(gTraceFile, "\n");
 
-    for(int i = 0 ; i < argc; i++) {
+    for (int i = 0; i < argc; i++) {
         fprintf(gTraceFile, "%s ", argv[i]);
     }
 
@@ -55,7 +54,7 @@ void ClientInit(int argc, char* argv[]) {
 
 int main(int argc, char* argv[]) {
     // Initialize PIN
-    if(PIN_Init(argc, argv))
+    if (PIN_Init(argc, argv))
         return Usage();
 
     // Initialize Symbols, we need them to report functions and lines
@@ -74,5 +73,3 @@ int main(int argc, char* argv[]) {
 #endif
     return 0;
 }
-
-

@@ -41,7 +41,7 @@ void ClientInit(int argc, char* argv[]) {
     char name[MAX_FILE_PATH] = "client.out.";
     char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
-    if(envPath) {
+    if (envPath) {
         // assumes max of MAX_FILE_PATH
         snprintf(name, sizeof(name), "%s", envPath);
     }
@@ -55,60 +55,56 @@ void ClientInit(int argc, char* argv[]) {
     fprintf(gTraceFile, "\n");
 }
 
-VOID ThreadStartFunc(THREADID threadid, CONTEXT *ctxt, INT32 code, VOID *v)
-{
+VOID ThreadStartFunc(THREADID threadid, CONTEXT* ctxt, INT32 code, VOID* v) {
     mm[threadid] = 0;
 }
 
-VOID ThreadFiniFunc(THREADID threadid, const CONTEXT *ctxt, INT32 code, VOID *v)
-{
+VOID ThreadFiniFunc(THREADID threadid, const CONTEXT* ctxt, INT32 code, VOID* v) {
     printf("instructionCount is %ld\n", mm[threadid]);
     newCCT_hpcrun_write(threadid);
 }
 
 // user-defined function for metric merging
-void mergeFunc(void *des, void *src)
-{
-    uint64_t *m = (uint64_t *)des;
-    uint64_t *n = (uint64_t *)src;
+void mergeFunc(void* des, void* src) {
+    uint64_t* m = (uint64_t*)des;
+    uint64_t* n = (uint64_t*)src;
     *m += *n;
 }
 
 // user-defined function for metric computation
 // hpcviewer can only show the numbers for the metric
-uint64_t computeMetricVal(void *metric)
-{
-    if (!metric) return 0;
-    return (uint64_t)*((uint64_t *)metric);
+uint64_t computeMetricVal(void* metric) {
+    if (!metric)
+        return 0;
+    return (uint64_t) * ((uint64_t*)metric);
 }
 
 // user needs to define the metrics and the method to accumulate the metrics in each node
 VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
-    void **c_m = GetIPNodeMetric(id, slot);
-    uint64_t *m;
+    void** c_m = GetIPNodeMetric(id, slot);
+    uint64_t* m;
     if (*c_m == NULL) {
-      m = (uint64_t*) malloc (sizeof(uint64_t));
-      *m = 0;
-      *c_m = (void *)m;
-    }
-    else
-      m = (uint64_t*) (*c_m);
+        m = (uint64_t*)malloc(sizeof(uint64_t));
+        *m = 0;
+        *c_m = (void*)m;
+    } else
+        m = (uint64_t*)(*c_m);
     (*m)++;
     // record the number of instructions per each thread
-    mm[id]++;    
+    mm[id]++;
 }
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
     // only count memory store instructions
     if (INS_IsMemoryWrite(ins))
-      INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
+        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
 }
 
 
 int main(int argc, char* argv[]) {
     // Initialize PIN
-    if(PIN_Init(argc, argv))
+    if (PIN_Init(argc, argv))
         return Usage();
 
     // Initialize Symbols, we need them to report functions and lines
@@ -120,7 +116,7 @@ int main(int argc, char* argv[]) {
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, false);
     ins_metric_id = hpcrun_create_metric("TOT_INS");
-    
+
     // Collete data for visualization
     PIN_AddThreadStartFunction(ThreadStartFunc, 0);
     PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);

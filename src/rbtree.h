@@ -10,55 +10,59 @@
 #include <stdint.h>
 
 
-enum COLOR {BLACK=0, RED=1};
+enum COLOR { BLACK = 0,
+             RED = 1 };
 
-template<class K, class V, class S>
-struct TreeNode{
-    TreeNode * left;
-    TreeNode * right;
-    TreeNode * parent;
+template <class K, class V, class S>
+struct TreeNode {
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode* parent;
     COLOR color;
     K key;
     V value;
     S sum;
-    TreeNode(K k, V v): key(k), value(v) {}
+    TreeNode(K k, V v)
+        : key(k), value(v) {}
 };
 
-template<class K, class V, class S>
-class RBTree{
+template <class K, class V, class S>
+class RBTree {
     using TNKV = TreeNode<K, V, S>;
-private:
-    TreeNode<K, V, S> * root;
-public:
-    RBTree(): root(0) {
-        
+
+  private:
+    TreeNode<K, V, S>* root;
+
+  public:
+    RBTree()
+        : root(0) {
     }
-    
-    TNKV * InsertBST(TNKV * newNode){
+
+    TNKV* InsertBST(TNKV* newNode) {
         V inc = newNode->value;
         newNode->left = newNode->right = newNode->parent = NULL;
         // always begin with a red color node
         newNode->color = RED;
         newNode->sum = inc;
-        
-        if(root == NULL) {
+
+        if (root == NULL) {
             root = newNode;
             return newNode;
         }
-        
-        TNKV * cur = root;
-        TNKV * parent = NULL;
 
-        while(cur) {
+        TNKV* cur = root;
+        TNKV* parent = NULL;
+
+        while (cur) {
             parent = cur;
             parent->sum += inc;
             if (newNode->key <= cur->key) {
                 cur = cur->left;
-            } else if (newNode->key > parent->key){
+            } else if (newNode->key > parent->key) {
                 cur = cur->right;
             }
         }
-        
+
         if (newNode->key < parent->key) {
             assert(parent->left == NULL);
             parent->left = newNode;
@@ -67,87 +71,87 @@ public:
             parent->right = newNode;
         }
         newNode->parent = parent;
-        return  newNode;
+        return newNode;
     }
 
-    TNKV * FindSumGreaterEqual(K key, S *sum) {
+    TNKV* FindSumGreaterEqual(K key, S* sum) {
         *sum = 0;
-        if(root == NULL) {
+        if (root == NULL) {
             return NULL;
         }
-        
-        TNKV * cur = root;
-        TNKV * parent = NULL;
 
-        while(cur) {
+        TNKV* cur = root;
+        TNKV* parent = NULL;
+
+        while (cur) {
             parent = cur;
             if (key < cur->key) {
-                *sum += cur->value + (cur->right?cur->right->sum : 0);
+                *sum += cur->value + (cur->right ? cur->right->sum : 0);
                 cur = cur->left;
-            } else if (key > cur->key){
+            } else if (key > cur->key) {
                 cur = cur->right;
             } else {
-                *sum += cur->value + (cur->right?cur->right->sum : 0);
+                *sum += cur->value + (cur->right ? cur->right->sum : 0);
                 break;
             }
         }
         // if cur is null we found none
-        return  cur;
+        return cur;
     }
 
-    TNKV * FindSumGreaterThan(K key, S *sum) {
+    TNKV* FindSumGreaterThan(K key, S* sum) {
         *sum = 0;
-        if(root == NULL) {
+        if (root == NULL) {
             return NULL;
         }
-        
-        TNKV * cur = root;
-        TNKV * parent = NULL;
 
-        while(cur) {
+        TNKV* cur = root;
+        TNKV* parent = NULL;
+
+        while (cur) {
             parent = cur;
             if (key < cur->key) {
-                *sum += cur->value + (cur->right?cur->right->sum : 0);
+                *sum += cur->value + (cur->right ? cur->right->sum : 0);
                 cur = cur->left;
-            } else if (key > cur->key){
+            } else if (key > cur->key) {
                 cur = cur->right;
             } else {
-                *sum += (cur->right?cur->right->sum : 0);
+                *sum += (cur->right ? cur->right->sum : 0);
                 break;
             }
         }
         // if cur is null we found none
-        return  cur;
-    }
-    
-    void UpdateSum(TNKV * node){
-        node->sum = node->value + (node->left?node->left->sum:0) + (node->right?node->right->sum:0);
+        return cur;
     }
 
-    COLOR GetColor(TNKV * const node){
-        if(node){
+    void UpdateSum(TNKV* node) {
+        node->sum = node->value + (node->left ? node->left->sum : 0) + (node->right ? node->right->sum : 0);
+    }
+
+    COLOR GetColor(TNKV* const node) {
+        if (node) {
             return node->color;
         }
         return BLACK;
     }
 
-    void SetColor(TNKV * node, COLOR color){
-        if(node){
+    void SetColor(TNKV* node, COLOR color) {
+        if (node) {
             node->color = color;
         }
     }
 
-    COLOR GetColorUnconditional(TNKV * const node){
+    COLOR GetColorUnconditional(TNKV* const node) {
         assert(node);
         return node->color;
     }
 
-    void SetColorUnconditional(TNKV * node, COLOR color){
+    void SetColorUnconditional(TNKV* node, COLOR color) {
         assert(node);
         node->color = color;
     }
 
-    
+
     // https://www.geeksforgeeks.org/c-program-red-black-tree-insertion/
     // https://www.youtube.com/watch?v=6QOKk_pcv3U
     /* . ==> red node
@@ -160,9 +164,9 @@ public:
                             T4  T5                   T1 T2
      */
 
-    
+
     // We get a pointer to the right child, which will be rotated anticlockwise around its parent.
-    void RotateLeft(TNKV * p){
+    void RotateLeft(TNKV* p) {
         assert(p->parent);
         // is it really needed?
         //assert(p->parent->right);
@@ -178,7 +182,7 @@ public:
             p->left->parent = g;
         }
         p->left = g;
-        
+
         if (ggp) {
             if (ggp->left == g)
                 ggp->left = p;
@@ -192,7 +196,6 @@ public:
         // x is unchanged
         UpdateSum(g);
         UpdateSum(p);
-
     }
 
     /* . ==> red node
@@ -205,9 +208,9 @@ public:
                  T3  T4                        T1 T2
 */
 
-    
+
     // We get a pointer to x. It will be rotaed clockwise around its parent and then anticlockwise around the new parent.
-    void RotateRightThenLeft(TNKV * x){
+    void RotateRightThenLeft(TNKV* x) {
         assert(x->parent);
         // is it really needed?
         assert(x->parent->parent);
@@ -216,13 +219,13 @@ public:
         auto g = x->parent->parent;
         auto p = x->parent;
         auto ggp = g->parent;
-        
+
         g->right = x->left;
         if (x->left) {
             x->left->parent = g;
         }
         p->left = x->right;
-        if(x->right) {
+        if (x->right) {
             x->right->parent = p;
         }
         p->parent = x;
@@ -238,16 +241,15 @@ public:
         } else {
             root = x;
         }
-        
+
         // Adjust the sum
         // u is unchanged
         UpdateSum(p);
         UpdateSum(g);
         UpdateSum(x);
-
     }
 
-    
+
     /*
                          g                                      p
                      /       \                              /       \
@@ -261,7 +263,7 @@ public:
 
     // We get pointer to the left child.
     // We rotate the node clockwise wrt to its parent.
-    void RotateRight(TNKV * p){
+    void RotateRight(TNKV* p) {
         assert(p->parent);
         // is it really needed?
         // assert(p->parent->right);
@@ -276,7 +278,7 @@ public:
             p->right->parent = g;
         }
         p->right = g;
-        
+
         if (ggp) {
             if (ggp->left == g)
                 ggp->left = p;
@@ -285,7 +287,7 @@ public:
         } else {
             root = p;
         }
-        
+
         // Adjust the sum
         // u is unchanged
         // x is unchanged
@@ -306,7 +308,7 @@ public:
 
     // x is the right child.
     // Effectively, we rotate x anticlockwise around its parent and then clockwise around the new parent.
-    void RotateLeftThenRight(TNKV * x){
+    void RotateLeftThenRight(TNKV* x) {
         assert(x->parent);
         // is it really needed?
         assert(x->parent->parent);
@@ -321,7 +323,7 @@ public:
             x->right->parent = g;
         }
         p->right = x->left;
-        if(x->left) {
+        if (x->left) {
             x->left->parent = p;
         }
         p->parent = x;
@@ -344,8 +346,8 @@ public:
         UpdateSum(x);
     }
 
-    void BalanceInsertion(TNKV * x){
-        if (! x->parent) {
+    void BalanceInsertion(TNKV* x) {
+        if (!x->parent) {
             // reached root, color it black
             x->color = BLACK;
             return;
@@ -354,16 +356,16 @@ public:
         if (x->parent->color == BLACK) {
             return; // no problem
         }
-        
+
         // since parent is red, there must be grand parent
         auto p = x->parent;
         auto g = x->parent->parent;
         // is p left of g -- g is non-null by RB invariant (a red parent is
         // never the root, so the grandparent always exists), see comment above.
-        if (p == g->left) {   // NOLINT(clang-analyzer-core.NullDereference)
+        if (p == g->left) { // NOLINT(clang-analyzer-core.NullDereference)
             // is uncle red? if so, recolor
             auto u = g->right;
-            if (u && (u->color == RED)){
+            if (u && (u->color == RED)) {
                 SetColorUnconditional(g, RED);
                 SetColorUnconditional(u, BLACK);
                 SetColorUnconditional(p, BLACK);
@@ -371,7 +373,7 @@ public:
                 BalanceInsertion(g);
             } else {
                 // is x left of p?
-                if(p->left == x) {
+                if (p->left == x) {
                     RotateRight(p);
                     //Recolor
                     // x = g = red.
@@ -392,10 +394,10 @@ public:
         } else {
             // p is right child of g
             assert(p == g->right);
-            
+
             // is uncle red? if so, recolor
             auto u = g->left;
-            if (u && (u->color == RED)){
+            if (u && (u->color == RED)) {
                 SetColorUnconditional(g, RED);
                 SetColorUnconditional(u, BLACK);
                 SetColorUnconditional(p, BLACK);
@@ -403,9 +405,9 @@ public:
                 BalanceInsertion(g);
             } else {
                 // is x right of p?
-                if(p->right == x) {
+                if (p->right == x) {
                     RotateLeft(p);
-                    SetColorUnconditional(x , RED);
+                    SetColorUnconditional(x, RED);
                     SetColorUnconditional(g /*now the new sibling */, RED);
                     SetColorUnconditional(p /*now the new sibling */, BLACK);
                     // end of protocol on a rotation
@@ -423,31 +425,31 @@ public:
             }
         }
     }
-    
-    void Insert(TNKV * newNode){
+
+    void Insert(TNKV* newNode) {
         InsertBST(newNode);
         BalanceInsertion(newNode);
     }
 
-    void BalanceDeletion(TNKV * node){
+    void BalanceDeletion(TNKV* node) {
         // Deleting a red node is harmless (does not change the black depth).
         if (node->color == RED) {
             return;
         }
-        
+
         // Node is BLACK. If it has at least one RED child, recoloring the child with BLACK will fix the height problem.
         // TODO: it can only have the right child.
         if (GetColor(node->left) == RED || GetColor(node->right) == RED) {
-            TNKV *child = node->left != nullptr ? node->left : node->right;
-                SetColorUnconditional(child, BLACK);
-                return;
+            TNKV* child = node->left != nullptr ? node->left : node->right;
+            SetColorUnconditional(child, BLACK);
+            return;
         }
-        
+
         // Series of harder cases where node is black and it has no red children.
-        
-        TNKV *sibling = nullptr;
-        TNKV *parent = nullptr;
-        TNKV *ptr = node;
+
+        TNKV* sibling = nullptr;
+        TNKV* parent = nullptr;
+        TNKV* ptr = node;
         while (ptr != root) {
             parent = ptr->parent;
             if (ptr == parent->left) {
@@ -460,12 +462,11 @@ public:
                 } else {
                     if ((!sibling) ||
                         (GetColor(sibling->left) == BLACK && GetColor(sibling->right) == BLACK)) {
-                        
-                        if(sibling) {
+                        if (sibling) {
                             SetColorUnconditional(sibling, RED);
                         }
-                        
-                        if(GetColorUnconditional(parent) == RED) {
+
+                        if (GetColorUnconditional(parent) == RED) {
                             SetColorUnconditional(parent, BLACK);
                         } else {
                             SetColorUnconditional(parent, BLACK);
@@ -493,10 +494,9 @@ public:
                     SetColor(parent, RED);
                     RotateRight(sibling);
                 } else {
-                    if ( (!sibling) ||
+                    if ((!sibling) ||
                         (GetColor(sibling->left) == BLACK && GetColor(sibling->right) == BLACK)) {
-                       
-                        if (sibling){
+                        if (sibling) {
                             SetColorUnconditional(sibling, RED);
                         }
 
@@ -526,24 +526,24 @@ public:
         SetColorUnconditional(root, BLACK);
     }
 
-    TNKV * DeleteHelper(TNKV * node){
+    TNKV* DeleteHelper(TNKV* node) {
         // Case 1: no children
-        if (node->left == NULL && node->right==NULL) {
+        if (node->left == NULL && node->right == NULL) {
             if (node == root) {
                 root = NULL;
             } else {
-                TNKV ** whomToUpdate = (node->parent->left == node) ? (& node->parent->left) : (& node->parent->right);
-                *whomToUpdate=NULL;
+                TNKV** whomToUpdate = (node->parent->left == node) ? (&node->parent->left) : (&node->parent->right);
+                *whomToUpdate = NULL;
             }
             return node;
         }
         // Case 2: single child
         if (node->left == NULL || node->right == NULL) {
-            TNKV * parent = node->parent;
+            TNKV* parent = node->parent;
 
-            TNKV * theChild = (node->left) ? (node->left) : (node->right);
+            TNKV* theChild = (node->left) ? (node->left) : (node->right);
             if (parent) {
-                TNKV ** theParentLoc = (parent->left == node) ? (& parent->left) : (& parent->right);
+                TNKV** theParentLoc = (parent->left == node) ? (&parent->left) : (&parent->right);
                 *theParentLoc = theChild;
             } else {
                 root = theChild;
@@ -554,32 +554,32 @@ public:
         // Case 3: both children
 
         // Get the in-order successor
-        
-        TNKV * curParent = NULL;
-        for(TNKV * cur = node->right; cur != NULL; cur = cur->left){
+
+        TNKV* curParent = NULL;
+        for (TNKV* cur = node->right; cur != NULL; cur = cur->left) {
             curParent = cur;
         }
-        
+
         V dec = curParent->value;
         // Update the sum since this subtree lost a node
-        for (TNKV * cur = curParent->parent; cur != node; cur = cur->parent) {
+        for (TNKV* cur = curParent->parent; cur != node; cur = cur->parent) {
             cur->sum -= dec;
         }
-        
+
         // swap curParent with node
         auto tmp1 = node->key;
         node->key = curParent->key;
         curParent->key = tmp1;
-        
+
         auto tmp2 = node->value;
         node->value = curParent->value;
         curParent->value = tmp2;
-        
+
         // Now, delete curParent
         return DeleteHelper(curParent);
     }
-    
-    TNKV * WhichNodeToDelete(TNKV * node){
+
+    TNKV* WhichNodeToDelete(TNKV* node) {
         // Case 1: no or single single child
         if (node->left == NULL || node->right == NULL) {
             node->sum = 0;
@@ -592,44 +592,44 @@ public:
             return node;
         }
         // Get the in-order successor
-        
-        TNKV * curParent = NULL;
-        for(TNKV * cur = node->right; cur != NULL; cur = cur->left){
+
+        TNKV* curParent = NULL;
+        for (TNKV* cur = node->right; cur != NULL; cur = cur->left) {
             curParent = cur;
         }
-        
+
         V dec = curParent->value;
         // Update the sum since this subtree lost a node
-        for (TNKV * cur = curParent->parent; cur != node; cur = cur->parent) {
+        for (TNKV* cur = curParent->parent; cur != node; cur = cur->parent) {
             cur->sum -= dec;
         }
-        
+
         // swap curParent with node
         auto tmp1 = node->key;
         node->key = curParent->key;
         curParent->key = tmp1;
-        
+
         auto tmp2 = node->value;
         node->value = curParent->value;
         curParent->value = tmp2;
-        
+
         // Now, delete curParent
         return WhichNodeToDelete(curParent);
     }
 
-    TNKV * Delete(TNKV * node){
+    TNKV* Delete(TNKV* node) {
         V dec = node->value;
         // decrement this value from parents
-        for(TNKV * cur = node; cur; cur = cur->parent){
+        for (TNKV* cur = node; cur; cur = cur->parent) {
             cur->sum -= dec;
         }
-//        auto delNode =  DeleteHelper(node);
+        //        auto delNode =  DeleteHelper(node);
         auto delNode = WhichNodeToDelete(node);
         BalanceDeletion(delNode);
         assert(delNode->left == NULL || (delNode->right == NULL));
         if (delNode->parent) {
             if (delNode->parent->left == delNode) {
-                if(delNode->right) {
+                if (delNode->right) {
                     delNode->parent->left = delNode->right;
                     delNode->right->parent = delNode->parent;
                 } else if (delNode->left) {
@@ -639,10 +639,10 @@ public:
                     delNode->parent->left = NULL;
                 }
             } else {
-                if(delNode->right) {
+                if (delNode->right) {
                     delNode->parent->right = delNode->right;
                     delNode->right->parent = delNode->parent;
-                } else if (delNode->left){
+                } else if (delNode->left) {
                     delNode->parent->right = delNode->left;
                     delNode->left->parent = delNode->parent;
                 } else {
@@ -650,10 +650,10 @@ public:
                 }
             }
         } else {
-            if(delNode->right) {
+            if (delNode->right) {
                 root = delNode->right;
                 delNode->right->parent = NULL;
-            } else if(delNode->left) {
+            } else if (delNode->left) {
                 root = delNode->left;
                 delNode->left->parent = NULL;
             } else {
@@ -662,48 +662,48 @@ public:
         }
         return delNode;
     }
-    
-    bool IsBSTHelper(TNKV* node){
+
+    bool IsBSTHelper(TNKV* node) {
         if (!node)
             return true;
-        
-        if(node->left) {
+
+        if (node->left) {
             if (node->left->key > node->key)
                 return false;
         }
-        
-        if(node->right) {
+
+        if (node->right) {
             if (node->right->key <= node->key)
                 return false;
         }
-        
+
         return IsBSTHelper(node->left) && IsBSTHelper(node->right);
     }
-    
-    bool IsBST(){
+
+    bool IsBST() {
         if (!root)
             return true;
-        
+
         return IsBSTHelper(root);
     }
 
-    bool IsSumCorrectHeler(TNKV * node, V & curSum){
+    bool IsSumCorrectHeler(TNKV* node, V& curSum) {
         if (node == NULL) {
             curSum = 0;
-            return  true;
+            return true;
         }
-        
-        V lSum = node->left? node->left->sum : 0;
-        V rSum = node->right? node->right->sum : 0;
+
+        V lSum = node->left ? node->left->sum : 0;
+        V rSum = node->right ? node->right->sum : 0;
         if ((lSum + rSum + node->value) != node->sum) {
             return false;
         }
-        
-        if(! IsSumCorrectHeler(node->left, lSum))
+
+        if (!IsSumCorrectHeler(node->left, lSum))
             return false;
-        if(! IsSumCorrectHeler(node->right, rSum))
+        if (!IsSumCorrectHeler(node->right, rSum))
             return false;
-        
+
         if ((lSum + rSum + node->value) != node->sum) {
             return false;
         }
@@ -711,19 +711,19 @@ public:
         return true;
     }
 
-    bool IsSumCorrect(){
+    bool IsSumCorrect() {
         V curSum;
         if (!root)
             return true;
-        
+
         return IsSumCorrectHeler(root, curSum);
     }
-    
-    bool IsTreeCorrectHeler(TNKV * node){
+
+    bool IsTreeCorrectHeler(TNKV* node) {
         if (node == NULL) {
-            return  true;
+            return true;
         }
-        
+
         if (node->left) {
             if (node->left->parent != node)
                 return false;
@@ -734,30 +734,30 @@ public:
                 return false;
         }
 
-        if (node->color == RED && (! node->parent || node->parent->color == RED)){
+        if (node->color == RED && (!node->parent || node->parent->color == RED)) {
             return false;
         }
-        
+
         return IsTreeCorrectHeler(node->left) && IsTreeCorrectHeler(node->right);
     }
 
 
-    bool IsTreeCorrect(){
+    bool IsTreeCorrect() {
         if (!root)
             return true;
-        
+
         return IsTreeCorrectHeler(root);
     }
 
-    bool IsReachableHelper(TNKV * root, TNKV * target){
+    bool IsReachableHelper(TNKV* root, TNKV* target) {
         if (!root) {
             return false;
         }
-        
+
         if (root == target)
             return true;
-        auto l = IsReachableHelper(root->left, target) ;
-        auto r = IsReachableHelper(root->right, target) ;
+        auto l = IsReachableHelper(root->left, target);
+        auto r = IsReachableHelper(root->right, target);
         if (l && !r)
             return true;
         if (!l && r)
@@ -765,28 +765,28 @@ public:
         return false;
     }
 
-    bool IsReachable(TNKV * target){
+    bool IsReachable(TNKV* target) {
         return IsReachableHelper(root, target);
     }
 };
 
 #if RBTREE_TEST
-#define N (1L<<12)
+#define N (1L << 12)
 
-void Test1(){
+void Test1() {
     RBTree<uint64_t, uint64_t> rbt;
-    
-    uint32_t * k = new uint32_t[N];
-    uint32_t * v = new uint32_t[N];
-    TreeNode<uint64_t, uint64_t> ** tn = new TreeNode<uint64_t, uint64_t>*[N]();
 
-    for (int i = 0; i < N; i ++) {
+    uint32_t* k = new uint32_t[N];
+    uint32_t* v = new uint32_t[N];
+    TreeNode<uint64_t, uint64_t>** tn = new TreeNode<uint64_t, uint64_t>*[N]();
+
+    for (int i = 0; i < N; i++) {
         k[i] = uint32_t(rand());
         v[i] = uint32_t(rand());
     }
 
-    for (int i = 0; i < N; i ++) {
-        TreeNode<uint64_t, uint64_t> * t = new TreeNode<uint64_t, uint64_t>(k[i], v[i]);
+    for (int i = 0; i < N; i++) {
+        TreeNode<uint64_t, uint64_t>* t = new TreeNode<uint64_t, uint64_t>(k[i], v[i]);
         //t->key = k[i];
         //t->value = v[i];
         tn[i] = t;
@@ -794,9 +794,9 @@ void Test1(){
         assert(rbt.IsBST());
         assert(rbt.IsSumCorrect());
         assert(rbt.IsTreeCorrect());
-        
+
         volatile int pp = 1;
-        if (pp && (i > 0) && (i%100 == 0)) {
+        if (pp && (i > 0) && (i % 100 == 0)) {
             int j = uint32_t(rand()) % i;
             auto d = rbt.Delete(tn[j]);
             assert(rbt.IsBST());
@@ -809,18 +809,18 @@ void Test1(){
         }
     }
 
-    for (int i = 0; i <  N; i ++) {
-        int j = i;//uint32_t(rand()) % N;
+    for (int i = 0; i < N; i++) {
+        int j = i; //uint32_t(rand()) % N;
         if (tn[j]) {
             auto nn = rbt.Delete(tn[j]);
-            for (int k = 0; k < N; k ++) {
+            for (int k = 0; k < N; k++) {
                 if (tn[k] == nn) {
                     tn[k] = 0;
                     break;
                 }
             }
         }
-        for (int k = 0; k < N; k ++) {
+        for (int k = 0; k < N; k++) {
             if (tn[k]) {
                 assert(rbt.IsReachable(tn[k]));
             }
@@ -829,11 +829,9 @@ void Test1(){
         assert(rbt.IsSumCorrect());
         assert(rbt.IsTreeCorrect());
     }
-
-    
 }
 
-int main(int argc, const char * argv[]) {
+int main(int argc, const char* argv[]) {
     // insert code here...
     std::cout << "Hello, World!\n";
     Test1();
@@ -841,4 +839,3 @@ int main(int argc, const char * argv[]) {
     return 0;
 }
 #endif // RBTREE_TEST
-

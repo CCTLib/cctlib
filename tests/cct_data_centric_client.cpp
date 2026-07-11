@@ -33,7 +33,7 @@ void ClientInit(int argc, char* argv[]) {
     char name[MAX_FILE_PATH] = "client.out.";
     char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
-    if(envPath) {
+    if (envPath) {
         // assumes max of MAX_FILE_PATH
         snprintf(name, sizeof(name), "%s", envPath);
     }
@@ -46,7 +46,7 @@ void ClientInit(int argc, char* argv[]) {
     // print the arguments passed
     fprintf(gTraceFile, "\n");
 
-    for(int i = 0 ; i < argc; i++) {
+    for (int i = 0; i < argc; i++) {
         fprintf(gTraceFile, "%s ", argv[i]);
     }
 
@@ -67,28 +67,28 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 
     // Data centric for mem inst
     // Skip call, ret and JMP instructions
-    if(INS_IsControlFlow(ins) || INS_IsRet(ins)) {
+    if (INS_IsControlFlow(ins) || INS_IsRet(ins)) {
         return;
     }
 
     // skip stack ... actually our code handles it
-    if(INS_IsStackRead(ins) || INS_IsStackWrite(ins))
+    if (INS_IsStackRead(ins) || INS_IsStackWrite(ins))
         return;
 
-    if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins)) {
+    if (INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins)) {
         // How may memory operations?
         UINT32 memOperands = INS_MemoryOperandCount(ins);
 
         // Iterate over each memory operand of the instruction and add Analysis routine
-        for(UINT32 memOp = 0; memOp < memOperands; memOp++) {
-            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR) MemAnalysisRoutine, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);
+        for (UINT32 memOp = 0; memOp < memOperands; memOp++) {
+            INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MemAnalysisRoutine, IARG_MEMORYOP_EA, memOp, IARG_THREAD_ID, IARG_END);
         }
     }
 }
 
 int main(int argc, char* argv[]) {
     // Initialize PIN
-    if(PIN_Init(argc, argv))
+    if (PIN_Init(argc, argv))
         return Usage2();
 
     // Initialize Symbols, we need them to report functions and lines
@@ -96,10 +96,8 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0 ,/*doDataCentric=*/ true);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0, /*doDataCentric=*/true);
     // Launch program now
     PIN_StartProgram();
     return 0;
 }
-
-

@@ -30,7 +30,7 @@ void ClientInit(int argc, char* argv[]) {
     char name[MAX_FILE_PATH] = "client.out.";
     char* envPath = getenv("CCTLIB_CLIENT_OUTPUT_FILE");
 
-    if(envPath) {
+    if (envPath) {
         // assumes max of MAX_FILE_PATH
         snprintf(name, sizeof(name), "%s", envPath);
     }
@@ -43,7 +43,7 @@ void ClientInit(int argc, char* argv[]) {
     // print the arguments passed
     fprintf(gTraceFile, "\n");
 
-    for(int i = 0 ; i < argc; i++) {
+    for (int i = 0; i < argc; i++) {
         fprintf(gTraceFile, "%s ", argv[i]);
     }
 
@@ -55,19 +55,19 @@ VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
 }
 
 VOID InstrumentIns(INS ins, VOID* v) {
-    if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
+    if (INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
         INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_END);
 }
 
 
 VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
-    if(INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
+    if (INS_IsMemoryRead(ins) || INS_IsMemoryWrite(ins))
         INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
 }
 
 int main(int argc, char* argv[]) {
     // Initialize PIN
-    if(PIN_Init(argc, argv))
+    if (PIN_Init(argc, argv))
         return Usage2();
 
     // Initialize Symbols, we need them to report functions and lines
@@ -80,4 +80,3 @@ int main(int argc, char* argv[]) {
     PIN_StartProgram();
     return 0;
 }
-
