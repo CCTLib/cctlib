@@ -136,17 +136,14 @@ public:
 
 template<int I, typename... Ts>
     inline __attribute__((always_inline)) typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(ConcurrentShadowMemory<Ts...> & sm, const size_t address) {
- // TODO(preexisting-bug): `auto` here binds by VALUE. GetOrCreateShadowBaseAddress
- // returns a reference to a ShadowTuple<Ts...> living inside the mmap'd shadow
- // page; this `auto` binding copies that tuple (a std::tuple<T[65536]>, i.e.
- // hundreds of KB per element type) onto the stack and returns a pointer into
- // the stack-local copy that is destroyed on return -- undefined behaviour.
- // Under Pin 4.x's smaller analysis-time stacks this manifests as TLS-region
- // corruption / an assertion inside PIN_GetThreadData when tools call
- // GetDataObjectHandle (observed on zerospy_spatial_client). The one-character
- // fix is `auto&`; kept as-is here to preserve the pre-Pin-4.x behaviour and
- // scope this change strictly to porting.
- auto  shadowPage = sm.GetOrCreateShadowBaseAddress(address);
+ // `auto&` is load-bearing here. GetOrCreateShadowBaseAddress returns a
+ // reference to a ShadowTuple<Ts...> living inside the mmap'd shadow page.
+ // Binding by value (`auto`) would strip the reference and copy the tuple
+ // (a std::tuple<T[65536]>, hundreds of KB) onto the caller's stack, then
+ // return a pointer into that stack copy -- writes never reach the real
+ // shadow memory and reads observe uninitialized memory (see
+ // tests/shadow_memory_unittest.cpp).
+ auto& shadowPage = sm.GetOrCreateShadowBaseAddress(address);
  return &(get<I>(shadowPage)[PAGE_OFFSET((uint64_t)address)]);
 }
 #endif
@@ -217,10 +214,9 @@ public:
 
 template<int I, typename... Ts>
 inline __attribute__((always_inline)) typename std::tuple_element<I, tuple<Ts...> >::type * GetOrCreateShadowAddress(ShadowMemory<Ts...> & sm, const size_t address) {
-    // TODO(preexisting-bug): same UB as the ConcurrentShadowMemory overload
-    // above -- `auto` copies a large tuple by value and returns a dangling
-    // pointer. See detailed comment there.
-    auto  shadowPage = sm.GetOrCreateShadowBaseAddress(address);
+    // `auto&` is required for correctness -- same reason as the
+    // ConcurrentShadowMemory overload above.
+    auto& shadowPage = sm.GetOrCreateShadowBaseAddress(address);
     return &(get<I>(shadowPage)[PAGE_OFFSET((uint64_t)address)]);
 }
 //#define ConcurrentShadowMemory ShadowMemory

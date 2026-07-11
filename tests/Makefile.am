@@ -57,6 +57,16 @@ $(OBJDIR)address_compare$(PINTOOL_SUFFIX): $(OBJDIR)address_compare$(OBJ_SUFFIX)
 	$(TOOL_LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $< -L../src/$(OBJDIR) $(TOOL_LPATHS)   $(TOOL_LIBS)   $(CLIENT_LD_FLAGS) $(CLIENT_LIBS)
 
 
+# Standalone (non-Pin) unit test for src/shadow_memory.H. Built with the host
+# toolchain so it runs directly; no Pin process required. Invoked from the
+# top-level `make check` target.
+$(OBJDIR)shadow_memory_unittest: shadow_memory_unittest.cpp ../src/shadow_memory.H
+	$(CXX) -O2 -std=c++17 -Wall -Wextra -Wno-unused-parameter -I../src $< -pthread -o $@
+
+.PHONY: shadow_memory_unittest_run
+shadow_memory_unittest_run: $(OBJDIR)shadow_memory_unittest
+	./$(OBJDIR)shadow_memory_unittest
+
 
 include $(TOOLS_ROOT)/Config/makefile.default.rules
 
