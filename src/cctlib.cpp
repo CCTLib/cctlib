@@ -1612,7 +1612,7 @@ namespace PinCCTLib {
     }
 
 
-    void SerializeMetadata(string directoryForSerializationFiles) {
+    void SerializeMetadata(const string& directoryForSerializationFiles) {
         if(directoryForSerializationFiles != "") {
             GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
         } else {
@@ -1650,7 +1650,7 @@ namespace PinCCTLib {
         SerializeTraceIps();
     }
     
-    void DeserializeMetadata(string directoryForSerializationFiles) {
+    void DeserializeMetadata(const string& directoryForSerializationFiles) {
         GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
         DeserializeAllCCTs();
         DeserializeTraceIps();
@@ -1685,10 +1685,10 @@ namespace PinCCTLib {
 
 // Given a pointer (i.e. slot) within a trace node, returns the IP corresponding to that slot
     static inline ADDRINT GetIPFromInfo(ContextHandle_t ctxtHndle) {
-        // NOLINTNEXTLINE(clang-analyzer-core.NullDereference) -- GET_IPNODE_FROM_CONTEXT_HANDLE
-        // is the UNCHECKED variant that does pointer arithmetic on a base allocated during
-        // InitBuffers(); it never returns null for a valid handle. Analyzer can't infer the invariant.
-        TraceNode* traceNode = GET_IPNODE_FROM_CONTEXT_HANDLE(ctxtHndle)->parentTraceNode;
+        // GET_IPNODE_FROM_CONTEXT_HANDLE is the UNCHECKED variant that does
+        // pointer arithmetic on a base allocated during InitBuffers(); it
+        // never returns null for a valid handle. Analyzer can't infer the invariant.
+        TraceNode* traceNode = GET_IPNODE_FROM_CONTEXT_HANDLE(ctxtHndle)->parentTraceNode;  // NOLINT(clang-analyzer-core.NullDereference)
         assert(ctxtHndle >= traceNode->childCtxtStartIdx);
         assert(ctxtHndle < traceNode->childCtxtStartIdx + traceNode->nSlots);
         // what is my slot id ?
@@ -3024,7 +3024,7 @@ tHandle*/, lineNo /*lineNo*/, ip /*ip*/
     }
 
 
-    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory) {
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, const string& serializedFilesDirectory) {
         if(GLOBAL_STATE.cctLibUsageMode == CCT_LIB_MODE_COLLECTION) {
             fprintf(stderr, "\n CCTLib was initialized for online collection using PinCCTLibInit! Exiting...\n");
             PIN_ExitApplication(-1);
@@ -3355,7 +3355,7 @@ int hpcrun_fmt_hdr_fwrite(FILE* fs, const char* arg1, const char* arg2);
 int hpcrun_open_profile_file(int thread, const char* fileName);
 static int hpcrun_open_file(int thread, const char * suffix, int flags, const char* fileName);
 extern int fputs (const char *__restrict __s, FILE *__restrict __stream);
-int hpcrun_fmt_loadmap_fwrite(FILE* fs, std::string pathname);
+int hpcrun_fmt_loadmap_fwrite(FILE* fs, const std::string& pathname);
 int hpcrun_fmt_epochHdr_fwrite(FILE* fs, epoch_flags_t flags,
                                uint64_t measurementGranularity, uint32_t raToCallsiteOfst);
 static void hpcrun_files_init();
@@ -3688,7 +3688,7 @@ FILE* lazy_open_data_file(int tID, std::string *filename){
   return fs;
 }
 
-int hpcrun_fmt_loadmap_fwrite(FILE* fs, std::string filename) {
+int hpcrun_fmt_loadmap_fwrite(FILE* fs, const std::string& filename) {
   uint16_t num = 2;
   // Write loadmap size
   hpcfmt_int4_fwrite((uint32_t)GLOBAL_STATE.ModuleInfoMap.size(), fs); // Write loadmap size
@@ -3887,7 +3887,7 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t 
 
 // Check to see whether another IPNode has the same address under the same parent.
 NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
-  size_t i;
+  std::size_t i;
   ADDRINT address = GetIPFromInfo(GET_CONTEXT_HANDLE_FROM_IP_NODE_CHECKED(node));
 
   for (i = 0; i < nodes.size(); i++) {
@@ -3968,7 +3968,7 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
 void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
 
   if (nodes.size() == 0) return;
-  size_t i;
+  std::size_t i;
 
   for(i = 0; i < nodes.size(); i++) {
     IPNode_fwrite(nodes.at(i), fs);
@@ -4006,7 +4006,7 @@ static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode **
 }
 
 NewIPNode* findSameIPbyIP(vector<NewIPNode*> nodes, ADDRINT address) {
-  size_t i;
+  std::size_t i;
   for (i = 0; i < nodes.size(); i++) {
     if (nodes.at(i)->IPAddress == address) return nodes.at(i);
   }
@@ -4119,7 +4119,7 @@ int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void
  */
 int hpcrun_create_metric(const char *name){
   int t = GLOBAL_STATE.nmetric;
-  strcpy(GLOBAL_STATE.metrics[GLOBAL_STATE.nmetric++], name);
+  snprintf(GLOBAL_STATE.metrics[GLOBAL_STATE.nmetric++], MAX_LEN, "%s", name);
   return t;
 }
   

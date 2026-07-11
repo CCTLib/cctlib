@@ -96,7 +96,7 @@ namespace PinCCTLib {
     int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
 
     /*
-    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, std::string serializedFilesDirectory);
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, const std::string& serializedFilesDirectory);
             Description:
                     Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
             Arguments:
@@ -105,7 +105,7 @@ namespace PinCCTLib {
 
                     Caution: This should never be called with PinCCTLibInit().
     */
-    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, std::string serializedFilesDirectory);
+    int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, const std::string& serializedFilesDirectory);
 
     /*
             Description:
@@ -154,7 +154,7 @@ namespace PinCCTLib {
             Arguments:
                     directoryForSerializationFiles: directory where serialized files are written.
     */
-    void SerializeMetadata(std::string directoryForSerializationFiles = "");
+    void SerializeMetadata(const std::string& directoryForSerializationFiles = "");
 
     /*
        Description:

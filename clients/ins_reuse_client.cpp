@@ -559,7 +559,7 @@ static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) 
 #endif
 }
 
-// NOLINTNEXTLINE(bugprone-exception-escape) -- Pin setup calls do not throw
+// NOLINTBEGIN(bugprone-exception-escape) -- Pin setup calls do not throw
 // in practice, and Pin's harness terminates the process on unhandled exceptions.
 int main(int argc, char* argv[]) {
     // Initialize PIN
@@ -591,5 +591,6 @@ int main(int argc, char* argv[]) {
     PIN_StartProgram();
     return 0;
 }
+// NOLINTEND(bugprone-exception-escape)
 
 

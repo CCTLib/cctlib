@@ -819,8 +819,8 @@ VOID valueNumberingMem2(void * op, void * addr1, void * addr2, uint32_t rMem, ui
 //value = gValue;
         if (rMem == 0){
 
-            value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
-            
+            (void)checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+
             assert(wMem == 2);
             gValue++;
             setMemValueNum((uint64_t)addr1, threadID, gValue);
@@ -920,8 +920,8 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
             case (0):
                 assert(wMem == 3);
 
-                value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
-                
+                (void)checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+
                 gValue++;
                 setMemValueNum((uint64_t)addr1, threadID, gValue);
                 gValue++;
@@ -940,8 +940,8 @@ VOID valueNumberingMem3(void * op, void * addr1, void * addr2, void * addr3, uin
                 value = getMemValueNum((uint64_t)addr1, threadID);
                 sValues[index++] = value;
 
-                value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
-                
+                (void)checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+
                 gValue++;
                 setMemValueNum((uint64_t)addr2, threadID, gValue);
                 gValue++;
@@ -1056,8 +1056,8 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
         switch (rMem) {
             case (0):
 
-                value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
-                
+                (void)checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+
                 gValue++;
                 setMemValueNum((uint64_t)addr1, threadID, gValue);
                 gValue++;
@@ -1078,8 +1078,8 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                 value = getMemValueNum((uint64_t)addr1, threadID);
                 sValues[index++] = value;
 
-                value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
-                
+                (void)checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+
                 gValue++;
                 setMemValueNum((uint64_t)addr2, threadID, gValue);
                 gValue++;
@@ -1100,8 +1100,8 @@ VOID valueNumberingMem4(void * op, void * addr1, void * addr2, void * addr3, voi
                 value = getMemValueNum((uint64_t)addr2, threadID);
                 sValues[index++] = value;
 
-                value = checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
-                
+                (void)checkOpcodeValueNum(opinfo->opCode, sValues, index, threadID, ip, opHandle);
+
                 gValue++;
                 setMemValueNum((uint64_t)addr3, threadID, gValue);
                 gValue++;
@@ -1270,10 +1270,11 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
              }
         }
     }else{
-        
+
         UINT32 n = INS_OperandCount(ins);
-        
+
         if (n < 1) {
+            delete opinfo;
             return;
         }
         
@@ -1324,6 +1325,7 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
             break;
         default:
             assert(memOpCount<5);
+            delete opinfo;   // Only reached in NDEBUG when the assert compiles out.
             break;
     }
     

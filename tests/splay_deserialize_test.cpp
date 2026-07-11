@@ -57,6 +57,9 @@ static TraceSplay* splay(TraceSplay* root, uintptr_t key) {
 
 // Insert `key` into the splay tree rooted at *rootp. `apply_fix` controls
 // whether we install newNode as the new root before the branch split.
+// NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks) -- when apply_fix
+// is false the buggy path intentionally leaks newNode; that IS the bug
+// this test demonstrates and cleans up on program exit.
 static void insert(TraceSplay** rootp, uintptr_t key, int value, bool apply_fix) {
     TraceSplay* newNode = new TraceSplay{key, value, nullptr, nullptr};
     if (*rootp == nullptr) {
@@ -79,6 +82,7 @@ static void insert(TraceSplay** rootp, uintptr_t key, int value, bool apply_fix)
         found->right   = nullptr;
     }
 }
+// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 
 // Collect all keys reachable from `root` via left/right pointers.
 static void collect_keys(TraceSplay* root, std::set<uintptr_t>& out) {
@@ -128,6 +132,8 @@ static bool run_scenario(bool apply_fix, const char* label,
     return missing_reachable == 0 && missing_splay == 0;
 }
 
+// NOLINTBEGIN(bugprone-exception-escape) -- unit-test main; std::bad_alloc
+// from std::vector allocations escaping here properly terminates the run.
 int main() {
     // Sequences chosen so the splay+split path fires often. First insert is
     // always the "root=null" case; each subsequent insert exercises the
@@ -178,3 +184,4 @@ int main() {
     fprintf(stderr, "\n%d failures\n", failures);
     return failures == 0 ? 0 : 1;
 }
+// NOLINTEND(bugprone-exception-escape)

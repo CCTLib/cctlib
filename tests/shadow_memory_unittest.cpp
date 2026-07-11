@@ -267,7 +267,7 @@ static void test_concurrent_init_pattern_data_centric_shape() {
 }
 
 
-// NOLINTNEXTLINE(bugprone-exception-escape) -- unit-test main; std::bad_alloc
+// NOLINTBEGIN(bugprone-exception-escape) -- unit-test main; std::bad_alloc
 // (from thread/vector allocations) escaping here properly terminates the run.
 int main() {
     RUN_TEST(test_shadow_write_read_single);
@@ -288,3 +288,4 @@ int main() {
     fprintf(stderr, "\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
+// NOLINTEND(bugprone-exception-escape)
