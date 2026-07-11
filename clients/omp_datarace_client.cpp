@@ -991,7 +991,7 @@ void InitDataRaceSpy(int argc, char *argv[]){
     char * envPath = getenv("OUTPUT_FILE");
     if(envPath){
         // assumes max of MAX_FILE_PATH
-        strcpy(name, envPath);
+        snprintf(name, sizeof(name), "%s", envPath);
     }
     gethostname(name + strlen(name), MAX_FILE_PATH - strlen(name));
     pid_t pid = getpid();

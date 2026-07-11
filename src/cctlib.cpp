@@ -1341,10 +1341,15 @@ namespace PinCCTLib {
 	    }
 	    struct dirent * dp;
 	    while ((dp = readdir(dirp)) != NULL) {
-		    char concatedPath[PATH_MAX] = {0}; 
-		    strcat(concatedPath, resolvedPath);
-		    strcat(concatedPath, "/");
-		    strcat(concatedPath, dp->d_name);
+		    char concatedPath[PATH_MAX];
+		    // Bounded concatenation of resolvedPath + "/" + dp->d_name.
+		    // snprintf always null-terminates and reports truncation via
+		    // its return value; skip entries that don't fit rather than
+		    // silently truncating a filename we might later try to open.
+		    int written = snprintf(concatedPath, sizeof(concatedPath),
+		                           "%s/%s", resolvedPath, dp->d_name);
+		    if (written < 0 || (size_t)written >= sizeof(concatedPath))
+			    continue;
 		    if (IsDirectory(concatedPath))
 			    continue;
 		    if (!endsWithExtn(string(concatedPath), ext))

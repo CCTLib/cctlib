@@ -1662,7 +1662,7 @@ void InitDeadSpy(int argc, char* argv[]) {
 
     if(envPath) {
         // assumes max of MAX_FILE_PATH
-        strcpy(name, envPath);
+        snprintf(name, sizeof(name), "%s", envPath);
     }
 
     gethostname(name + strlen(name), MAX_FILE_PATH - strlen(name));
