@@ -31,7 +31,8 @@ TESTS := \
     $(OBJDIR)/cache_client_integration_test \
     $(OBJDIR)/omp_race_integration_test \
     $(OBJDIR)/footprint_integration_test \
-    $(OBJDIR)/ins_reuse_integration_test
+    $(OBJDIR)/ins_reuse_integration_test \
+    $(OBJDIR)/rvn_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
 # (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
@@ -53,6 +54,8 @@ VICTIMS := \
     $(OBJDIR)/apps/footprint_small \
     $(OBJDIR)/apps/footprint_large \
     $(OBJDIR)/apps/ins_reuse_tight_loop \
+    $(OBJDIR)/apps/rvn_tp_repeated \
+    $(OBJDIR)/apps/rvn_tn_different \
     $(OBJDIR)/apps/isa/deadspy_sse16_tp \
     $(OBJDIR)/apps/isa/deadspy_avx32_tp \
     $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_tp \
@@ -77,7 +80,8 @@ VICTIMS := \
     $(OBJDIR)/apps/isa/loadspy_cross_page_tp \
     $(OBJDIR)/apps/isa/loadspy_mixed_widths_tp \
     $(OBJDIR)/apps/isa/footprint_avx32_sweep \
-    $(OBJDIR)/apps/isa/ins_reuse_simd_loop
+    $(OBJDIR)/apps/isa/ins_reuse_simd_loop \
+    $(OBJDIR)/apps/isa/rvn_repeated_add
 
 # OpenMP victims need -fopenmp on both compile and link.
 $(OBJDIR)/apps/omp_race_%: apps/omp_race_%.c | $(OBJDIR)/apps
