@@ -27,7 +27,8 @@ TESTS := \
     $(OBJDIR)/cctlib_integration_test \
     $(OBJDIR)/deadspy_integration_test \
     $(OBJDIR)/redspy_integration_test \
-    $(OBJDIR)/loadspy_integration_test
+    $(OBJDIR)/loadspy_integration_test \
+    $(OBJDIR)/cache_client_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
 # (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
