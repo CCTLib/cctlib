@@ -1680,6 +1680,9 @@ namespace PinCCTLib {
 
 // Given a pointer (i.e. slot) within a trace node, returns the IP corresponding to that slot
     static inline ADDRINT GetIPFromInfo(ContextHandle_t ctxtHndle) {
+        // NOLINTNEXTLINE(clang-analyzer-core.NullDereference) -- GET_IPNODE_FROM_CONTEXT_HANDLE
+        // is the UNCHECKED variant that does pointer arithmetic on a base allocated during
+        // InitBuffers(); it never returns null for a valid handle. Analyzer can't infer the invariant.
         TraceNode* traceNode = GET_IPNODE_FROM_CONTEXT_HANDLE(ctxtHndle)->parentTraceNode;
         assert(ctxtHndle >= traceNode->childCtxtStartIdx);
         assert(ctxtHndle < traceNode->childCtxtStartIdx + traceNode->nSlots);
@@ -3185,6 +3188,7 @@ struct NewIPNode {
 };
 
 typedef uint16_t size_t;
+
 
 typedef enum {
   MetricFlags_Ty_NULL = 0,

@@ -106,7 +106,10 @@ public:
             
             atomic<ShadowTuple<Ts...> *> * nullVal = 0;
             if(!l1Ptr->compare_exchange_strong(nullVal, l1pg, memory_order_acq_rel, memory_order_relaxed)) {
-                free(l1pg);
+                // Another thread won the race. Release OUR unused mmap
+                // allocation with munmap -- calling free() on an mmap'd
+                // region is undefined behavior and can corrupt the heap.
+                munmap(l1pg, LEVEL_2_PAGE_TABLE_SIZE);
                 v1 = l1Ptr->load(memory_order_consume);
             } else {
                 v1 = l1pg;

@@ -1006,7 +1006,8 @@ void InitDataRaceSpy(int argc, char *argv[]){
     }
     fprintf(gTraceFile,"\n");
     
-    // Allocate gRegionIdToMasterLabelMap
+    // Allocate gRegionIdToMasterLabelMap. Array of pointers, so sizeof(Label*) is intended.
+    // NOLINTNEXTLINE(bugprone-sizeof-expression)
     gRegionIdToMasterLabelMap = (Label **) calloc(MAX_REGIONS, sizeof(Label*));
     
     // Obtain  a key for TLS storage.
