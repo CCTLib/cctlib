@@ -28,7 +28,8 @@ TESTS := \
     $(OBJDIR)/deadspy_integration_test \
     $(OBJDIR)/redspy_integration_test \
     $(OBJDIR)/loadspy_integration_test \
-    $(OBJDIR)/cache_client_integration_test
+    $(OBJDIR)/cache_client_integration_test \
+    $(OBJDIR)/omp_race_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
 # (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
@@ -45,6 +46,8 @@ VICTIMS := \
     $(OBJDIR)/apps/redspy_tp_sizes \
     $(OBJDIR)/apps/loadspy_tp_simple \
     $(OBJDIR)/apps/loadspy_tn_simple \
+    $(OBJDIR)/apps/omp_race_tp_simple \
+    $(OBJDIR)/apps/omp_race_tn_critical \
     $(OBJDIR)/apps/isa/deadspy_sse16_tp \
     $(OBJDIR)/apps/isa/deadspy_avx32_tp \
     $(OBJDIR)/apps/isa/deadspy_partial_qword_then_byte_tp \
@@ -68,6 +71,10 @@ VICTIMS := \
     $(OBJDIR)/apps/isa/loadspy_repmovs_tp \
     $(OBJDIR)/apps/isa/loadspy_cross_page_tp \
     $(OBJDIR)/apps/isa/loadspy_mixed_widths_tp
+
+# OpenMP victims need -fopenmp on both compile and link.
+$(OBJDIR)/apps/omp_race_%: apps/omp_race_%.c | $(OBJDIR)/apps
+	$(CC) $(VICTIM_CFLAGS) -fopenmp $< -fopenmp -o $@
 
 # ISA victims that use SSE / AVX need the corresponding CPU feature enabled
 # at compile time. -O0 preserves inline asm exactly.
