@@ -33,7 +33,7 @@ using namespace PinCCTLib;
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
-#define PTR_SIZE (sizeof(struct Status *))
+#define PTR_SIZE (sizeof(void *))
 #define LEVEL_1_PAGE_TABLE_BITS  (20)
 #define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
 #define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )
@@ -93,7 +93,7 @@ static std::unordered_map<uint32_t, struct RawMetric_t> * hmap_vector;
 
 template<int start, int end, int incr>
 struct UnrolledLoop{
-    static inline void Body(function<void (const int)> func){
+    static inline void Body(const function<void (const int)>& func){
         func(start); // Real loop body
         UnrolledLoop<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
@@ -101,21 +101,21 @@ struct UnrolledLoop{
 
 template<int end,  int incr>
 struct UnrolledLoop<end , end , incr>{
-    static inline void Body(function<void (const int)> func){
+    static inline void Body(const function<void (const int)>& func){
         // empty body
     }
 };
 
 template<int start, int end, int incr>
 struct UnrolledConjunction{
-    static inline bool Body(function<bool (const int)> func){
+    static inline bool Body(const function<bool (const int)>& func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
 };
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
-    static inline bool Body(function<void (const int)> func){
+    static inline bool Body(const function<void (const int)>& func){
         return true;
     }
 };

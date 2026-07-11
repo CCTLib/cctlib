@@ -117,7 +117,7 @@ inline RedSpyThreadData* ClientGetTLS(const THREADID threadId) {
 
 template<int start, int end, int incr>
 struct UnrolledLoop{
-    static __attribute__((always_inline)) void Body(function<void (const int)> func){
+    static __attribute__((always_inline)) void Body(const function<void (const int)>& func){
         func(start); // Real loop body
         UnrolledLoop<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
@@ -125,21 +125,21 @@ struct UnrolledLoop{
 
 template<int end,  int incr>
 struct UnrolledLoop<end , end , incr>{
-    static __attribute__((always_inline)) void Body(function<void (const int)> func){
+    static __attribute__((always_inline)) void Body(const function<void (const int)>& func){
         // empty body
     }
 };
 
 template<int start, int end, int incr>
 struct UnrolledConjunction{
-    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
+    static __attribute__((always_inline)) bool Body(const function<bool (const int)>& func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
 };
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
-    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
+    static __attribute__((always_inline)) bool Body(const function<void (const int)>& func){
         return true;
     }
 };
@@ -368,9 +368,9 @@ static inline VOID CheckAfterLargeWrite(UINT32 accessLen,  uint32_t bufferOffset
     RedSpyThreadData* const tData = ClientGetTLS(threadId);
     void * addr = tData->buffer[bufferOffset].address;
     ContextHandle_t curCtxtHandle = GetContextHandle(threadId, opaqueHandle);
-    
-    uint8_t* status = GetOrCreateShadowBaseAddress((uint64_t)addr);
-    ContextHandle_t * __restrict__ prevIP = (ContextHandle_t*)(status + PAGE_OFFSET((uint64_t)addr) * sizeof(ContextHandle_t));
+
+    uint8_t* status;
+    ContextHandle_t * __restrict__ prevIP;
     if(memcmp( & (tData->buffer[bufferOffset].value), addr, accessLen) == 0){
         // redundant
         for(UINT32 index = 0 ; index < accessLen; index++){

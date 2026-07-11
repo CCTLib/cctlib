@@ -141,7 +141,7 @@ VOID inline RecordIntraRegsRedundancy(uint32_t ctxt, IntraRegsRed redPair,THREAD
     }
 }
 
-VOID inline RecordIntraArrayRedundancy(string name, IntraRedRecord redPair,THREADID threadId){
+VOID inline RecordIntraArrayRedundancy(const string& name, const IntraRedRecord& redPair,THREADID threadId){
     
     unordered_map<string,list<IntraRedRecord>>::iterator it;
     it = arrayDataRed[threadId].find(name);
@@ -155,8 +155,7 @@ VOID inline RecordIntraArrayRedundancy(string name, IntraRedRecord redPair,THREA
 }
 
 static void CheckRegValues(CONTEXT * ctxt,THREADID threadId){
-    
-    RedSpyThreadData* const tData = ClientGetTLS(threadId);
+
     //ContextHandle_t curCtxtHandle = GetContextHandle(threadId, 0);
     
     //get values for general registers

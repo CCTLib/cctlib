@@ -39,8 +39,6 @@
 // Need GOOGLE sparse hash tables
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;   // namespace where class lives by default
 using namespace std;
 
 #include "cctlib.H"
@@ -59,7 +57,7 @@ using namespace PinCCTLib;
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
-#define PTR_SIZE (sizeof(struct Status *))
+#define PTR_SIZE (sizeof(void *))
 #define LEVEL_1_PAGE_TABLE_BITS  (20)
 #define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
 #define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )
@@ -1226,14 +1224,16 @@ VOID Instruction(INS ins, VOID * v, const uint32_t opHandle) {
     }
     
     rMem.insert(rMem.end(), wMem.begin(), wMem.end());
-    
+
     memOpCount = rMemCount + wMemCount;
 
-    OPInfo  * opinfo = new OPInfo;
-    opinfo->opCode = INS_Opcode(ins);
-
-    if(opinfo->opCode == 82)
+    // Fetch opcode first so the early-return below doesn't leak an allocation.
+    UINT32 opCode = INS_Opcode(ins);
+    if(opCode == 82)
         return;
+
+    OPInfo  * opinfo = new OPInfo;
+    opinfo->opCode = opCode;
 
     int sRegCount = 0;
     int immediateCount = 0;

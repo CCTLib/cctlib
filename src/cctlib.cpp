@@ -77,7 +77,6 @@ extern "C" {
 }
 
 using google::sparse_hash_map;      // namespace where class lives by default
-using google::dense_hash_map;      // namespace where class lives by default
 using namespace std;
 
 namespace PinCCTLib {
@@ -1263,6 +1262,12 @@ namespace PinCCTLib {
                 } else {
                     TraceSplay* found    = splay(childIPNode->calleeTraceNodes, childTrace->traceKey);
 
+                    // Install newNode as the new splay root -- mirrors the
+                    // live-instrumentation insertion path (search for the
+                    // sibling site in this file). Without this line, newNode
+                    // is unreachable and leaked, and the tree still points at
+                    // `found`, so the newly deserialized child is never found.
+                    childIPNode->calleeTraceNodes = newNode;
                     if(childTrace->traceKey < found->key) {
                         newNode->left = found->left;
                         newNode->right = found;
@@ -3885,8 +3890,9 @@ NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
   return NULL;
 }
 
-// Merging the children of two nodes 
+// Merging the children of two nodes
 void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t *nodeCount) {
+  if (!cur) return;
 #ifdef HAVE_METRIC_PER_IPNODE
   void* m = prev->metric;
   void* n = cur->metric;
@@ -3981,8 +3987,9 @@ static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode **
       *mainNode = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i);
       return;
     }
-    if (GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i)->calleeTraceNodes) {
-        findMain(GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i), GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx +i)->calleeTraceNodes, mainNode);
+    IPNode* childNode = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(tNode->childCtxtStartIdx + i);
+    if (childNode && childNode->calleeTraceNodes) {
+        findMain(childNode, childNode->calleeTraceNodes, mainNode);
     }
   }
   findMain(curIPNode, childCtxtStartIdx->right, mainNode);
@@ -4087,6 +4094,7 @@ int init_hpcrun_format(int argc, char *argv[], void (*mergeFunc)(void *des, void
   // Create the measurement directory
   dirName = "hpctoolkit-" + *filename + "-measurements";
   int status = mkdir(dirName.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+  (void)status; // TODO: check errno != EEXIST and report real errors instead of ignoring.
 
   if (skip) GLOBAL_STATE.skip = true;
  
@@ -4125,7 +4133,10 @@ int newCCT_hpcrun_write(THREADID threadid) {
   IPNode *mainNode = NULL;
   if (GLOBAL_STATE.skip) {
     for(i = 0; i < cctlib->nSlots; i++) {
-      findMain(GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx +i)->calleeTraceNodes, &mainNode);
+      IPNode* childNode = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i);
+      if (childNode) {
+        findMain(childNode, childNode->calleeTraceNodes, &mainNode);
+      }
     }
   }
 
@@ -4137,7 +4148,8 @@ int newCCT_hpcrun_write(THREADID threadid) {
     cctlib->childCtxtStartIdx = mainNode->parentTraceNode->callerCtxtHndl;
     SetIPFromInfo(cctlib->childCtxtStartIdx, 0x0); // dummy root should have 0 ip
 #ifdef HAVE_METRIC_PER_IPNODE
-    GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx)->metric = NULL;
+    IPNode* rootIP = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx);
+    if (rootIP) rootIP->metric = NULL;
 #endif
   }
 

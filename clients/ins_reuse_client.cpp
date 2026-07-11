@@ -43,8 +43,6 @@ extern "C" {
 
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;
 using json = nlohmann::json;
 
 using namespace std;
@@ -436,13 +434,12 @@ static void InstrumentTrace(TRACE trace, void* f) {
 // On each Unload of a loaded image, the accummulated redundancy information is dumped
 static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
-    THREADID  threadid =  PIN_ThreadId();
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     PIN_LockClient();
     PIN_UnlockClient();
 }
 
-static void DumpHisto(uint64_t * histo, uint64_t footprint, string key1, string key2){
+static void DumpHisto(uint64_t * histo, uint64_t footprint, const string& key1, const string& key2){
     double total = 0;
     for(int i = 0; i < MAX_REUSE_DISTANCE_BINS; i++) {
         total += histo[i];
@@ -510,9 +507,7 @@ static VOID FiniFunc(INT32 code, VOID *v) {
     size_t peakRSS =  (size_t)(rusage.ru_maxrss);
     struct timeval ut = rusage.ru_utime;
     struct timeval st = rusage.ru_stime;
-    
-    THREADID  threadId =  PIN_ThreadId();
-    InsReuseThreadData* tData = ClientGetTLS(threadId);
+
     fprintf(gTraceFile, "\nWhole program instruction-reuse histo ((ins footprint = %e)", (double)GLOBAL_STATS.footprint);
     DumpHisto(GLOBAL_STATS.insReuseHisto, GLOBAL_STATS.footprint /* basically 0 */, "Whole program", "InsReuse");
     for(int i = 0; i < NUM_BLOCKS; i++) {
@@ -564,6 +559,8 @@ static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) 
 #endif
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape) -- Pin setup calls do not throw
+// in practice, and Pin's harness terminates the process on unhandled exceptions.
 int main(int argc, char* argv[]) {
     // Initialize PIN
     if(PIN_Init(argc, argv))

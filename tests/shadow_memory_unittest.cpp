@@ -80,11 +80,11 @@ static void test_shadow_multiple_addresses_same_page() {
     ShadowMemory<uint64_t> sm;
     const size_t base = 0x1000'0000ULL;
     for (int i = 0; i < 4096; ++i) {
-        *GetOrCreateShadowAddress<0>(sm, base + i * 8) = (uint64_t)(i * 7 + 3);
+        *GetOrCreateShadowAddress<0>(sm, base + i * 8) = uint64_t{static_cast<uint64_t>(i)} * 7 + 3;
     }
     for (int i = 0; i < 4096; ++i) {
         uint64_t v = *GetOrCreateShadowAddress<0>(sm, base + i * 8);
-        CHECK_EQ(v, (uint64_t)(i * 7 + 3), "same-page slot");
+        CHECK_EQ(v, uint64_t{static_cast<uint64_t>(i)} * 7 + 3, "same-page slot");
     }
 }
 
@@ -226,6 +226,7 @@ static void test_concurrent_multi_thread() {
         }
     };
     std::vector<std::thread> ts;
+    ts.reserve(nthreads);
     for (int t = 0; t < nthreads; ++t) ts.emplace_back(writer, t);
     for (auto& th : ts) th.join();
 
@@ -266,6 +267,8 @@ static void test_concurrent_init_pattern_data_centric_shape() {
 }
 
 
+// NOLINTNEXTLINE(bugprone-exception-escape) -- unit-test main; std::bad_alloc
+// (from thread/vector allocations) escaping here properly terminates the run.
 int main() {
     RUN_TEST(test_shadow_write_read_single);
     RUN_TEST(test_shadow_multiple_addresses_same_page);

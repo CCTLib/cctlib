@@ -358,8 +358,9 @@ public:
         // since parent is red, there must be grand parent
         auto p = x->parent;
         auto g = x->parent->parent;
-        // is p left of g
-        if (p == g->left) {
+        // is p left of g -- g is non-null by RB invariant (a red parent is
+        // never the root, so the grandparent always exists), see comment above.
+        if (p == g->left) {   // NOLINT(clang-analyzer-core.NullDereference)
             // is uncle red? if so, recolor
             auto u = g->right;
             if (u && (u->color == RED)){

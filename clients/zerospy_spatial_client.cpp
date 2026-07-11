@@ -49,8 +49,6 @@ extern "C" {
 
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;
 
 using namespace std;
 using namespace PinCCTLib;
@@ -362,7 +360,6 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 // Certain FP instructions should not be approximated
 static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
-     xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
      xed_iclass_enum_t 	iclass = xed_decoded_inst_get_iclass (&xedd);
      switch(iclass) {
 	case XED_ICLASS_FLDENV:
@@ -686,7 +683,7 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
 /*
 template<int start, int end, int incr, bool conditional, bool approx>
 struct UnrolledLoop{
-    static __attribute__((always_inline)) void Body(function<void (const int)> func){
+    static __attribute__((always_inline)) void Body(const function<void (const int)>& func){
         func(start); // Real loop body
         UnrolledLoop<start+incr, end, incr, conditional, approx>:: Body(func);   // unroll next iteration
     }
@@ -704,13 +701,13 @@ struct UnrolledLoop{
 
 template<int end,  int incr, bool conditional, bool approx>
 struct UnrolledLoop<end , end , incr, conditional, approx>{
-    static __attribute__((always_inline)) void Body(function<void (const int)> func){}
+    static __attribute__((always_inline)) void Body(const function<void (const int)>& func){}
     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const DataHandle_t handle, const ContextHandle_t cntxt, THREADID threadId){}
 };
 */
 template<int start, int end, int incr>
 struct UnrolledConjunction{
-    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
+    static __attribute__((always_inline)) bool Body(const function<bool (const int)>& func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
@@ -735,7 +732,7 @@ struct UnrolledConjunction{
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
-    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
+    static __attribute__((always_inline)) bool Body(const function<void (const int)>& func){
         return true;
     }
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
@@ -821,7 +818,6 @@ static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t op
 #ifdef DEBUG_ZEROSPY_SPATIAL
     printf("\n In CheckAfterLargeRead Begin : %p %d %d %d\n", addr,accessLen, opaqueHandle, threadId);    
 #endif
-    RedSpyThreadData* const tData = ClientGetTLS(threadId);
     ContextHandle_t curCtxt = GetContextHandle(threadId, opaqueHandle);
     DataHandle_t curDataHandle = GetDataObjectHandle(addr, threadId);
     if(curDataHandle.objectType!=DYNAMIC_OBJECT && curDataHandle.objectType!=STATIC_OBJECT) {

@@ -34,7 +34,7 @@ using namespace PinCCTLib;
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
-#define PTR_SIZE (sizeof(struct Status *))
+#define PTR_SIZE (sizeof(void *))
 #define LEVEL_1_PAGE_TABLE_BITS  (20)
 #define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
 #define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )

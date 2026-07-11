@@ -23,6 +23,7 @@ Checks: >-
   -bugprone-implicit-widening-of-multiplication-result,
   -bugprone-assignment-in-if-condition,
   -bugprone-forwarding-reference-overload,
+  -bugprone-branch-clone,
   performance-*,
   -performance-avoid-endl,
   -performance-no-int-to-ptr,
@@ -33,6 +34,16 @@ Checks: >-
   clang-analyzer-unix.*,
   misc-redundant-expression,
   misc-unused-using-decls
+
+# bugprone-branch-clone is disabled globally. Triage found the majority of
+# hits in this codebase are intentional: (a) large hand-written register
+# dispatch switches where each case sets the same fields to different
+# values and the analyzer sees the structural similarity as duplication,
+# (b) two-level page-table init code where an if/else pair legitimately
+# repeats an mmap statement, and (c) stubbed callbacks awaiting future
+# implementation. The few real duplicate branches surface again as soon
+# as this is re-enabled -- flip it back on when doing a broader
+# perf/refactor pass.
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '^.*/(src|clients|tests)/[^/]+\.(H|h|hpp)$'

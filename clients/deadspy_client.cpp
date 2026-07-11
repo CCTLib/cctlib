@@ -37,8 +37,6 @@
 // Need GOOGLE sparse hash tables
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
-using google::sparse_hash_map;      // namespace where class lives by default
-using google::dense_hash_map;      // namespace where class lives by default
 using namespace std;
 
 
@@ -70,7 +68,7 @@ using namespace PinCCTLib;
 #define PAGE_SIZE (1 << PAGE_OFFSET_BITS)
 
 // 2 level page table
-#define PTR_SIZE (sizeof(struct Status *))
+#define PTR_SIZE (sizeof(void *))
 #define LEVEL_1_PAGE_TABLE_BITS  (20)
 #define LEVEL_1_PAGE_TABLE_ENTRIES  (1 << LEVEL_1_PAGE_TABLE_BITS )
 #define LEVEL_1_PAGE_TABLE_SIZE  (LEVEL_1_PAGE_TABLE_ENTRIES * PTR_SIZE )

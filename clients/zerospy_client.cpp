@@ -34,8 +34,6 @@ extern "C" {
 
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;
 
 using namespace std;
 using namespace PinCCTLib;
@@ -359,7 +357,6 @@ static ADDRINT IfEnableSample(THREADID threadId){
 
 // Certain FP instructions should not be approximated
 static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
-     xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
      xed_iclass_enum_t 	iclass = xed_decoded_inst_get_iclass (&xedd);
      switch(iclass) {
 	case XED_ICLASS_FLDENV:
@@ -683,7 +680,7 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
 
 // template<int start, int end, int incr, bool conditional, bool approx>
 // struct UnrolledLoop{
-//     static __attribute__((always_inline)) void Body(function<void (const int)> func){
+//     static __attribute__((always_inline)) void Body(const function<void (const int)>& func){
 //         func(start); // Real loop body
 //         UnrolledLoop<start+incr, end, incr, conditional, approx>:: Body(func);   // unroll next iteration
 //     }
@@ -734,7 +731,7 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
 
 // template<int end,  int incr, bool conditional, bool approx>
 // struct UnrolledLoop<end , end , incr, conditional, approx>{
-//     static __attribute__((always_inline)) void Body(function<void (const int)> func){}
+//     static __attribute__((always_inline)) void Body(const function<void (const int)>& func){}
 //     static __attribute__((always_inline)) void BodySamePage(ContextHandle_t * __restrict__ prevIP, const ContextHandle_t handle, THREADID threadId){}
 //     static __attribute__((always_inline)) void BodyStraddlePage(uint64_t addr, const ContextHandle_t handle, THREADID threadId){}
 // #ifdef USE_COLLECT_PAGE_CACHE
@@ -745,7 +742,7 @@ static inline uint16_t FloatOperandSize(ADDRINT ip, uint32_t oper) {
 
 template<int start, int end, int incr>
 struct UnrolledConjunction{
-    static __attribute__((always_inline)) bool Body(function<bool (const int)> func){
+    static __attribute__((always_inline)) bool Body(const function<bool (const int)>& func){
         return func(start) && UnrolledConjunction<start+incr, end, incr>:: Body(func);   // unroll next iteration
     }
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
@@ -761,7 +758,7 @@ struct UnrolledConjunction{
 
 template<int end,  int incr>
 struct UnrolledConjunction<end , end , incr>{
-    static __attribute__((always_inline)) bool Body(function<void (const int)> func){
+    static __attribute__((always_inline)) bool Body(const function<void (const int)>& func){
         return true;
     }
     static __attribute__((always_inline)) bool BodyContextCheck(ContextHandle_t * __restrict__ prevIP){
@@ -1726,13 +1723,16 @@ static void PrintApproximationRedundancyPairs(THREADID threadId) {
                 fprintf(gTraceFile, ((*listIt).byteMapSign & (1))?"0 ":"X ");
                 for(uint32_t i=1;i<(*listIt).accessLen/8;i++) {
                     fprintf(gTraceFile, " , ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (64<<(7*i)))?"00 ":"XX ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (32<<(7*i)))?"00 ":"XX ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (16<<(7*i)))?"00 ":"XX ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (8<<(7*i)))?"00 ":"XX ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (4<<(7*i)))?"00 ":"XX ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (2<<(7*i)))?"00 ":"XX ");
-                    fprintf(gTraceFile, ((*listIt).byteMapMan & (1<<(7*i)))?"00 | ":"XX | ");
+                    // Shift literals promoted to uint64_t so the shift is
+                    // well-defined even for larger accessLen values that
+                    // would otherwise UB-shift a plain int by >= 32.
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{64}<<(7*i)))?"00 ":"XX ");
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{32}<<(7*i)))?"00 ":"XX ");
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{16}<<(7*i)))?"00 ":"XX ");
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{8}<<(7*i)))?"00 ":"XX ");
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{4}<<(7*i)))?"00 ":"XX ");
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{2}<<(7*i)))?"00 ":"XX ");
+                    fprintf(gTraceFile, ((*listIt).byteMapMan & (uint64_t{1}<<(7*i)))?"00 | ":"XX | ");
                     fprintf(gTraceFile, ((*listIt).byteMapExp & (2<<(2*i)))?"00 ":"XX ");
                     fprintf(gTraceFile, ((*listIt).byteMapExp & (1<<(2*i)))?"00 | ":"XX | ");
                     fprintf(gTraceFile, ((*listIt).byteMapSign & (1<<i))?"0 ":"X ");

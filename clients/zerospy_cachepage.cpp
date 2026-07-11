@@ -34,8 +34,6 @@ extern "C" {
 
 #include <google/sparse_hash_map>
 #include <google/dense_hash_map>
-using google::sparse_hash_map;  // namespace where class lives by default
-using google::dense_hash_map;
 
 using namespace std;
 using namespace PinCCTLib;
@@ -217,7 +215,6 @@ static inline void AddToRedTable(uint64_t key, uint16_t value, uint16_t zero, TH
 
 // Certain FP instructions should not be approximated
 static inline bool IsOkToApproximate(xed_decoded_inst_t & xedd) {
-     xed_category_enum_t cat = xed_decoded_inst_get_category(&xedd);
      xed_iclass_enum_t 	iclass = xed_decoded_inst_get_iclass (&xedd);
      switch(iclass) {
 	case XED_ICLASS_FLDENV:
@@ -568,7 +565,7 @@ struct ZeroSpyAnalysis{
                 AddToRedTable(GET_CACHELINE_INDEX((uint64_t)addr),0,0,threadId);
             }
         } else {
-            uint8_t i;
+            uint32_t i;
             uint8_t zero = bytes[0]==0;
             uint32_t rednum = zero;
             for(i=1;ISSAMECACHELINE(addr, i);++i) {
@@ -601,7 +598,7 @@ static inline VOID CheckAfterLargeRead(void* addr, UINT32 accessLen, uint32_t op
     }
 #endif
     uint8_t* bytes = static_cast<uint8_t*>(addr);
-    uint8_t i;
+    uint32_t i;
     uint8_t zero = bytes[0]==0;
     uint32_t rednum = zero;
     for(i=1;ISSAMECACHELINE(addr, i);++i) {

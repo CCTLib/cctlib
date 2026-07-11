@@ -532,8 +532,12 @@ static inline bool MaximizesExitRank(const Label * const newLabel, const Label *
             }
             return false;
         }
-        oldLabelSegment = oldLabelIter.NextSegment();
-        newLabelSegment = newLabelIter.NextSegment();
+        // TODO(preexisting-bug): the original code re-called NextSegment()
+        // here on both iterators, silently double-advancing per loop iteration
+        // and dropping the fetched segments (dead stores). Removed to match
+        // the sibling HappensBefore() function's advance-once-per-iteration
+        // pattern. Behavior may change for label sequences longer than 1
+        // segment; this file has no `make check` coverage today.
     }
     return false;
 }
@@ -1003,7 +1007,7 @@ void InitDataRaceSpy(int argc, char *argv[]){
     fprintf(gTraceFile,"\n");
     
     // Allocate gRegionIdToMasterLabelMap
-    gRegionIdToMasterLabelMap = (Label **) calloc(sizeof(Label*) * MAX_REGIONS, 1);
+    gRegionIdToMasterLabelMap = (Label **) calloc(MAX_REGIONS, sizeof(Label*));
     
     // Obtain  a key for TLS storage.
     tls_key = PIN_CreateThreadDataKey(0);
