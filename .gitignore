@@ -9,6 +9,7 @@ tests/obj-intel64/
 Makefile
 !/Makefile.am
 !*/Makefile.am
+!tests/gtest/Makefile
 autom4te.cache/
 config.log
 config.status
