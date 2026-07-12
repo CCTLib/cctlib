@@ -144,6 +144,38 @@ namespace PinCCTLib {
 typedef uintptr_t _Unwind_Ptr;
 #endif
 
+// Resolve the application's _Unwind_GetIP via Pin's IMG/RTN API at
+// image-load time, then call through that pointer from analysis code.
+//
+// A direct call to _Unwind_GetIP from cctlib resolves to Pin's
+// libunwind-dynamic.so (Pin's DT_NEEDED), whose _Unwind_Context struct
+// layout does not match the application's libgcc/LLVM libunwind.
+struct _Unwind_Context;
+typedef _Unwind_Ptr (*UnwindGetIPFn)(struct _Unwind_Context*);
+
+static UnwindGetIPFn g_appUnwindGetIP = NULL;
+static const char* g_appUnwindLibName = NULL;
+
+// Record the first libgcc_s / LLVM libunwind image's _Unwind_GetIP.
+static void RememberUnwindGetIPFromImage(IMG img) {
+    if (g_appUnwindGetIP) return;
+    const char* nm = IMG_Name(img).c_str();
+    bool isLibgcc = strstr(nm, "libgcc_s.so") != NULL;
+    bool isLlvmUnwind = strstr(nm, "libunwind.so") != NULL;
+    if (!isLibgcc && !isLlvmUnwind) return;
+
+    RTN r = RTN_FindByName(img, "_Unwind_GetIP");
+    if (!RTN_Valid(r)) return;
+    ADDRINT addr = RTN_Address(r);
+    if (!addr) return;
+
+    g_appUnwindGetIP = reinterpret_cast<UnwindGetIPFn>(addr);
+    g_appUnwindLibName = isLibgcc ? "libgcc_s" : "libunwind(LLVM)";
+    fprintf(stderr,
+            "cctlib-unwind: found _Unwind_GetIP at %p in %s (%s)\n",
+            (void*)addr, nm, g_appUnwindLibName);
+}
+
 
 /******** Fwd declarations **********/
 struct TraceNode;
@@ -608,13 +640,21 @@ static TraceNode* FindNearestCallerCoveringIP(ADDRINT exceptionCallerReturnAddrI
 
 
 static VOID CaptureCallerThatCanHandleException(VOID* exceptionCallerContext, THREADID threadId) {
-    //printf("\n Target ip is %p, exceptionCallerIP = %p", targeIp);
-    //        extern ADDRINT _Unwind_GetIP(VOID *);
-    //        ADDRINT exceptionCallerIP = (ADDRINT) _Unwind_GetIP(exceptionCallerContext);
-    _Unwind_Ptr exceptionCallerReturnAddrIP = _Unwind_GetIP((struct _Unwind_Context*)exceptionCallerContext);
+    // Call the application's own _Unwind_GetIP (resolved via Pin's RTN API
+    // at IMG-load; see RememberUnwindGetIPFromImage). A direct call would
+    // resolve to Pin's libunwind-dynamic.so copy, whose _Unwind_Context
+    // struct layout does not match the libgcc context passed in here.
+    if (!g_appUnwindGetIP) {
+        fprintf(stderr,
+                "cctlib: fatal: _Unwind_SetIP invoked but the application's"
+                " _Unwind_GetIP was not resolved during IMG load. Add the"
+                " image name of the unwinder to RememberUnwindGetIPFromImage.\n");
+        PIN_ExitProcess(-1);
+    }
+    _Unwind_Ptr exceptionCallerReturnAddrIP =
+        g_appUnwindGetIP((struct _Unwind_Context*)exceptionCallerContext);
     _Unwind_Ptr directExceptionCallerIP = X86_DIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
     _Unwind_Ptr indirectExceptionCallerIP = X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
-    //printf("\n directExceptionCallerIP = %p indirectExceptionCallerIP = %p", (void*)directExceptionCallerIP, (void*)indirectExceptionCallerIP);
     fprintf(GLOBAL_STATE.CCTLibLogFile, "\n directExceptionCallerIP = %p indirectExceptionCallerIP = %p", (void*)directExceptionCallerIP, (void*)indirectExceptionCallerIP);
     // Walk the CCT chain staring from tData->tlsCurrentTraceNode looking for the nearest one that has targeIp in the range.
     ThreadData* tData = CCTLibGetTLS(threadId);
@@ -627,6 +667,12 @@ static VOID CaptureCallerThatCanHandleException(VOID* exceptionCallerContext, TH
 
 static VOID SetCurTraceNodeAfterException(THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
+    // Guard against uncaught-exception paths where _Unwind_Resume fires
+    // without a preceding _Unwind_SetIP (libgcc's phase 1 finds no
+    // handler and jumps straight to std::terminate). In that case
+    // CaptureCallerThatCanHandleException was never invoked and
+    // tlsExceptionHandlerTraceNode is still NULL.
+    if (!tData->tlsExceptionHandlerTraceNode) return;
     // Record the caller that can handle the exception.
     UpdateCurTraceAndIp(tData, tData->tlsExceptionHandlerTraceNode, tData->tlsExceptionHandlerCtxtHndle);
 #if 1
@@ -642,6 +688,9 @@ static VOID SetCurTraceNodeAfterExceptionIfContextIsInstalled(ADDRINT retVal, TH
     // if(retVal != _URC_INSTALL_CONTEXT)
     //    return;
     ThreadData* tData = CCTLibGetTLS(threadId);
+    // Same guard as SetCurTraceNodeAfterException: skip if no handler
+    // was captured (uncaught exception -> terminate path).
+    if (!tData->tlsExceptionHandlerTraceNode) return;
     // Record the caller that can handle the exception.
     UpdateCurTraceAndIp(tData, tData->tlsExceptionHandlerTraceNode, tData->tlsExceptionHandlerCtxtHndle);
 #if 1
@@ -2650,6 +2699,11 @@ static VOID ComputeVarBounds(IMG img, VOID* v) {
 // end DO_DATA_CENTRIC #endif
 
 VOID CCTLibImage(IMG img, VOID* v) {
+    // Populate g_appUnwindGetIP if this image is libgcc_s / LLVM
+    // libunwind; see the comment on RememberUnwindGetIPFromImage()
+    // for why we resolve via Pin's RTN API rather than dl*.
+    RememberUnwindGetIPFromImage(img);
+
     //  Find the pthread_create() function.
 #define PTHREAD_CREATE_RTN "pthread_create"
 #define ARCH_LONGJMP_RTN "__longjmp"
