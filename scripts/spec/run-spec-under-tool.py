@@ -144,7 +144,7 @@ class Worker:
                 return False
         elapsed = int(time.time() - self.start_ts)
         gd, gw, pct = parse_report(self.run_dir)
-        # Check for known error patterns in stderr
+        # Check for known error patterns.
         note = ""
         try:
             with open(self.err.name) as f:
@@ -157,6 +157,23 @@ class Worker:
                     note = "timeout"
         except OSError:
             pass
+        # cctlib writes its own diagnostic messages ("Preallocated IPNodes
+        # exhausted", "Preallocated String Pool exhausted", etc.) to the
+        # tool's own log file, NOT to stderr, so we peek there too.
+        if not note and rc != 0:
+            for prefix in ("deadspy.out.", "redspy.out.", "redLoad.out."):
+                for f_ in sorted(glob.glob(os.path.join(self.run_dir, prefix + "*"))):
+                    try:
+                        with open(f_) as f:
+                            log = f.read()
+                        if "Preallocated IPNodes exhausted" in log:
+                            note = "cctlib-ipnodes-exhausted"; break
+                        if "Preallocated String Pool exhausted" in log:
+                            note = "cctlib-strpool-exhausted"; break
+                    except OSError:
+                        pass
+                if note:
+                    break
         row = (self.bench, self.class_, self.idx, elapsed, rc,
                gd or "?", gw or "?", pct or "?", note)
         with open(self.results_tsv, "a") as f:

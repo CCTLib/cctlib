@@ -110,10 +110,29 @@ Sanity checks:
 - `exit=0` and non-empty `grand_dead / grand_writes / pct` — successful run.
 - `note` is either empty, or one of `SIGSEGV-in-tool` (a tool bug), 
   `pin-stack-overflow` (cctlib's recursive VisitAllNodesOfSplayTree
-  blew Pin's C stack; typically at ref-workload scale), or `timeout`.
+  blew Pin's C stack; typically at ref-workload scale), `timeout`,
+  or `cctlib-ipnodes-exhausted` / `cctlib-strpool-exhausted` (see
+  below).
 - `pct` in the low-single-digit-to-teens range is typical for
   well-behaved benchmarks. Anything way out of that range is worth a
   second look.
+
+## cctlib design limits
+
+The `cctlib-ipnodes-exhausted` note means the benchmark generated
+more distinct call-path contexts than cctlib's preallocated
+`MAX_IPNODES` (2^32 on x86_64) can hold. `ContextHandle_t` is a
+`uint32_t`, so this is a hard ceiling; PIN\_ExitProcess(-1) fires
+(exit=255). Observed on `631.deepsjeng_s` refspeed: chess minimax
+recursion at depth 15+ produces billions of unique callchains. If
+you hit this and need a report anyway, options are:
+
+  * Run the `test` workload of the same benchmark (much smaller
+    call-graph coverage).
+  * Instrument only a subset of images with `-follow_execv 0` and
+    Pin's include/exclude flags.
+  * A deeper fix is to widen `ContextHandle_t` to 64-bit, which
+    also doubles per-node metadata memory.
 
 ## Debugging a failing benchmark
 
