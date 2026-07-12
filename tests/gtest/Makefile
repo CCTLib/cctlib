@@ -32,7 +32,8 @@ TESTS := \
     $(OBJDIR)/omp_race_integration_test \
     $(OBJDIR)/footprint_integration_test \
     $(OBJDIR)/ins_reuse_integration_test \
-    $(OBJDIR)/rvn_integration_test
+    $(OBJDIR)/rvn_integration_test \
+    $(OBJDIR)/exception_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
 # (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
@@ -82,7 +83,20 @@ VICTIMS := \
     $(OBJDIR)/apps/isa/loadspy_mixed_widths_tp \
     $(OBJDIR)/apps/isa/footprint_avx32_sweep \
     $(OBJDIR)/apps/isa/ins_reuse_simd_loop \
-    $(OBJDIR)/apps/isa/rvn_repeated_add
+    $(OBJDIR)/apps/isa/rvn_repeated_add \
+    $(OBJDIR)/apps/exceptions/exc_simple_throw \
+    $(OBJDIR)/apps/exceptions/exc_deep_unwind \
+    $(OBJDIR)/apps/exceptions/exc_rethrow \
+    $(OBJDIR)/apps/exceptions/exc_catchall \
+    $(OBJDIR)/apps/exceptions/exc_dtor_cleanup \
+    $(OBJDIR)/apps/exceptions/exc_stress_loop \
+    $(OBJDIR)/apps/exceptions/exc_polymorphic \
+    $(OBJDIR)/apps/exceptions/exc_none_tn \
+    $(OBJDIR)/apps/exceptions/exc_uncaught_tn \
+    $(OBJDIR)/apps/exceptions/exc_ctor_throw \
+    $(OBJDIR)/apps/exceptions/exc_catch_and_resume \
+    $(OBJDIR)/apps/exceptions/sig_longjmp \
+    $(OBJDIR)/apps/exceptions/sig_sigsegv_recover
 
 # OpenMP victims need -fopenmp on both compile and link.
 $(OBJDIR)/apps/omp_race_%: apps/omp_race_%.c | $(OBJDIR)/apps
@@ -91,6 +105,12 @@ $(OBJDIR)/apps/omp_race_%: apps/omp_race_%.c | $(OBJDIR)/apps
 # ISA victims that use SSE / AVX need the corresponding CPU feature enabled
 # at compile time. -O0 preserves inline asm exactly.
 ISA_CFLAGS := -O0 -g -Wall -mavx -mavx2 -msse4.2
+
+# C++ exception/signal victims. Built with the host g++, -fexceptions +
+# -frtti + -O0, and -fnon-call-exceptions so signal-triggered faults
+# also participate in unwinding tests. -Wno-infinite-recursion silences
+# GCC's false positive on recursion that terminates via longjmp.
+EXC_CXXFLAGS := -O0 -g -Wall -std=c++17 -fexceptions -frtti -fnon-call-exceptions -Wno-infinite-recursion
 
 .PHONY: all test clean
 all: $(TESTS) $(VICTIMS)
@@ -104,6 +124,9 @@ $(OBJDIR)/apps/%: apps/%.c | $(OBJDIR)/apps
 $(OBJDIR)/apps/isa/%: apps/isa/%.c | $(OBJDIR)/apps/isa
 	$(CC) $(ISA_CFLAGS) $< -o $@
 
+$(OBJDIR)/apps/exceptions/%: apps/exceptions/%.cpp | $(OBJDIR)/apps/exceptions
+	$(CXX) $(EXC_CXXFLAGS) $< -o $@
+
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
@@ -112,6 +135,9 @@ $(OBJDIR)/apps:
 
 $(OBJDIR)/apps/isa:
 	mkdir -p $(OBJDIR)/apps/isa
+
+$(OBJDIR)/apps/exceptions:
+	mkdir -p $(OBJDIR)/apps/exceptions
 
 # Run each test binary. GoogleTest exits non-zero on failure, propagating
 # through the `for` loop's `|| exit $$?`. Integration tests need PIN_ROOT
