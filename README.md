@@ -1,225 +1,303 @@
-[![Build Status](https://travis-ci.org/CCTLib/cctlib.svg?branch=master)](https://travis-ci.org/CCTLib/cctlib)
+# CCTLib
 
-CCTLib is a library to ubiquitously collect calling contexts as well as attribute costs to data objects in an execution of a program.
+[![lint](https://github.com/CCTLib/cctlib/actions/workflows/lint.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/lint.yml)
+[![docs](https://github.com/CCTLib/cctlib/actions/workflows/docs.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/docs.yml)
 
---------------------------------------------------
-	 Project Status
---------------------------------------------------
-This project is not maintained any more. The next generation of CCTLib is named DrCCTProf, which is at https://github.com/Xuhpclab/DrCCTProf. DrCCTProf inherits all the features of CCTLib but has improved applicability and capability.
+CCTLib is a library that ubiquitously collects **calling contexts** for
+every instruction executed by an application, and attributes costs to
+the specific data objects those instructions touch. It runs on top of
+[Intel Pin](https://software.intel.com/content/www/us/en/develop/articles/pin-a-dynamic-binary-instrumentation-tool.html)
+as a runtime library and turns any Pin tool into a context-aware
+profiler with a few lines of glue code.
 
---------------------------------------------------
-	Supported platforms
---------------------------------------------------
-1. Linux x86_64
+Doxygen API reference: <https://cctlib.github.io/cctlib/>
 
---------------------------------------------------
-	Requirements	
---------------------------------------------------
+---
 
-0. Ensure you have g++ 4.8.2 or higher as the default compiler and make sure you compile everything with -std=c++11 flag
+## Supported platforms
 
-1. Download and install the latest Pin framework 2.14 rev 71313 matching your platform from
-http://www.pintool.org/downloads.html. In case you don't download Pin, our build script has an option to automatically download from WWW.
-Our current release is tested on http://software.intel.com/sites/landingpage/pintool/downloads/pin-2.14-71313-gcc.4.4.7-linux.tar.gz
+- Linux x86_64
+- g++ 10 or newer
+- Intel Pin **4.x** (tested against pin-external-4.3-99850-gce5652921)
 
---------------------------------------------------
-	Compiling
---------------------------------------------------
+## Prerequisites
 
-1. Set PIN_ROOT environmental variable to point to the root of the Pin installation. No need to do this step if you want the build.sh script to automatically download Pin from the WWW.
+Install these before building:
 
- e.g. 
- export PIN_ROOT=/path/to/pin/root/pin-2.14-67254-gcc.4.4.7-linux/
- 
-To build, simply type "sh build.sh"
-This will configure, make, and check CCTLib. 
+- `g++` >= 10 (Pin 4.x recommends this)
+- `autoconf`, `automake`, `libtool`
+- `unzip`, `tar`, `curl` (for the bundled `build.sh` dependency setup)
 
-This produces libcctlib.a and libcctlib_tree_based.a in the src directory (refer to http://dl.acm.org/citation.cfm?id=2544164 for details).
-libcctlib.a is CCTLib with shadow memory-based data-centric attribution.
-libcctlib_tree_based.a is CCTLib with balanced binary tree based data-centric attribution.
+## Quick start
 
-Please refer to FAQs if you have compilation errors. If you still have issues compiling contact CCTLib Forum (cctlib-forum@lists.wm.edu).
+```sh
+# 1. Download Pin 4.x and set PIN_ROOT.
+curl -fSL -o pin.tar.gz \
+  https://software.intel.com/sites/landingpage/pintool/downloads/pin-external-4.3-99850-gce5652921-gcc-linux.tar.gz
+tar xzf pin.tar.gz
+export PIN_ROOT=$PWD/pin-external-4.3-99850-gce5652921-gcc-linux
 
---------------------------------------------------
-Documentation of CCTLib's key APIs 
---------------------------------------------------
+# 2. Build CCTLib.
+git clone https://github.com/CCTLib/cctlib.git
+cd cctlib
+./build.sh
+```
 
-1. int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibInstrumentInsCallback userCallback, VOID* userCallbackArg, BOOL doDataCentric = false);
-	Description: 
-   		CCTLib clients must call this before using CCTLib. 
-                Note: For postmortem analysis call PinCCTLibInitForPostmortemAnalysis() instead.
-	Arguments:
-                isInterestingIns: a client tool callback that should return boolean true/false if a given INS needs to collect context. 
-                    Following predefined values are available for client tools: 
-                        INTERESTING_INS_ALL => client tool needs the calling context on each instruction. tests/cct_client.cpp is a good example to demonstrate this use case.
-                        INTERESTING_INS_MEMORY_ACCESS => client tool needs the calling context on each load/store instruction. tests/cct_client_mem_only.cpp is a good example to demonstrate this use case.
-                        INTERESTING_INS_NONE => client tool does not require calling context only to the level of function names and callsites, leaf level instructions are ignored.
-		logFile: file pointer where CCTLib will put its output data.
-		userCallback: a client callback that CCTLib calls on each INS for which isInterestingIns is true passing it userCallbackArg value.
-                userCallbackArg: is a void pointer that CCTLib takes and passes back to the client tool callback provided by userCallback argument.
-		doDataCentric: should be set to true if the client wants CCTLib to do data-centric attribution.
+`build.sh` unpacks `externals/{libelf-0.8.9,sparsehash-2.0.3-95e5e93,json-v3.7.3}`,
+configures, and runs `make -j` followed by `make check`. It produces:
 
-2. ContextHandle_t GetContextHandle(THREADID threadId, uint32_t opaqueHandle);
-	Description:
-		Client tools call this API when they need the calling context handle (ContextHandle_t).
-	Arguments:
-		threadId: Pin's thread id of the asking thread.
-		opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
+- `src/obj-intel64/libcctlib.a` &mdash; shadow-memory-based data-centric attribution.
+- `src/obj-intel64/libcctlib_tree_based.a` &mdash; balanced-binary-tree-based attribution.
+- `src/obj-intel64/libcctlib_metric.a` &mdash; per-IPNode custom metric slots.
 
-3. DataHandle_t GetDataObjectHandle(VOID* address, THREADID threadId);
-	Description:
-		Client tools call this API when they need handle to the data object (DataHandle_t).
-	Arguments:
-		address: effective address for which the data object is needed.
-		threadId: Pin's thread id of the asking thread.
-	Note: Make sure that you have finite stack size. Don't set "ulimit -s unlimited"
+Refer to Chabbi, Liu & Mellor-Crummey (CGO 2014) for the algorithmic
+details.
 
-4. VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
-	Description:
-		Prints the full calling context whose handle is ctxtHandle. Client tools must call PIN_LockClient() before calling this API and release lock via PIN_UnlockClient().
-		I have intentionally made client tool to hold lock (PIN_LockClient) instead of CCTLib holding the lock so that it becomes efficient and the granularity of locking is left to the user.
-		If the client tool is already holding the lock, it does not make sense for CCTLib to acquire it again (It is not clear from Pin manual if this lock is reentrant), hence this design is justified.
-	Typical use:
-		PIN_LockClient();
+## Project status
 
-		for (...) {
-			PrintFullCallingContext(i);
-		}
+Actively maintained. Recent work covers a clean C++-exception unwind
+implementation (Itanium ABI landing-pad re-anchor), a direct-self-
+recursion collapse for the CCT, a shape-inspection pintool
+(`clients/cct_shape_check.cpp`) plus 22 gtest-driven shape victims,
+and continuous integration for `clang-format` + `clang-tidy`.
 
-		PIN_UnlockClient();
-		
-5. VOID GetFullCallingContext(ContextHandle_t ctxtHandle, vector<Context>& contextVec);
-	Description:
-		Returns the full calling context whose handle is ctxtHandle. Client tools must call PIN_LockClient() before calling this API and release lock via PIN_UnlockClient().
-                I have intentionally made client tool to hold lock (PIN_LockClient) instead of CCTLib holding the lock so that it becomes efficient and the granularity of locking is left to the user.
-                If the client tool is already holding the lock, it does not make sense for CCTLib to acquire it again (It is not clear from Pin manual if this lock is reentrant), hence this design is justified.
-        Typical use:
-                PIN_LockClient();
+There is also a successor project, [DrCCTProf](https://github.com/Xuhpclab/DrCCTProf),
+built on top of DynamoRIO with broader platform coverage. CCTLib
+remains the reference implementation on Pin and stays maintained for
+that use case.
 
-                for (...) {
-                        GetFullCallingContext(...);
-                }
+---
 
-                PIN_UnlockClient();
+## Key APIs
 
+Full API documentation is generated by Doxygen (`make docs`, or the
+auto-published copy linked above). The load-bearing entry points:
 
-	Arguments:
-		ctxtHandle: is the context handle for which the full call path is requested.
-		contextVec: is a vector that will be populated with the full call path.
+```cpp
+// Initialize CCTLib. Call once from your Pin tool's main() after PIN_Init.
+int PinCCTLibInit(IsInterestingInsFptr isInterestingIns,
+                  FILE* logFile,
+                  CCTLibInstrumentInsCallback userCallback,
+                  VOID* userCallbackArg,
+                  BOOL doDataCentric = false);
 
-6. int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, string serializedFilesDirectory);
-	Description:
-		Reads serialized CCT metadata and rebuilds CCTs for postmortem analysis.
-	Arguments:
-		logFile: file pointer where CCTLib will put its output data.
-		serializedFilesDirectory: Path to directory where previously files were serialized.
+// From the client's InstrumentInsCallback, at run time, get the
+// context handle for the current slot.
+ContextHandle_t GetContextHandle(const THREADID id, const uint32_t slot);
 
-		Caution: This should never be called with PinCCTLibInit().
+// Get the data-object handle for an effective address (requires
+// doDataCentric = true at init time).
+DataHandle_t GetDataObjectHandle(VOID* address, THREADID threadId);
 
-7. void SerializeMetadata(string directoryForSerializationFiles = "");
-	Description: 
-		Serializes all CCTLib data into files for postmortem analysis.
+// Print the full calling context to CCTLib's log file.
+// Caller must hold PIN_LockClient().
+VOID PrintFullCallingContext(ContextHandle_t ctxtHandle);
 
-	Arguments:
-		directoryForSerializationFiles: directory where serialized files are written.
+// Materialize the full calling context as a vector<Context>.
+// Caller must hold PIN_LockClient().
+VOID GetFullCallingContext(const ContextHandle_t curCtxtHndle,
+                           std::vector<Context>& contextVec);
 
-8. void DottifyAllCCTs()
-   Description:
-	Dumps all CCTs into DOT files for visualization.
+// Canonicalize a handle to its enclosing TraceNode -- two handles that
+// live in the same trace return the same value. Useful for shape
+// inspectors that need TraceNode-identity comparisons.
+ContextHandle_t GetTraceStartHandle(ContextHandle_t ctxtHandle);
 
-9. bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) 
-   Description:
-       Given two contexts handles, returns true if they both map to the same source line (could be different instructions). 
-       Client tools must call PIN_LockClient() before calling this API and release lock after via PIN_UnlockClient(). Follow instructions similar to GetFullCallingContext() to decide the granularity of locking. 
+// True iff two handles map to the same source line (possibly different
+// instructions on that line).
+bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 
+// Postmortem: rebuild CCTs from previously-serialized files.
+// Never call together with PinCCTLibInit().
+int PinCCTLibInitForPostmortemAnalysis(FILE* logFile,
+                                       std::string serializedFilesDirectory);
 
---------------------------------------------------
-Example uses of CCTLib	
---------------------------------------------------
+// Write CCT metadata to disk for later postmortem analysis.
+void SerializeMetadata(std::string directoryForSerializationFiles = "");
 
-The "tests" directory contains several simple example uses of CCTLib.
+// Emit all CCTs as GraphViz DOT files.
+void DottifyAllCCTs();
+```
 
-cct_client.cpp is a simple tool that gathers calling context on each instruction.
-cct_client_mem_only.cpp is a simple tool that gathers calling context on each memory access.
-cct_data_centric_client.cpp is a simple tool that associates each memory access to its associated data object via shadow memory technique.
-cct_data_centric_client_tree_based.cpp is a simple tool that associates each memory access to its associated data object via balanced binary tree technique.
+### Minimal example
 
-The "clients" directory contains advanced example uses of CCTLib.
-deadspy_client.cpp is an implementation of DeadSpy that uses CCTLib and serializes the CCT.
-cctlib_reader.cpp reads the serialized CCT and build back the CCT for postmortem analysis.
+```cpp
+// Gathering calling context on every instruction:
+#include "cctlib.H"
+using namespace PinCCTLib;
 
+VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
+    ContextHandle_t h = GetContextHandle(id, slot);
+    // ... do something with h ...
+}
 
---------------------------------------------------
-Example code snippets
---------------------------------------------------
+VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
+    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery,
+                             IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
+}
 
-1. Gathering calling context on every instruction by a Pin tool.
-   In your Pin tool's main(), after initializing Pin via PIN_Init, call PinCCTLib::PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0).
-   The arguments to PinCCTLibInit are explained below:
-   1.1 INTERESTING_INS_ALL is a predefined callback in CCTLib that tells that the client tool "may" want to gather calling context on any instruction.
-      Instead of using INTERESTING_INS_ALL, the client tool may provide its own callback function whose signature must be as follows:      
-      typedef BOOL (* IsInterestingInsFptr)(INS ins);      
-      INTERESTING_INS_ALL is implemented as follow: BOOL InterestingInsAll(INS ins) { return true;}
-      A more sophisticated Pin client tool may inspect INS and decide the return value true/false differently.
-      
-   1.2 gTraceFile is a file pointer (FILE *) that the client tool must pass to CCTLib so that CCTLib can write its log messages to that file. 
-       
-   1.3 InstrumentInsCallback is a callback that Pin client tool provides to CCTLib. CCTLib calls this function on each INS for which the first argument "IsInterestingInsFptr" return true.
-       The prototype of InstrumentInsCallback is as follow:
+int main(int argc, char* argv[]) {
+    PIN_Init(argc, argv);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PIN_StartProgram();
+    return 0;
+}
+```
 
-       typedef VOID (*CCTLibInstrumentInsCallback)(INS ins, VOID* v, uint32_t slot);
+`INTERESTING_INS_ALL` is a predefined callback that returns `true`
+for every instruction. Alternatives:
 
-       INS is the instruction on which instrumentation is being performed. 
-       v is the same pointer that the client had passed to CCTLib (i.e., 4th argument to  PinCCTLibInit).
-       slot is an opaque handle that CCTLib gives to the Pin client which the client MUST faithfully pass as an argument to CCTLib's GetContextHandle() routine called from this INS.
+- `INTERESTING_INS_MEMORY_ACCESS` &mdash; only load/store instructions.
+- `INTERESTING_INS_NONE` &mdash; only function and call-site granularity.
+- A custom `BOOL (*)(INS)` predicate for finer selection.
 
-       In the implementation of InstrumentInsCallback callback, the client tool can perform the instrumentation that it would normally perform via functions such as INS_InsertCall() or INS_InsertPredicatedCall().
-       For example, a client Pin tool that increments a counter on each instruction and gathers calling context can have its InstrumentInsCallback() implemented as follows:
-       
-       VOID SimpleCCTQuery(THREADID id, uint32_t slot) {
-           // Increment counter
-           gCounter++;
-           
-           // Gather calling context
-           GetContextHandle(id, slot);
-       }
+Full working code lives in `tests/cct_client.cpp` and the many
+`clients/*.cpp` tools.
 
-       VOID InstrumentInsCallback(INS ins, VOID* v, uint32_t slot) {
-           INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SimpleCCTQuery, IARG_THREAD_ID, IARG_UINT32, slot, IARG_END);
-       }
-       
-       
-       This completes a simple example of gathering calling context on each instruction. Full code is present in tests/cct_client.cpp
+---
 
+## Example clients
 
---------------------------------------------------
-Some useful control flags / macros
---------------------------------------------------
- 
-1. MAX_IPNODES is the maximum number of call path handles supported. It is by default set to (1<<32). The virtual address space is eagerly allocated get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_IPNODES=<num> when compiling cctlib.
+`tests/` &mdash; minimal examples:
 
-2. MAX_STRING_POOL_NODES is the maximum number of variable names supported in data-centric analysis. It is by default set to (1<<30). The virtual address space is eagerly allocated to get contiguous memory, but physical memory is consumed iff needed. If your machine has virtual memory limitation, change this value to a suitable value by passing -DMAX_STRING_POOL_NODES=<num> when compiling cctlib.
+| File                                       | What it does                                              |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `cct_client.cpp`                           | Gather calling context on every instruction.              |
+| `cct_client_mem_only.cpp`                  | Gather calling context on every memory access.            |
+| `cct_data_centric_client.cpp`              | Data-centric attribution via shadow memory.               |
+| `cct_data_centric_client_tree_based.cpp`   | Data-centric attribution via balanced BST.                |
 
+`clients/` &mdash; production-scale tools:
 
---------------------------------------------------
-FAQs: Frequently asked questions
---------------------------------------------------
-Q: How can I compile CCTLib for development?
-A: Pass --enable-develop switch to the ./configure step.
+| File                                     | What it does                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| `deadspy_client.cpp`                     | DeadSpy: pinpoint dead writes with full context.                          |
+| `redspy_client.cpp`                      | RedSpy: value-locality-based redundancy detection.                        |
+| `loadspy_client.cpp`                     | LoadSpy: redundant loads.                                                 |
+| `zerospy_client.cpp`                     | ZeroSpy: redundant zeros in loads.                                        |
+| `footprint_client.cpp`                   | Memory footprint by call context.                                         |
+| `cache_client.cpp`                       | Simulated cache miss attribution.                                         |
+| `ins_reuse_client.cpp`                   | Instruction reuse distance.                                               |
+| `omp_datarace_client.cpp`                | OpenMP data-race detection.                                               |
+| `runtime_value_numbering_client.cpp`     | Runtime value numbering for redundant computation.                        |
+| `cct_metric_client.cpp`                  | Per-IPNode custom-metric skeleton.                                        |
+| `cctlib_reader.cpp`                      | Read serialized CCT for postmortem analysis.                              |
+| `cct_shape_check.cpp`                    | CCT-shape assertion tool for the gtest suites.                            |
 
-Q: How can I cite CCTLib:
-A: Please cite this paper: Milind Chabbi, Xu Liu, and John Mellor-Crummey. 2014. Call Paths for Pin Tools. In Proceedings of Annual IEEE/ACM International Symposium on Code Generation and Optimization (CGO '14). ACM, New York, NY, USA, , Pages 76 , 11 pages. DOI=http://dx.doi.org/10.1145/2544137.2544164
+---
 
+## Testing
 
---------------------------------------------------
-Publications based on CCTLib
---------------------------------------------------
-1. Milind Chabbi, Xu Liu, and John Mellor-Crummey. 2014. Call Paths for Pin Tools. In Proceedings of Annual IEEE/ACM International Symposium on Code Generation and Optimization (CGO '14). ACM, New York, NY, USA, , Pages 76 , 11 pages. DOI=http://dx.doi.org/10.1145/2544137.2544164
-2. Milind Chabbi, Wim Lavrijsen, Wibe de Jong, Koushik Sen, John Mellor-Crummey, and Costin Iancu. 2015. Barrier elision for production parallel programs. In Proceedings of the 20th ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming (PPoPP 2015). ACM, New York, NY, USA, 109-119. DOI=http://dx.doi.org/10.1145/2688500.2688502
-3. Milind Chabbi and John Mellor-Crummey. 2012. DeadSpy: a tool to pinpoint program inefficiencies. In Proceedings of the Tenth International Symposium on Code Generation and Optimization (CGO '12). ACM, New York, NY, USA, 124-134. DOI=http://dx.doi.org/10.1145/2259016.2259033
-4. Shasha Wen, Xu Liu, Milind Chabbi, "Runtime Value Numbering: A Profiling Technique to Pinpoint Redundant Computations"  The 24th International Conference on Parallel Architectures and Compilation Techniques (PACT'15), Oct 18-21, 2015, San Francisco, California, USA
-5. Shasha Wen, Milind Chabbi, and Xu Liu. 2017. REDSPY: Exploring Value Locality in Software. In Proceedings of the Twenty-Second International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS '17). ACM, New York, NY, USA, 47-61. DOI: https://doi.org/10.1145/3037697.3037729
-6. Pengfei Su, Shasha Wen, Hailong Yang, Milind Chabbi, and Xu Liu. 2019. Redundant Loads: A Software Inefficiency Indicator. In Proceedings of the 41st International Conference on Software Engineering (ICSE '19). IEEE Press, Piscataway, NJ, USA, 982-993. DOI: https://doi.org/10.1109/ICSE.2019.00103
+CCTLib carries an extensive gtest suite in `tests/gtest/`:
 
+```sh
+make -C tests/gtest test
+```
 
+Includes:
 
+- **Client integration tests** (deadspy, redspy, loadspy, footprint,
+  ins_reuse, rvn, omp_race, cache_client, cctlib_integration).
+- **Exception + signal integration** &mdash; 39 tests across 13
+  victims covering all C++ exception patterns (simple throw, deep
+  unwind, rethrow, catch-all, dtor cleanup, stress loop, polymorphic
+  dispatch, uncaught path, ctor throw, catch-and-resume, setjmp/
+  longjmp, sigsegv recover).
+- **Exception shape suite** &mdash; 14 victims + `cct_shape_check.cpp`
+  assert on structural CCT invariants (marker attribution under
+  landing-pad re-anchor, direct-self-recursion collapse under
+  nested throw+rethrow, no throw-machinery ancestors under
+  catch/try markers).
+- **Recursion shape suite** &mdash; 8 victims exercising direct vs
+  indirect self-recursion, mixed direct+indirect chains, stripped
+  binaries, and recursion terminating via throw / longjmp.
+
+Set `CCTLIB_EXPENSIVE_SHAPE=1` to include the four stress victims
+(high-iteration throw loops).
+
+---
+
+## Code style + linting
+
+The tree uses `.clang-format` (LLVM base, 4-space indent, attached
+braces, no reflow) and `.clang-tidy` (bugprone-*, performance-*,
+readability-*, modernize-* families with a documented exclude list
+for invasive checks).
+
+- `make format` &mdash; reformat all C/C++ sources in place.
+- `make format-check` &mdash; fail if any file would change (used by CI).
+- `make lint` &mdash; run `clang-tidy` on the full source set;
+  requires a `compile_commands.json` produced by `bear -- make`.
+
+### Local git hooks
+
+Opt-in per clone:
+
+```sh
+make install-hooks
+```
+
+This sets `core.hooksPath` to `.githooks/`, so every `git commit`
+runs `clang-format-15` on the staged C/C++ files and auto-re-stages
+what it changes. See [`.githooks/README.md`](https://github.com/CCTLib/cctlib/blob/master/.githooks/README.md).
+Bypass with `git commit --no-verify`. Uninstall with
+`git config --unset core.hooksPath`.
+
+### Continuous integration
+
+[`.github/workflows/lint.yml`](https://github.com/CCTLib/cctlib/blob/master/.github/workflows/lint.yml) runs on
+every push to `master` and every PR:
+
+- `clang-format --dry-run --Werror` on all C/C++ sources.
+- `clang-tidy` on the full source set (with Pin installed via the
+  cached Intel tarball).
+
+[`.github/workflows/docs.yml`](https://github.com/CCTLib/cctlib/blob/master/.github/workflows/docs.yml) builds the
+Doxygen output on every push to `master` and publishes it to the
+`gh-pages` branch.
+
+---
+
+## Control knobs
+
+- `MAX_IPNODES` &mdash; maximum number of call-path handles (default
+  `1 << 32`). Virtual address space is reserved eagerly; physical
+  memory is committed on demand. Lower it with `-DMAX_IPNODES=<num>`
+  if you run into VM limits.
+- `MAX_STRING_POOL_NODES` &mdash; maximum number of distinct variable
+  names in data-centric analysis (default `1 << 30`). Same
+  eager-reserve / lazy-commit story; lower with
+  `-DMAX_STRING_POOL_NODES=<num>`.
+
+## FAQs
+
+**How do I build for CCTLib development?**
+Pass `--enable-develop` to `./configure` (or edit `build.sh` to add
+the flag before it runs `./configure`).
+
+**How do I cite CCTLib?**
+Chabbi, Liu, Mellor-Crummey. *Call Paths for Pin Tools.* CGO 2014.
+DOI: [10.1145/2544137.2544164](https://doi.org/10.1145/2544137.2544164).
+
+---
+
+## Publications using CCTLib
+
+1. Milind Chabbi, Xu Liu, John Mellor-Crummey. *Call Paths for Pin
+   Tools.* CGO 2014.
+   [doi:10.1145/2544137.2544164](https://doi.org/10.1145/2544137.2544164)
+2. Milind Chabbi, Wim Lavrijsen, Wibe de Jong, Koushik Sen, John
+   Mellor-Crummey, Costin Iancu. *Barrier elision for production
+   parallel programs.* PPoPP 2015.
+   [doi:10.1145/2688500.2688502](https://doi.org/10.1145/2688500.2688502)
+3. Milind Chabbi, John Mellor-Crummey. *DeadSpy: a tool to pinpoint
+   program inefficiencies.* CGO 2012.
+   [doi:10.1145/2259016.2259033](https://doi.org/10.1145/2259016.2259033)
+4. Shasha Wen, Xu Liu, Milind Chabbi. *Runtime Value Numbering: A
+   Profiling Technique to Pinpoint Redundant Computations.* PACT 2015.
+5. Shasha Wen, Milind Chabbi, Xu Liu. *REDSPY: Exploring Value
+   Locality in Software.* ASPLOS 2017.
+   [doi:10.1145/3037697.3037729](https://doi.org/10.1145/3037697.3037729)
+6. Pengfei Su, Shasha Wen, Hailong Yang, Milind Chabbi, Xu Liu.
+   *Redundant Loads: A Software Inefficiency Indicator.* ICSE 2019.
+   [doi:10.1109/ICSE.2019.00103](https://doi.org/10.1109/ICSE.2019.00103)
