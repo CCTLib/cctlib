@@ -377,7 +377,7 @@ struct RtnInfo {
     ADDRINT rtnStart;
     bool hasSelfRec;
     uint16_t nReturnAddrs;
-    ADDRINT* selfRecReturnAddrs;   // heap array, typically 1-4 entries
+    ADDRINT* selfRecReturnAddrs; // heap array, typically 1-4 entries
 };
 
 /******** Globals variables **********/
@@ -650,9 +650,11 @@ static bool IsCallInstruction(ADDRINT ip) {
 // IPs in the traceShadowMap.
 static bool TraceIsInAddressRange(TraceNode* trace, ADDRINT lo, ADDRINT hi) {
     ADDRINT* ips = (ADDRINT*)GLOBAL_STATE.traceShadowMap[trace->traceKey];
-    if (!ips) return false;
+    if (!ips)
+        return false;
     for (uint32_t i = 0; i < trace->nSlots; ++i) {
-        if (ips[i] >= lo && ips[i] < hi) return true;
+        if (ips[i] >= lo && ips[i] < hi)
+            return true;
     }
     return false;
 }
@@ -682,7 +684,8 @@ static TraceNode* FindHandlerFrameForLandingPad(ADDRINT landingPadIp,
         hi = lo + RTN_Size(targetRtn);
     }
     PIN_UnlockClient();
-    if (lo == hi) return NULL; // unrecognized image / stripped
+    if (lo == hi)
+        return NULL; // unrecognized image / stripped
 
     TraceNode* best = NULL;
     TraceNode* cur = tData->tlsCurrentTraceNode;
@@ -690,12 +693,15 @@ static TraceNode* FindHandlerFrameForLandingPad(ADDRINT landingPadIp,
         if (TraceIsInAddressRange(cur, lo, hi)) {
             best = cur; // keep walking -- want the OUTERMOST match
         }
-        if (cur == tData->tlsRootTraceNode) break;
+        if (cur == tData->tlsRootTraceNode)
+            break;
         cur = GLOBAL_STATE.preAllocatedContextBuffer[cur->callerCtxtHndl].parentTraceNode;
     }
     if (best) {
-        if (outHandlerLo) *outHandlerLo = lo;
-        if (outHandlerHi) *outHandlerHi = hi;
+        if (outHandlerLo)
+            *outHandlerLo = lo;
+        if (outHandlerHi)
+            *outHandlerHi = hi;
     }
     return best;
 }
@@ -955,7 +961,8 @@ static const RtnInfo* GetOrClassifyRoutine(RTN rtn) {
     auto ins = GLOBAL_STATE.rtnSelfRecMap.emplace(rtnStart, info);
     if (!ins.second) {
         // We lost the race. Free our copy; return theirs.
-        if (info.selfRecReturnAddrs) free(info.selfRecReturnAddrs);
+        if (info.selfRecReturnAddrs)
+            free(info.selfRecReturnAddrs);
     }
     const RtnInfo* p = &ins.first->second;
     PIN_RWMutexUnlock(&GLOBAL_STATE.rtnSelfRecRWMutex);
@@ -1008,7 +1015,8 @@ static inline VOID MaybeGoUpCallChain(ADDRINT retTarget,
                                       ADDRINT* returnAddrs, uint32_t n,
                                       THREADID threadId) {
     for (uint32_t i = 0; i < n; ++i) {
-        if (returnAddrs[i] == retTarget) return; // recursion-return: no-op
+        if (returnAddrs[i] == retTarget)
+            return; // recursion-return: no-op
     }
     ThreadData* tData = CCTLibGetTLS(threadId);
     if (tData->tlsCurrentTraceNode->callerCtxtHndl == tData->tlsRootCtxtHndl) {
@@ -1016,7 +1024,7 @@ static inline VOID MaybeGoUpCallChain(ADDRINT retTarget,
     }
     tData->tlsCurrentCtxtHndl = tData->tlsCurrentTraceNode->callerCtxtHndl;
     UpdateCurTraceOnly(tData,
-        GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentCtxtHndl)->parentTraceNode);
+                       GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentCtxtHndl)->parentTraceNode);
 }
 
 // Analysis routine called interesting instructions to remember the slot no.
@@ -1095,9 +1103,7 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
                 // InstrumentTraceEntry takes its sibling-branch and
                 // splays under the same collapsed frame. See design
                 // notes at RtnInfo/MaybeGoUpCallChain above.
-                bool isDirectSelfRec = rinfo && rinfo->hasSelfRec
-                    && INS_IsDirectControlFlow(ins)
-                    && INS_DirectControlFlowTargetAddress(ins) == rinfo->rtnStart;
+                bool isDirectSelfRec = rinfo && rinfo->hasSelfRec && INS_IsDirectControlFlow(ins) && INS_DirectControlFlowTargetAddress(ins) == rinfo->rtnStart;
                 if (!isDirectSelfRec) {
                     // INS_InsertPredicatedCall if the call is not made, we should not set the flag
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
@@ -1127,11 +1133,11 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
                     // whose address is outside the routine's body and
                     // therefore never in the set: exactly one pop fires.
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MaybeGoUpCallChain,
-                        IARG_CALL_ORDER, CALL_ORDER_LAST,
-                        IARG_BRANCH_TARGET_ADDR,
-                        IARG_PTR, rinfo->selfRecReturnAddrs,
-                        IARG_UINT32, (uint32_t)rinfo->nReturnAddrs,
-                        IARG_THREAD_ID, IARG_END);
+                                             IARG_CALL_ORDER, CALL_ORDER_LAST,
+                                             IARG_BRANCH_TARGET_ADDR,
+                                             IARG_PTR, rinfo->selfRecReturnAddrs,
+                                             IARG_UINT32, (uint32_t)rinfo->nReturnAddrs,
+                                             IARG_THREAD_ID, IARG_END);
                 } else {
                     INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
                 }
@@ -1213,7 +1219,7 @@ static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInteresti
         UpdateCurTraceOnly(tData, tData->tlsPendingHandlerFrame);
         tData->tlsCurrentChildContextStartIndex = tData->tlsPendingHandlerFrame->childCtxtStartIdx;
         tData->tlsCurrentCtxtHndl = tData->tlsPendingHandlerCtxt;
-        tData->tlsInitiatedCall = true;  // NORMAL branch: landing pad becomes CHILD of handler
+        tData->tlsInitiatedCall = true; // NORMAL branch: landing pad becomes CHILD of handler
         tData->tlsPendingLandingPadIp = 0;
         tData->tlsPendingHandlerFrame = NULL;
         tData->tlsPendingHandlerCtxt = 0;
@@ -2080,8 +2086,9 @@ static int IsARootIPNode(ContextHandle_t curCtxtHndle) {
         int depth = 0;
 #ifdef MULTI_THREADED
         int root;
-#endif //end MULTI_THREADED
-        // set sig handler
+#endif // end MULTI_THREADED
+
+    // set sig handler
         struct sigaction old;
         sigaction(SIGSEGV, &GLOBAL_STATE.sigAct, &old);
 
@@ -3250,7 +3257,8 @@ bool HaveSameCallerPrefix(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
 }
 
 ContextHandle_t GetTraceStartHandle(ContextHandle_t ctxtHandle) {
-    if (!ctxtHandle) return 0;
+    if (!ctxtHandle)
+        return 0;
     return GET_IPNODE_FROM_CONTEXT_HANDLE(ctxtHandle)->parentTraceNode->childCtxtStartIdx;
 }
 

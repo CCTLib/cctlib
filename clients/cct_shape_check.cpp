@@ -41,7 +41,7 @@ using namespace std;
 using namespace PinCCTLib;
 
 static KNOB<string> KnobCheck(KNOB_MODE_WRITEONCE, "pintool", "check", "",
-    "name of the per-victim CCT-shape check function to run at Fini (required)");
+                              "name of the per-victim CCT-shape check function to run at Fini (required)");
 
 // ---------------- Per-thread hit table -----------------------------
 
@@ -98,7 +98,8 @@ static ADDRINT g_mainLo = 0, g_mainHi = 0;
 
 static VOID RecordCtxt(uint32_t opaqueHandle, THREADID t) {
     uint32_t h = GetContextHandle(t, opaqueHandle);
-    if (h == 0) return; // cctlib's uninitialized-handle sentinel
+    if (h == 0)
+        return; // cctlib's uninitialized-handle sentinel
     GetTls(t)->hits[h]++;
 }
 
@@ -109,9 +110,11 @@ static VOID RecordCtxt(uint32_t opaqueHandle, THREADID t) {
 // capture invocations bail early.
 static VOID CaptureMainHandle(uint32_t opaqueHandle, THREADID t) {
     TData* td = GetTls(t);
-    if (!td || td->mainCtxtHndl != 0) return;
+    if (!td || td->mainCtxtHndl != 0)
+        return;
     uint32_t h = GetContextHandle(t, opaqueHandle);
-    if (h == 0) return;
+    if (h == 0)
+        return;
     td->mainCtxtHndl = h;
 }
 
@@ -145,9 +148,11 @@ inline BOOL InterestingInsCallOrRet(INS ins) {
 // Find "main" in the main executable image and record its address
 // range so InstrumentInsCallback can steer CaptureMainHandle inserts.
 static VOID OnImgLoad(IMG img, VOID*) {
-    if (!IMG_IsMainExecutable(img)) return;
+    if (!IMG_IsMainExecutable(img))
+        return;
     RTN mainRtn = RTN_FindByName(img, "main");
-    if (!RTN_Valid(mainRtn)) return;
+    if (!RTN_Valid(mainRtn))
+        return;
     g_mainLo = RTN_Address(mainRtn);
     g_mainHi = g_mainLo + RTN_Size(mainRtn);
 }
@@ -193,7 +198,9 @@ struct CctInventory {
     }
     bool anyChainContainsFn(const string& fn) const {
         for (auto& kv : chains) {
-            for (auto& n : kv.first) if (n == fn) return true;
+            for (auto& n : kv.first)
+                if (n == fn)
+                    return true;
         }
         return false;
     }
@@ -203,10 +210,13 @@ struct CctInventory {
     bool everyChainToFnHasImmediateParent(const string& leafFn,
                                           const string& expectedParent) const {
         auto it = byLeafFn.find(leafFn);
-        if (it == byLeafFn.end() || it->second.empty()) return false;
+        if (it == byLeafFn.end() || it->second.empty())
+            return false;
         for (const auto& chain : it->second) {
-            if (chain.size() < 2) return false;
-            if (chain[chain.size() - 2] != expectedParent) return false;
+            if (chain.size() < 2)
+                return false;
+            if (chain[chain.size() - 2] != expectedParent)
+                return false;
         }
         return true;
     }
@@ -219,8 +229,11 @@ struct CctInventory {
         size_t maxC = 0;
         for (const auto& kv : chains) {
             size_t c = 0;
-            for (const auto& n : kv.first) if (n == fn) ++c;
-            if (c > maxC) maxC = c;
+            for (const auto& n : kv.first)
+                if (n == fn)
+                    ++c;
+            if (c > maxC)
+                maxC = c;
         }
         return maxC;
     }
@@ -236,7 +249,9 @@ struct CctInventory {
     }
     bool subAnyChainContainsFn(const string& fn) const {
         for (auto& kv : subChains) {
-            for (auto& n : kv.first) if (n == fn) return true;
+            for (auto& n : kv.first)
+                if (n == fn)
+                    return true;
         }
         return false;
     }
@@ -244,8 +259,11 @@ struct CctInventory {
         size_t maxC = 0;
         for (const auto& kv : subChains) {
             size_t c = 0;
-            for (const auto& n : kv.first) if (n == fn) ++c;
-            if (c > maxC) maxC = c;
+            for (const auto& n : kv.first)
+                if (n == fn)
+                    ++c;
+            if (c > maxC)
+                maxC = c;
         }
         return maxC;
     }
@@ -255,7 +273,11 @@ struct CctInventory {
     size_t subChainsContainingFn(const string& fn) const {
         size_t n = 0;
         for (const auto& kv : subChains) {
-            for (const auto& e : kv.first) if (e == fn) { ++n; break; }
+            for (const auto& e : kv.first)
+                if (e == fn) {
+                    ++n;
+                    break;
+                }
         }
         return n;
     }
@@ -264,10 +286,13 @@ struct CctInventory {
     bool everySubChainToFnHasImmediateParent(const string& leafFn,
                                              const string& expectedParent) const {
         auto it = subByLeafFn.find(leafFn);
-        if (it == subByLeafFn.end() || it->second.empty()) return false;
+        if (it == subByLeafFn.end() || it->second.empty())
+            return false;
         for (const auto& chain : it->second) {
-            if (chain.size() < 2) return false;
-            if (chain[chain.size() - 2] != expectedParent) return false;
+            if (chain.size() < 2)
+                return false;
+            if (chain[chain.size() - 2] != expectedParent)
+                return false;
         }
         return true;
     }
@@ -285,9 +310,11 @@ struct CctInventory {
         for (const auto& kv : chains) {
             const auto& chain = kv.first;
             for (size_t i = 0; i < chain.size(); ++i) {
-                if (chain[i] != fn) continue;
+                if (chain[i] != fn)
+                    continue;
                 for (size_t j = 0; j < i; ++j) {
-                    if (badAncestors.count(chain[j])) return false;
+                    if (badAncestors.count(chain[j]))
+                        return false;
                 }
             }
         }
@@ -341,7 +368,8 @@ static bool isRootName(const string& n) {
 
 static void BuildInventoryFromThread(THREADID t, CctInventory& inv) {
     auto* td = GetTls(t);
-    if (!td) return;
+    if (!td)
+        return;
     inv.totalDistinctHandles += td->hits.size();
 
     // Canonicalize main's TraceNode as a "trace-start handle" using
@@ -376,7 +404,8 @@ static void BuildInventoryFromThread(THREADID t, CctInventory& inv) {
         int mainIdxLeafFirst = -1;
         for (size_t i = 0; i < chain.size(); ++i) {
             auto& c = chain[i];
-            if (isRootName(c.functionName)) continue;
+            if (isRootName(c.functionName))
+                continue;
             if (isHardSentinelName(c.functionName)) {
                 inv.sentinelCounts[c.functionName] += 1;
             }
@@ -392,11 +421,13 @@ static void BuildInventoryFromThread(THREADID t, CctInventory& inv) {
                 mainIdxLeafFirst = (int)(names.size() - 1);
             }
         }
-        if (names.empty()) continue; // pure-root chain, nothing useful
+        if (names.empty())
+            continue; // pure-root chain, nothing useful
 
         // Reverse to root-first for the full-inventory signature.
         FnChain sig(names.rbegin(), names.rend());
-        if (sig.size() > inv.maxDepthObserved) inv.maxDepthObserved = sig.size();
+        if (sig.size() > inv.maxDepthObserved)
+            inv.maxDepthObserved = sig.size();
         inv.chains[sig] += hits;
         const string& leafFn = sig.back();
         inv.byLeafFn[leafFn].insert(sig);
@@ -519,10 +550,11 @@ static void expectMarkerAnchored(AssertionRecorder& r,
                                  const string& parent) {
     r.expectTrue(inv.hasFn(fn), (fn + " appears in the CCT").c_str());
     r.expectTrue(inv.everyChainToFnHasImmediateParent(fn, parent),
-        (fn + "'s immediate parent is " + parent).c_str());
+                 (fn + "'s immediate parent is " + parent).c_str());
     r.expectTrue(inv.noAncestorOfFnIsInSet(fn, kThrowMachineryFns),
-        (fn + " has NO ancestor in the throw/unwind machinery "
-              "(catch/try body must not be rooted under __cxa_throw)").c_str());
+                 (fn + " has NO ancestor in the throw/unwind machinery "
+                       "(catch/try body must not be rooted under __cxa_throw)")
+                     .c_str());
 }
 
 // ---------------- Per-victim check functions -----------------------
@@ -539,11 +571,11 @@ static void check_rec_fib_deep(const CctInventory& inv, AssertionRecorder& r) {
     // Without collapse these would grow to 15 and 15 respectively.
     r.expectTrue(inv.subHasFn("fib"), "fib appears as a leaf function under main");
     r.expectEQ(inv.subChainCountForFn("fib"), (size_t)1,
-        "sub-CCT under main has exactly 1 distinct chain ending in fib");
+               "sub-CCT under main has exactly 1 distinct chain ending in fib");
     r.expectEQ(inv.subMaxCountInAnyChain("fib"), (size_t)1,
-        "fib appears at most once along any path from main to leaf");
+               "fib appears at most once along any path from main to leaf");
     r.expectTrue(inv.everySubChainToFnHasImmediateParent("fib", "main"),
-        "fib's immediate parent in every sub-chain is main");
+                 "fib's immediate parent in every sub-chain is main");
     r.expectNoSentinels(inv);
 }
 
@@ -551,11 +583,11 @@ static void check_rec_ackermann(const CctInventory& inv, AssertionRecorder& r) {
     // A(3,4). Same collapse story as fib.
     r.expectTrue(inv.subHasFn("A"), "A appears as a leaf function under main");
     r.expectEQ(inv.subChainCountForFn("A"), (size_t)1,
-        "sub-CCT under main has exactly 1 distinct chain ending in A");
+               "sub-CCT under main has exactly 1 distinct chain ending in A");
     r.expectEQ(inv.subMaxCountInAnyChain("A"), (size_t)1,
-        "A appears at most once along any path from main to leaf");
+               "A appears at most once along any path from main to leaf");
     r.expectTrue(inv.everySubChainToFnHasImmediateParent("A", "main"),
-        "A's immediate parent in every sub-chain is main");
+                 "A's immediate parent in every sub-chain is main");
     r.expectNoSentinels(inv);
 }
 
@@ -564,12 +596,12 @@ static void check_rec_multi_direct(const CctInventory& inv, AssertionRecorder& r
     // collapse into one frame under main.
     r.expectTrue(inv.subHasFn("multi"), "multi appears as a leaf function under main");
     r.expectEQ(inv.subChainCountForFn("multi"), (size_t)1,
-        "sub-CCT under main has exactly 1 distinct chain ending in multi "
-        "(all 3 direct self-call sites collapsed into one physical frame)");
+               "sub-CCT under main has exactly 1 distinct chain ending in multi "
+               "(all 3 direct self-call sites collapsed into one physical frame)");
     r.expectEQ(inv.subMaxCountInAnyChain("multi"), (size_t)1,
-        "multi appears at most once along any path from main to leaf");
+               "multi appears at most once along any path from main to leaf");
     r.expectTrue(inv.everySubChainToFnHasImmediateParent("multi", "main"),
-        "multi's immediate parent in every sub-chain is main");
+                 "multi's immediate parent in every sub-chain is main");
     r.expectNoSentinels(inv);
 }
 
@@ -589,10 +621,10 @@ static void check_rec_indirect_only(const CctInventory& inv, AssertionRecorder& 
     // recursion (the explicit non-goal of the design).
     r.expectTrue(inv.subHasFn("indirect_rec"), "indirect_rec appears under main");
     r.expectEQ(inv.subChainCountForFn("indirect_rec"), (size_t)13,
-        "sub-CCT under main has exactly 13 distinct chains ending in indirect_rec "
-        "(1 initial direct call from main + 12 indirect frames, no collapse)");
+               "sub-CCT under main has exactly 13 distinct chains ending in indirect_rec "
+               "(1 initial direct call from main + 12 indirect frames, no collapse)");
     r.expectEQ(inv.subMaxCountInAnyChain("indirect_rec"), (size_t)13,
-        "indirect_rec appears exactly 13 times along the deepest path from main");
+               "indirect_rec appears exactly 13 times along the deepest path from main");
     r.expectNoSentinels(inv);
 }
 
@@ -606,10 +638,10 @@ static void check_rec_mixed_direct_indirect(const CctInventory& inv, AssertionRe
     //   * subChainCountForFn("mixed") == 7 (one distinct chain per depth).
     r.expectTrue(inv.subHasFn("mixed"), "mixed appears under main");
     r.expectEQ(inv.subChainCountForFn("mixed"), (size_t)7,
-        "sub-CCT under main has exactly 7 distinct chains ending in mixed "
-        "(6 indirect frames + 1 initial call, direct sites collapse within each)");
+               "sub-CCT under main has exactly 7 distinct chains ending in mixed "
+               "(6 indirect frames + 1 initial call, direct sites collapse within each)");
     r.expectEQ(inv.subMaxCountInAnyChain("mixed"), (size_t)7,
-        "mixed appears exactly 7 times along the deepest path from main");
+               "mixed appears exactly 7 times along the deepest path from main");
     r.expectNoSentinels(inv);
 }
 
@@ -622,7 +654,7 @@ static void check_rec_stripped(const CctInventory& inv, AssertionRecorder& r) {
     // "main") returns invalid -- mainCtxtHndl is never set and the
     // sub-inventory is empty. Fall back to full-CCT assertions.
     r.expectTrue(inv.hasFn("") || inv.hasFn(".text"),
-        "at least one app-side leaf attributed (empty-name or .text)");
+                 "at least one app-side leaf attributed (empty-name or .text)");
     r.expectNoSentinels(inv);
 }
 
@@ -633,12 +665,12 @@ static void check_rec_exception(const CctInventory& inv, AssertionRecorder& r) {
     // interaction on the sub-CCT rooted at main.
     r.expectTrue(inv.subHasFn("descend"), "descend appears under main");
     r.expectEQ(inv.subChainCountForFn("descend"), (size_t)1,
-        "sub-CCT under main has exactly 1 distinct chain ending in descend "
-        "(collapse holds under a throw path)");
+               "sub-CCT under main has exactly 1 distinct chain ending in descend "
+               "(collapse holds under a throw path)");
     r.expectEQ(inv.subMaxCountInAnyChain("descend"), (size_t)1,
-        "descend appears at most once along any path from main");
+               "descend appears at most once along any path from main");
     r.expectTrue(inv.everySubChainToFnHasImmediateParent("descend", "main"),
-        "descend's immediate parent in every sub-chain is main");
+                 "descend's immediate parent in every sub-chain is main");
     r.expectNoSentinels(inv);
 }
 
@@ -682,13 +714,13 @@ static void check_exc_deep_unwind(const CctInventory& inv, AssertionRecorder& r)
     // Now that cctlib properly re-anchors to main's frame on each
     // landing-pad delivery, recurse never appears as its own ancestor
     // -- the collapse holds cleanly across every unwind cycle.
-    expectMarkerAnchored(r, inv, "deep_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "deep_try_marker", "main");
     expectMarkerAnchored(r, inv, "deep_catch_marker", "main");
     r.expectTrue(inv.hasFn("recurse"), "recurse appears as a leaf function");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("recurse", "main"),
-        "recurse's immediate parent is always main (recurse fully collapses even under throw)");
+                 "recurse's immediate parent is always main (recurse fully collapses even under throw)");
     r.expectEQ(inv.maxCountInAnyChain("recurse"), (size_t)1,
-        "recurse never appears as ancestor of recurse (landing-pad re-anchor holds)");
+               "recurse never appears as ancestor of recurse (landing-pad re-anchor holds)");
     r.expectNoSentinels(inv);
 }
 
@@ -701,12 +733,12 @@ static void check_exc_ctor_throw(const CctInventory& inv, AssertionRecorder& r) 
     // function's own name (their first insn is inside the function
     // body), so `main` may appear up to twice in a chain: main's own
     // entry trace + main's landing-pad Pin trace.
-    expectMarkerAnchored(r, inv, "ctorthrow_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "ctorthrow_try_marker", "main");
     expectMarkerAnchored(r, inv, "ctorthrow_catch_marker", "main");
     r.expectTrue(inv.anyChainContainsFn("main"),
-        "main still reachable after the ctor throw");
+                 "main still reachable after the ctor throw");
     r.expectLE(inv.maxCountInAnyChain("main"), (size_t)4,
-        "main appears at most a small bounded number of times (bug pre-fix: unbounded)");
+               "main appears at most a small bounded number of times (bug pre-fix: unbounded)");
     r.expectNoSentinels(inv);
 }
 
@@ -728,13 +760,13 @@ static void check_exc_catch_and_resume(const CctInventory& inv, AssertionRecorde
     //   * resume_try_marker and resume_catch_marker are both direct
     //     children of resume_after_catch and neither is descended from
     //     __cxa_throw.
-    expectMarkerAnchored(r, inv, "resume_try_marker",   "resume_after_catch");
+    expectMarkerAnchored(r, inv, "resume_try_marker", "resume_after_catch");
     expectMarkerAnchored(r, inv, "resume_catch_marker", "resume_after_catch");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("may_throw", "resume_after_catch"),
-        "may_throw's immediate parent in every chain is resume_after_catch");
+                 "may_throw's immediate parent in every chain is resume_after_catch");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("post_catch_worker", "main"),
-        "post_catch_worker's immediate parent in every chain is main "
-        "(NOT resume_after_catch or may_throw)");
+                 "post_catch_worker's immediate parent in every chain is main "
+                 "(NOT resume_after_catch or may_throw)");
     r.expectNoSentinels(inv);
 }
 
@@ -745,11 +777,11 @@ static void check_sig_longjmp(const CctInventory& inv, AssertionRecorder& r) {
     // RestoreSigLongJmpCtxt / HoldLongJmpBuf) -- separate path from
     // the exception hook -- but the same anchor-restoration invariant
     // applies. Both markers must be direct children of main.
-    expectMarkerAnchored(r, inv, "sjlj_try_marker",     "main");
+    expectMarkerAnchored(r, inv, "sjlj_try_marker", "main");
     expectMarkerAnchored(r, inv, "sjlj_landing_marker", "main");
     r.expectTrue(inv.hasFn("go_deep"), "go_deep appears as a leaf function");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("go_deep", "main"),
-        "go_deep's immediate parent is always main");
+                 "go_deep's immediate parent is always main");
     r.expectNoSentinels(inv);
 }
 
@@ -763,11 +795,11 @@ static void check_sig_sigsegv_recover(const CctInventory& inv, AssertionRecorder
     // won't appear in the recorded chains. handler DOES appear (it
     // calls siglongjmp -- a slotted control-flow ins that fires
     // before the longjmp). So we assert on handler + main + markers.
-    expectMarkerAnchored(r, inv, "sigsegv_try_marker",     "main");
+    expectMarkerAnchored(r, inv, "sigsegv_try_marker", "main");
     expectMarkerAnchored(r, inv, "sigsegv_recover_marker", "main");
     r.expectTrue(inv.hasFn("handler"), "signal handler appears in the CCT");
     r.expectTrue(inv.subAnyChainContainsFn("main"),
-        "main still reachable under itself after SIGSEGV+siglongjmp");
+                 "main still reachable under itself after SIGSEGV+siglongjmp");
     r.expectNoSentinels(inv);
 }
 
@@ -786,14 +818,14 @@ static void check_exc_simple_throw(const CctInventory& inv, AssertionRecorder& r
     // simple_catch_marker fires in the catch body. Both must be direct
     // children of main -- regressions manifest as either marker attaching
     // as a descendant of __cxa_throw.
-    expectMarkerAnchored(r, inv, "simple_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "simple_try_marker", "main");
     expectMarkerAnchored(r, inv, "simple_catch_marker", "main");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("inner", "middle"),
-        "inner's immediate parent is middle");
+                 "inner's immediate parent is middle");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("middle", "outer"),
-        "middle's immediate parent is outer");
+                 "middle's immediate parent is outer");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("outer", "main"),
-        "outer's immediate parent is main (unwind didn't strand it)");
+                 "outer's immediate parent is main (unwind didn't strand it)");
     r.expectNoSentinels(inv);
 }
 
@@ -808,14 +840,14 @@ static void check_exc_rethrow(const CctInventory& inv, AssertionRecorder& r) {
     // Four markers cover all four try/catch bodies -- each must be a
     // direct child of its enclosing function AND not descended from
     // any throw/unwind-machinery function.
-    expectMarkerAnchored(r, inv, "rethrow_outer_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "rethrow_outer_try_marker", "main");
     expectMarkerAnchored(r, inv, "rethrow_outer_catch_marker", "main");
-    expectMarkerAnchored(r, inv, "rethrow_inner_try_marker",   "inner");
+    expectMarkerAnchored(r, inv, "rethrow_inner_try_marker", "inner");
     expectMarkerAnchored(r, inv, "rethrow_inner_catch_marker", "inner");
     r.expectTrue(inv.hasFn("raise_it"), "raise_it appears as a leaf function");
     r.expectTrue(inv.hasFn("inner"), "inner appears in the CCT");
     r.expectTrue(inv.subAnyChainContainsFn("main"),
-        "main still reachable after nested rethrow");
+                 "main still reachable after nested rethrow");
     r.expectNoSentinels(inv);
 }
 
@@ -827,11 +859,11 @@ static void check_exc_catchall(const CctInventory& inv, AssertionRecorder& r) {
     // Both markers must be direct children of main and NOT descended
     // from __cxa_throw -- a regression would attribute the catch(...)
     // body's marker call to the throw subtree.
-    expectMarkerAnchored(r, inv, "catchall_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "catchall_try_marker", "main");
     expectMarkerAnchored(r, inv, "catchall_catch_marker", "main");
     r.expectTrue(inv.hasFn("thrower"), "thrower appears as a leaf function");
     r.expectTrue(inv.subAnyChainContainsFn("main"),
-        "main still reachable under itself after catch-all");
+                 "main still reachable under itself after catch-all");
     r.expectNoSentinels(inv);
 }
 
@@ -843,11 +875,11 @@ static void check_exc_dtor_cleanup(const CctInventory& inv, AssertionRecorder& r
     // where personality installs a cleanup context, dtors execute, then
     // _Unwind_Resume triggers the next SetIP for main's catch.
     // Both markers must be direct children of main.
-    expectMarkerAnchored(r, inv, "dtorcleanup_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "dtorcleanup_try_marker", "main");
     expectMarkerAnchored(r, inv, "dtorcleanup_catch_marker", "main");
     r.expectTrue(inv.hasFn("thrower"), "thrower appears as a leaf function");
     r.expectTrue(inv.subAnyChainContainsFn("main"),
-        "main still reachable under itself after cleanup unwind");
+                 "main still reachable under itself after cleanup unwind");
     r.expectNoSentinels(inv);
 }
 
@@ -856,10 +888,10 @@ static void check_exc_stress_loop(const CctInventory& inv, AssertionRecorder& r)
     // High-iteration throw/catch stress. Same shape as simple but many
     // iterations -- catches a regression where cctlib accumulates
     // state per iteration (leaking TraceNodes or drifting the anchor).
-    expectMarkerAnchored(r, inv, "stress_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "stress_try_marker", "main");
     expectMarkerAnchored(r, inv, "stress_catch_marker", "main");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("thrower", "main"),
-        "thrower's immediate parent is main");
+                 "thrower's immediate parent is main");
     r.expectNoSentinels(inv);
 }
 
@@ -868,10 +900,10 @@ static void check_exc_polymorphic(const CctInventory& inv, AssertionRecorder& r)
     // thrower throws Base/Mid/Leaf (public std::exception subclasses).
     // Personality's type-matching path is exercised; landing-pad shape
     // is still the same top-level main-catches-thrower structure.
-    expectMarkerAnchored(r, inv, "poly_try_marker",   "main");
+    expectMarkerAnchored(r, inv, "poly_try_marker", "main");
     expectMarkerAnchored(r, inv, "poly_catch_marker", "main");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("thrower", "main"),
-        "thrower's immediate parent is main");
+                 "thrower's immediate parent is main");
     r.expectNoSentinels(inv);
 }
 
@@ -908,17 +940,17 @@ static void check_exc_recurse_trycatch(const CctInventory& inv, AssertionRecorde
     // real collapse regression.
     r.expectTrue(inv.hasFn("rec"), "rec appears in the CCT");
     r.expectLE(inv.maxCountInAnyChain("rec"), (size_t)2,
-        "rec appears at most twice per chain (collapsed TraceNode + "
-        "catch-landing-pad Pin trace labeled 'rec' by RTN name lookup)");
+               "rec appears at most twice per chain (collapsed TraceNode + "
+               "catch-landing-pad Pin trace labeled 'rec' by RTN name lookup)");
 
-    expectMarkerAnchored(r, inv, "rectry_try_marker",   "rec");
-    expectMarkerAnchored(r, inv, "rectry_deep_marker",  "rec");
+    expectMarkerAnchored(r, inv, "rectry_try_marker", "rec");
+    expectMarkerAnchored(r, inv, "rectry_deep_marker", "rec");
     expectMarkerAnchored(r, inv, "rectry_catch_marker", "rec");
-    expectMarkerAnchored(r, inv, "rectry_outer_try",    "main");
-    expectMarkerAnchored(r, inv, "rectry_outer_catch",  "main");
+    expectMarkerAnchored(r, inv, "rectry_outer_try", "main");
+    expectMarkerAnchored(r, inv, "rectry_outer_catch", "main");
 
     r.expectTrue(!inv.hasFn("rectry_after_marker"),
-        "rectry_after_marker must NOT appear (unreachable code path)");
+                 "rectry_after_marker must NOT appear (unreachable code path)");
     r.expectNoSentinels(inv);
 }
 
@@ -929,7 +961,7 @@ static void check_exc_none_tn(const CctInventory& inv, AssertionRecorder& r) {
     // hook fires spuriously or the pending-reset state is dirty on
     // process startup.
     r.expectTrue(inv.subAnyChainContainsFn("main"),
-        "main is reachable in the sub-CCT");
+                 "main is reachable in the sub-CCT");
     r.expectNoSentinels(inv);
 }
 
@@ -945,40 +977,40 @@ static void check_exc_uncaught_tn(const CctInventory& inv, AssertionRecorder& r)
     // is needed, but the invariant "cctlib survives" must still hold).
     r.expectTrue(inv.hasFn("thrower"), "thrower appears as a leaf function");
     r.expectTrue(inv.everyChainToFnHasImmediateParent("thrower", "main"),
-        "thrower's immediate parent is main");
+                 "thrower's immediate parent is main");
     r.expectNoSentinels(inv);
 }
 
 // Dispatch table.
-using CheckFn = void(*)(const CctInventory&, AssertionRecorder&);
+using CheckFn = void (*)(const CctInventory&, AssertionRecorder&);
 static const map<string, CheckFn> kChecks = {
-    {"rec_fib_deep",              check_rec_fib_deep},
-    {"rec_ackermann",             check_rec_ackermann},
-    {"rec_multi_direct",          check_rec_multi_direct},
-    {"rec_indirect_only",         check_rec_indirect_only},
+    {"rec_fib_deep", check_rec_fib_deep},
+    {"rec_ackermann", check_rec_ackermann},
+    {"rec_multi_direct", check_rec_multi_direct},
+    {"rec_indirect_only", check_rec_indirect_only},
     {"rec_mixed_direct_indirect", check_rec_mixed_direct_indirect},
-    {"rec_stripped",              check_rec_stripped},
-    {"rec_exception",             check_rec_exception},
-    {"rec_baseline_nonrec",       check_rec_baseline_nonrec},
+    {"rec_stripped", check_rec_stripped},
+    {"rec_exception", check_rec_exception},
+    {"rec_baseline_nonrec", check_rec_baseline_nonrec},
     // Exception victims -- per-victim checks encoding the specific
     // try/catch structure of each. All 13 victims are wired here;
     // exception_shape_test.cpp selects the subset that runs (the
     // stress victims are slow under Pin+cctlib so they may be
     // gated behind an "EXPENSIVE" env var).
-    {"exc_simple_throw",          check_exc_simple_throw},
-    {"exc_deep_unwind",           check_exc_deep_unwind},
-    {"exc_rethrow",               check_exc_rethrow},
-    {"exc_catchall",              check_exc_catchall},
-    {"exc_dtor_cleanup",          check_exc_dtor_cleanup},
-    {"exc_stress_loop",           check_exc_stress_loop},
-    {"exc_polymorphic",           check_exc_polymorphic},
-    {"exc_recurse_trycatch",      check_exc_recurse_trycatch},
-    {"exc_none_tn",               check_exc_none_tn},
-    {"exc_uncaught_tn",           check_exc_uncaught_tn},
-    {"exc_ctor_throw",            check_exc_ctor_throw},
-    {"exc_catch_and_resume",      check_exc_catch_and_resume},
-    {"sig_longjmp",               check_sig_longjmp},
-    {"sig_sigsegv_recover",       check_sig_sigsegv_recover},
+    {"exc_simple_throw", check_exc_simple_throw},
+    {"exc_deep_unwind", check_exc_deep_unwind},
+    {"exc_rethrow", check_exc_rethrow},
+    {"exc_catchall", check_exc_catchall},
+    {"exc_dtor_cleanup", check_exc_dtor_cleanup},
+    {"exc_stress_loop", check_exc_stress_loop},
+    {"exc_polymorphic", check_exc_polymorphic},
+    {"exc_recurse_trycatch", check_exc_recurse_trycatch},
+    {"exc_none_tn", check_exc_none_tn},
+    {"exc_uncaught_tn", check_exc_uncaught_tn},
+    {"exc_ctor_throw", check_exc_ctor_throw},
+    {"exc_catch_and_resume", check_exc_catch_and_resume},
+    {"sig_longjmp", check_sig_longjmp},
+    {"sig_sigsegv_recover", check_sig_sigsegv_recover},
 };
 
 // ---------------- Fini --------------------------------------------
@@ -1002,7 +1034,8 @@ static void RunChecksAndExit(const string& check);
 static bool g_checkRan = false;
 
 static VOID ThreadFini(THREADID t, const CONTEXT*, INT32, VOID*) {
-    if (g_checkRan) return;
+    if (g_checkRan)
+        return;
     g_checkRan = true;
     RunChecksAndExit(KnobCheck.Value());
 }
@@ -1023,11 +1056,13 @@ static void RunChecksAndExit(const string& check) {
     if (getenv("CCT_SHAPE_DEBUG")) {
         for (THREADID t : g_threads) {
             auto* td = GetTls(t);
-            if (!td) continue;
+            if (!td)
+                continue;
             fprintf(stderr, "== thread %u has %zu handles\n", t, td->hits.size());
             int i = 0;
             for (auto& kv : td->hits) {
-                if (i++ >= 5) break;
+                if (i++ >= 5)
+                    break;
                 fprintf(stderr, "-- handle %u --\n", kv.first);
                 PrintFullCallingContext((ContextHandle_t)kv.first);
                 fprintf(stderr, "\n");
@@ -1036,7 +1071,8 @@ static void RunChecksAndExit(const string& check) {
     }
 
     CctInventory inv;
-    for (THREADID t : g_threads) BuildInventoryFromThread(t, inv);
+    for (THREADID t : g_threads)
+        BuildInventoryFromThread(t, inv);
 
     AssertionRecorder r;
     r.checkName = check.c_str();
@@ -1045,7 +1081,8 @@ static void RunChecksAndExit(const string& check) {
     if (!r.failures.empty()) {
         fprintf(stderr, "cct_shape_check[%s] %zu failure(s):\n",
                 check.c_str(), r.failures.size());
-        for (auto& f : r.failures) fprintf(stderr, "  %s\n", f.c_str());
+        for (auto& f : r.failures)
+            fprintf(stderr, "  %s\n", f.c_str());
     }
 
     // Optional: dump inventory summary even on success (for probing
@@ -1064,20 +1101,23 @@ static void RunChecksAndExit(const string& check) {
         if (getenv("CCT_SHAPE_DUMP_CHAINS")) {
             for (auto& kv : inv.chains) {
                 fprintf(stderr, "  CHAIN hits=%llu :", (unsigned long long)kv.second);
-                for (auto& n : kv.first) fprintf(stderr, " %s ;", n.c_str());
+                for (auto& n : kv.first)
+                    fprintf(stderr, " %s ;", n.c_str());
                 fprintf(stderr, "\n");
             }
         }
     }
 
-    if (!r.failures.empty()) PIN_ExitProcess(1);
+    if (!r.failures.empty())
+        PIN_ExitProcess(1);
 }
 
 // FiniFunc is a fallback if for some reason ThreadFini didn't fire
 // (e.g. abnormal exit path). Same body; the `done` flag in ThreadFini
 // prevents double-run when both fire.
 static void FiniFunc(INT32 code, VOID* v) {
-    if (g_checkRan) return;
+    if (g_checkRan)
+        return;
     g_checkRan = true;
     // Fallback: ThreadFini didn't fire (abnormal exit path). At this
     // point images may already be unloaded and cctlib's IsValidIP
@@ -1090,20 +1130,21 @@ static void FiniFunc(INT32 code, VOID* v) {
 // ---------------- main --------------------------------------------
 
 static INT32 Usage() {
-    PIN_ERROR("cct_shape_check: cctlib CCT-shape assertion tool. Requires -check <victim_name>.\n"
-              + KNOB_BASE::StringKnobSummary() + "\n");
+    PIN_ERROR("cct_shape_check: cctlib CCT-shape assertion tool. Requires -check <victim_name>.\n" + KNOB_BASE::StringKnobSummary() + "\n");
     return -1;
 }
 
 static FILE* gTraceFile;
 
 int main(int argc, char* argv[]) {
-    if (PIN_Init(argc, argv)) return Usage();
+    if (PIN_Init(argc, argv))
+        return Usage();
     PIN_InitSymbols();
 
     // cctlib requires a log file; keep it silent by opening /dev/null.
     gTraceFile = fopen("/dev/null", "w");
-    if (!gTraceFile) gTraceFile = stderr;
+    if (!gTraceFile)
+        gTraceFile = stderr;
 
     PIN_InitLock(&g_lock);
     g_tlsKey = PIN_CreateThreadDataKey(nullptr);
