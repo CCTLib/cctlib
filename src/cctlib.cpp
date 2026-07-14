@@ -11,6 +11,7 @@
 #include "pin.H"
 #include <map>
 #include <unordered_map>
+#include <vector>
 #include <list>
 #include <inttypes.h>
 #include <stdint.h>
@@ -144,37 +145,7 @@ namespace PinCCTLib {
 typedef uintptr_t _Unwind_Ptr;
 #endif
 
-// Resolve the application's _Unwind_GetIP via Pin's IMG/RTN API at
-// image-load time, then call through that pointer from analysis code.
-//
-// A direct call to _Unwind_GetIP from cctlib resolves to Pin's
-// libunwind-dynamic.so (Pin's DT_NEEDED), whose _Unwind_Context struct
-// layout does not match the application's libgcc/LLVM libunwind.
 struct _Unwind_Context;
-typedef _Unwind_Ptr (*UnwindGetIPFn)(struct _Unwind_Context*);
-
-static UnwindGetIPFn g_appUnwindGetIP = NULL;
-static const char* g_appUnwindLibName = NULL;
-
-// Record the first libgcc_s / LLVM libunwind image's _Unwind_GetIP.
-static void RememberUnwindGetIPFromImage(IMG img) {
-    if (g_appUnwindGetIP) return;
-    const char* nm = IMG_Name(img).c_str();
-    bool isLibgcc = strstr(nm, "libgcc_s.so") != NULL;
-    bool isLlvmUnwind = strstr(nm, "libunwind.so") != NULL;
-    if (!isLibgcc && !isLlvmUnwind) return;
-
-    RTN r = RTN_FindByName(img, "_Unwind_GetIP");
-    if (!RTN_Valid(r)) return;
-    ADDRINT addr = RTN_Address(r);
-    if (!addr) return;
-
-    g_appUnwindGetIP = reinterpret_cast<UnwindGetIPFn>(addr);
-    g_appUnwindLibName = isLibgcc ? "libgcc_s" : "libunwind(LLVM)";
-    fprintf(stderr,
-            "cctlib-unwind: found _Unwind_GetIP at %p in %s (%s)\n",
-            (void*)addr, nm, g_appUnwindLibName);
-}
 
 
 /******** Fwd declarations **********/
@@ -288,9 +259,32 @@ struct ThreadData {
 
     uint32_t curSlotNo;
 
-    // The caller that can handle the current exception
-    struct TraceNode* tlsExceptionHandlerTraceNode;
-    ContextHandle_t tlsExceptionHandlerCtxtHndle;
+    // Landing-pad re-anchor state. See design notes on
+    // CaptureLandingPadTarget + InstrumentTraceEntry's reset block.
+    //
+    //   tlsPendingLandingPadIp   -- set at _Unwind_SetIP entry to the
+    //                               resume IP the personality function
+    //                               just installed. Consumed on the
+    //                               next Pin trace entry whose first
+    //                               IP matches; then cleared.
+    //   tlsPendingHandlerFrame   -- the CCT TraceNode of the frame
+    //                               that owns the landing pad
+    //                               (identified by walking the parent
+    //                               chain looking for a frame whose
+    //                               ipShadow slots fall inside the
+    //                               target function's address range).
+    //   tlsPendingHandlerCtxt    -- the ctxt handle within that frame
+    //                               to re-anchor tlsCurrentCtxtHndl to.
+    //
+    // Necessary because libgcc's _Unwind_RaiseException / _Unwind_Resume
+    // / _Unwind_ForcedUnwind never RET on a caught unwind -- they
+    // transfer via __builtin_eh_return, which is not a `ret` insn and
+    // therefore not a valid hookpoint for the pre-existing "reset on
+    // last RET" scheme. The (SetIP-entry, matching-trace-entry) pair
+    // is the reliable substitute.
+    ADDRINT tlsPendingLandingPadIp;
+    struct TraceNode* tlsPendingHandlerFrame;
+    ContextHandle_t tlsPendingHandlerCtxt;
     void* tlsStackBase;
     void* tlsStackEnd;
 
@@ -367,6 +361,25 @@ struct ModuleInfo {
     ADDRINT imgLoadOffset;
 };
 
+// Per-routine info populated by GetOrClassifyRoutine() the first time
+// we see any Pin trace of a routine. Used to fold direct self-recursion:
+//   * hasSelfRec         -- true if the routine contains any direct call
+//                           whose immediate target equals its own entry.
+//   * selfRecReturnAddrs -- exact set of INS_NextAddress(callIns) for
+//                           each such direct self-call. On a RET, if
+//                           the return target matches any of these, the
+//                           RET is unwinding a collapsed recursion
+//                           frame and we must NOT walk up the CCT.
+// The address set is derived from decoded CALL immediates -- it is
+// independent of RTN_Size / any symbol- or loader-derived range, so it
+// works on stripped binaries and around function padding.
+struct RtnInfo {
+    ADDRINT rtnStart;
+    bool hasSelfRec;
+    uint16_t nReturnAddrs;
+    ADDRINT* selfRecReturnAddrs;   // heap array, typically 1-4 entries
+};
+
 /******** Globals variables **********/
 #define MAX_METRICS (10)
 #define MAX_LEN (128)
@@ -398,6 +411,16 @@ struct CCT_LIB_GLOBAL_STATE {
     struct sigaction sigAct;
     //Load module info
     unordered_map<UINT32, ModuleInfo> ModuleInfoMap;
+    // Per-routine direct-self-recursion classifier cache, populated
+    // lazily by GetOrClassifyRoutine() on first sight of any trace of
+    // a routine. Guarded by rtnSelfRecRWMutex: reader-writer because
+    // once a routine is classified every subsequent trace-instrument
+    // pass only reads (lookup), so the common path takes the read lock
+    // and can proceed concurrently across worker threads. The write
+    // lock is taken only for the first insert per routine.
+    unordered_map<ADDRINT, RtnInfo> rtnSelfRecMap;
+    PIN_RWMUTEX rtnSelfRecRWMutex;
+    uint8_t padRtnSelfRec[CACHE_LINE_SIZE];
     // serialization directory path
     string serializationDirectory;
     // Deserialized CCTs
@@ -590,115 +613,124 @@ static bool IsCallInstruction(ADDRINT ip) {
     }
 }
 
-#define X86_DIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(callsite) (callsite - 5)
-#define X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(callsite) (callsite - 2)
+// -----------------------------------------------------------------------------
+// C++ exception (Itanium ABI / DWARF2) hook implementation.
+//
+// The reliable landing-pad-delivery signal is the pair (`_Unwind_SetIP`
+// entry, next Pin trace entry whose first IP == the target IP). At
+// `_Unwind_SetIP` entry, the personality function has just installed
+// the resume IP; libgcc's driver will next call `uw_install_context`,
+// which is a macro expanding to `__builtin_eh_return` that pops N
+// frames and JMPs to that IP -- no `ret` instruction fires, so the
+// prior "reset on _Unwind_RaiseException's last RET" scheme silently
+// missed every caught exception. See ~/gcc/libgcc/unwind.inc:140,
+// ~/gcc/libgcc/unwind-dw2.c:1398-1407 and Itanium C++ ABI §1.6.
+//
+// This section replaces the pre-existing (and pre-existingly-broken)
+// heuristic `IsIpPresentInTrace` / `FindNearestCallerCoveringIP` /
+// `X86_*_CALL_SITE_ADDR_FROM_RETURN_ADDR` / `SetCurTraceNodeAfterException*`
+// with a two-part protocol:
+//   (a) At _Unwind_SetIP entry, CaptureLandingPadTarget records the
+//       target IP, identifies the handler frame by walking cctlib's
+//       parent chain for a TraceNode whose ipShadow slots fall inside
+//       the target function (via RTN_FindByAddress on the target IP),
+//       and stashes (target_ip, frame, ctxt) in TLS as pending.
+//   (b) At the top of InstrumentTraceEntry (below), if the current
+//       trace's first IP matches the pending landing pad, re-anchor
+//       tlsCurrentTraceNode to the handler frame and take the sibling
+//       branch so the landing pad's Pin trace becomes a SIBLING of the
+//       handler's own trace under the same parent. The landing pad's
+//       first-insn IP resolves via RTN_FindNameByAddress to the
+//       handler's function name, so downstream chains read
+//       `handler-caller -> handler -> ...` correctly.
+// -----------------------------------------------------------------------------
 
-bool IsIpPresentInTrace(ADDRINT exceptionCallerReturnAddrIP, TraceNode* traceNode, uint32_t* ipSlot) {
-    ADDRINT* tracesIPs = (ADDRINT*)GLOBAL_STATE.traceShadowMap[traceNode->traceKey];
-    ADDRINT ipDirectCall = X86_DIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
-    ADDRINT ipIndirectCall = X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
-
-    for (uint32_t i = 0; i < traceNode->nSlots; i++) {
-        //printf("\n serching = %p", tracesIPs[i]);
-        if ((tracesIPs[i] == ipDirectCall) && IsCallInstruction(ipDirectCall)) {
-            *ipSlot = i;
-            return true;
-        }
-
-        if ((tracesIPs[i] == ipIndirectCall) && IsCallInstruction(ipIndirectCall)) {
-            *ipSlot = i;
-            return true;
-        }
+// True iff some slot of `trace` holds an IP that falls in [lo, hi).
+// Cheaper than RTN_FindByAddress per slot -- we already have the raw
+// IPs in the traceShadowMap.
+static bool TraceIsInAddressRange(TraceNode* trace, ADDRINT lo, ADDRINT hi) {
+    ADDRINT* ips = (ADDRINT*)GLOBAL_STATE.traceShadowMap[trace->traceKey];
+    if (!ips) return false;
+    for (uint32_t i = 0; i < trace->nSlots; ++i) {
+        if (ips[i] >= lo && ips[i] < hi) return true;
     }
-
     return false;
 }
 
-static TraceNode* FindNearestCallerCoveringIP(ADDRINT exceptionCallerReturnAddrIP, uint32_t* ipSlot, ThreadData* tData) {
-    TraceNode* curTrace = tData->tlsCurrentTraceNode;
+// Walk tData's CCT parent chain looking for the OUTERMOST TraceNode
+// that is inside the address range of the routine containing
+// `landingPadIp`. Outermost (not innermost) because on the second
+// unwind iteration of a `try{}catch{}` loop, an earlier iteration's
+// landing-pad Pin trace is also inside the handler function's
+// address range -- picking THAT one would nest each iteration's
+// re-anchor under the previous one and chains would grow linearly
+// with iteration count. Walking to the root and keeping the LAST
+// match gives us the ORIGINAL handler frame every time.
+//
+// Returns NULL if the routine can't be identified (stripped / foreign
+// image) or no ancestor matches. Callers on the NULL path skip
+// re-anchoring, which is a benign degradation.
+static TraceNode* FindHandlerFrameForLandingPad(ADDRINT landingPadIp,
+                                                ADDRINT* outHandlerLo,
+                                                ADDRINT* outHandlerHi,
+                                                ThreadData* tData) {
+    PIN_LockClient();
+    RTN targetRtn = RTN_FindByAddress(landingPadIp);
+    ADDRINT lo = 0, hi = 0;
+    if (RTN_Valid(targetRtn)) {
+        lo = RTN_Address(targetRtn);
+        hi = lo + RTN_Size(targetRtn);
+    }
+    PIN_UnlockClient();
+    if (lo == hi) return NULL; // unrecognized image / stripped
 
-    //int i = 0;
-    while (curTrace) {
-        if (IsIpPresentInTrace(exceptionCallerReturnAddrIP, curTrace, ipSlot)) {
-            //printf("\n found at %d", i++);
-            return curTrace;
+    TraceNode* best = NULL;
+    TraceNode* cur = tData->tlsCurrentTraceNode;
+    while (cur) {
+        if (TraceIsInAddressRange(cur, lo, hi)) {
+            best = cur; // keep walking -- want the OUTERMOST match
         }
-
-        // break if we have finished looking at the root
-        if (curTrace == tData->tlsRootTraceNode)
-            break;
-
-        curTrace = GLOBAL_STATE.preAllocatedContextBuffer[curTrace->callerCtxtHndl].parentTraceNode;
-        //printf("\n did not find so far %d", i++);
+        if (cur == tData->tlsRootTraceNode) break;
+        cur = GLOBAL_STATE.preAllocatedContextBuffer[cur->callerCtxtHndl].parentTraceNode;
     }
-
-    printf("\n This is a terrible place to be in.. report to mc29@rice.edu\n");
-    assert(0 && " Should never reach here");
-    PIN_ExitProcess(-1);
-    return NULL;
-}
-
-
-static VOID CaptureCallerThatCanHandleException(VOID* exceptionCallerContext, THREADID threadId) {
-    // Call the application's own _Unwind_GetIP (resolved via Pin's RTN API
-    // at IMG-load; see RememberUnwindGetIPFromImage). A direct call would
-    // resolve to Pin's libunwind-dynamic.so copy, whose _Unwind_Context
-    // struct layout does not match the libgcc context passed in here.
-    if (!g_appUnwindGetIP) {
-        fprintf(stderr,
-                "cctlib: fatal: _Unwind_SetIP invoked but the application's"
-                " _Unwind_GetIP was not resolved during IMG load. Add the"
-                " image name of the unwinder to RememberUnwindGetIPFromImage.\n");
-        PIN_ExitProcess(-1);
+    if (best) {
+        if (outHandlerLo) *outHandlerLo = lo;
+        if (outHandlerHi) *outHandlerHi = hi;
     }
-    _Unwind_Ptr exceptionCallerReturnAddrIP =
-        g_appUnwindGetIP((struct _Unwind_Context*)exceptionCallerContext);
-    _Unwind_Ptr directExceptionCallerIP = X86_DIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
-    _Unwind_Ptr indirectExceptionCallerIP = X86_INDIRECT_CALL_SITE_ADDR_FROM_RETURN_ADDR(exceptionCallerReturnAddrIP);
-    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n directExceptionCallerIP = %p indirectExceptionCallerIP = %p", (void*)directExceptionCallerIP, (void*)indirectExceptionCallerIP);
-    // Walk the CCT chain staring from tData->tlsCurrentTraceNode looking for the nearest one that has targeIp in the range.
-    ThreadData* tData = CCTLibGetTLS(threadId);
-    // Record the caller that can handle the exception.
-    uint32_t ipSlot;
-    tData->tlsExceptionHandlerTraceNode = FindNearestCallerCoveringIP(exceptionCallerReturnAddrIP, &ipSlot, tData);
-    tData->tlsExceptionHandlerCtxtHndle = tData->tlsExceptionHandlerTraceNode->childCtxtStartIdx + ipSlot;
+    return best;
 }
 
+static VOID CaptureLandingPadTarget(VOID* /*exceptionCallerContext*/, ADDRINT landingPadIp, THREADID threadId) {
+    // The IP being written by _Unwind_SetIP is passed as the SECOND
+    // argument. We hook at IPOINT_BEFORE, so reading the context's IP
+    // via _Unwind_GetIP() would return the OLD value (the throwing call's
+    // return address), NOT the landing pad. Taking the second argument
+    // directly gives us the actual jump target that libgcc's
+    // uw_install_context will __builtin_eh_return to next.
+    //
+    // Bonus: we don't touch the _Unwind_Context struct, so the historic
+    // Pin-vs-libgcc _Unwind_Context layout hazard (which used to require
+    // an image-load-time RTN lookup of the application's _Unwind_GetIP)
+    // is irrelevant here.
 
-static VOID SetCurTraceNodeAfterException(THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
-    // Guard against uncaught-exception paths where _Unwind_Resume fires
-    // without a preceding _Unwind_SetIP (libgcc's phase 1 finds no
-    // handler and jumps straight to std::terminate). In that case
-    // CaptureCallerThatCanHandleException was never invoked and
-    // tlsExceptionHandlerTraceNode is still NULL.
-    if (!tData->tlsExceptionHandlerTraceNode) return;
-    // Record the caller that can handle the exception.
-    UpdateCurTraceAndIp(tData, tData->tlsExceptionHandlerTraceNode, tData->tlsExceptionHandlerCtxtHndle);
-#if 1
-    //printf("\n reset tData->tlsCurrentTraceNode to the handler");
-    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n reset tData->tlsCurrentTraceNode to the handler");
-#endif
+    ADDRINT lo = 0, hi = 0;
+    TraceNode* handler = FindHandlerFrameForLandingPad(landingPadIp, &lo, &hi, tData);
+    if (!handler) {
+        // Can't identify the handler frame -- either the landing pad
+        // is in an unrecognized image or the parent chain is empty of
+        // matching frames. Skip the reset; the pre-existing anchor
+        // stays put and the CCT for this unwind may be less precise
+        // but is not corrupted.
+        tData->tlsPendingLandingPadIp = 0;
+        tData->tlsPendingHandlerFrame = NULL;
+        tData->tlsPendingHandlerCtxt = 0;
+        return;
+    }
+    tData->tlsPendingLandingPadIp = landingPadIp;
+    tData->tlsPendingHandlerFrame = handler;
+    tData->tlsPendingHandlerCtxt = handler->childCtxtStartIdx;
 }
-
-
-static VOID SetCurTraceNodeAfterExceptionIfContextIsInstalled(ADDRINT retVal, THREADID threadId) {
-    // if the return value is _URC_INSTALL_CONTEXT then we will reset the shadow stack, else NOP
-    // Commented ... caller ensures it is inserted only at the end.
-    // if(retVal != _URC_INSTALL_CONTEXT)
-    //    return;
-    ThreadData* tData = CCTLibGetTLS(threadId);
-    // Same guard as SetCurTraceNodeAfterException: skip if no handler
-    // was captured (uncaught exception -> terminate path).
-    if (!tData->tlsExceptionHandlerTraceNode) return;
-    // Record the caller that can handle the exception.
-    UpdateCurTraceAndIp(tData, tData->tlsExceptionHandlerTraceNode, tData->tlsExceptionHandlerCtxtHndle);
-#if 1
-    //printf("\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
-    fprintf(GLOBAL_STATE.CCTLibLogFile, "\n (SetCurTraceNodeAfterExceptionIfContextIsInstalled) reset tData->tlsCurrentTraceNode to the handler");
-#endif
-}
-
 
 inline VOID TakeLock() {
     do {
@@ -809,6 +841,9 @@ static inline void CCTLibInitThreadData(ThreadData* const tdata, CONTEXT* ctxt, 
     tdata->tlsParentThreadTraceNode = 0;
     tdata->tlsInitiatedCall = true;
     tdata->curSlotNo = 0;
+    tdata->tlsPendingLandingPadIp = 0;
+    tdata->tlsPendingHandlerFrame = NULL;
+    tdata->tlsPendingHandlerCtxt = 0;
     // init the dummy root for hpcrun format
     tdata->tlsHPCRunCCTRoot = NULL;
 
@@ -846,6 +881,87 @@ static VOID CCTLibThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOI
     ThreadCapturePoint(tdata);
 }
 
+// Classify a routine's direct self-recursive call sites. Called once
+// per routine at instrumentation time; the result is cached in
+// GLOBAL_STATE.rtnSelfRecMap. hasSelfRec is true when the routine
+// contains at least one direct call whose immediate target equals its
+// own entry address. selfRecReturnAddrs is the exact set of
+// INS_NextAddress(callIns) for each such site -- used at RET-time to
+// distinguish a return unwinding a collapsed recursion frame (target
+// in set -> no-op) from a return to the actual caller (target not in
+// set -> normal pop). The set is derived from decoded CALL immediates
+// -- independent of RTN_Size or any symbol/loader-derived metadata,
+// so it works on stripped binaries and around function padding.
+//
+// The map is guarded by a reader-writer lock: the common path (a
+// routine we've already classified) takes only the read lock and lets
+// concurrent Pin worker threads instrument in parallel. The write
+// lock is taken exactly once per routine, on first classification.
+static const RtnInfo* GetOrClassifyRoutine(RTN rtn) {
+    ADDRINT rtnStart = RTN_Address(rtn);
+
+    // Fast path: reader lock. Iterator remains valid across insert as
+    // long as we hold at least a read lock -- but we release the read
+    // lock before the walk, so we don't hold locks during RTN_Open,
+    // instruction decode, or malloc. The pointer we return points at
+    // an entry in an unordered_map; std::unordered_map guarantees
+    // reference/pointer stability across insert (only iterators over
+    // buckets can be invalidated on rehash). Callers hold no reference
+    // beyond the instrumentation callback's scope.
+    PIN_RWMutexReadLock(&GLOBAL_STATE.rtnSelfRecRWMutex);
+    auto it = GLOBAL_STATE.rtnSelfRecMap.find(rtnStart);
+    if (it != GLOBAL_STATE.rtnSelfRecMap.end()) {
+        const RtnInfo* p = &it->second;
+        PIN_RWMutexUnlock(&GLOBAL_STATE.rtnSelfRecRWMutex);
+        return p;
+    }
+    PIN_RWMutexUnlock(&GLOBAL_STATE.rtnSelfRecRWMutex);
+
+    // Slow path: walk the routine's instructions to collect direct
+    // self-call sites. Done outside any lock -- expensive and
+    // idempotent; a losing racer just discards its result.
+    // RTN_Open/RTN_Close scopes access to RTN_InsHead/INS_Next.
+    RTN_Open(rtn);
+    std::vector<ADDRINT> rets;
+    for (INS ins = RTN_InsHead(rtn); INS_Valid(ins); ins = INS_Next(ins)) {
+        if (INS_IsProcedureCall(ins) &&
+            INS_IsDirectControlFlow(ins) &&
+            INS_DirectControlFlowTargetAddress(ins) == rtnStart) {
+            rets.push_back(INS_NextAddress(ins));
+        }
+    }
+    RTN_Close(rtn);
+
+    RtnInfo info;
+    info.rtnStart = rtnStart;
+    info.hasSelfRec = !rets.empty();
+    // uint16_t is plenty; a routine with 65535 direct self-call sites
+    // is not realistic. Silently cap and pretend we saw fewer to keep
+    // the RET fast-path bounded.
+    info.nReturnAddrs = (uint16_t)(rets.size() > UINT16_MAX ? UINT16_MAX : rets.size());
+    if (info.nReturnAddrs > 0) {
+        info.selfRecReturnAddrs = (ADDRINT*)malloc(sizeof(ADDRINT) * info.nReturnAddrs);
+        for (uint16_t i = 0; i < info.nReturnAddrs; ++i) {
+            info.selfRecReturnAddrs[i] = rets[i];
+        }
+    } else {
+        info.selfRecReturnAddrs = nullptr;
+    }
+
+    PIN_RWMutexWriteLock(&GLOBAL_STATE.rtnSelfRecRWMutex);
+    // Another thread may have raced us; std::unordered_map::emplace
+    // returns an iterator to the existing element in that case and we
+    // leak our freshly-allocated array. Compare-and-set to avoid it.
+    auto ins = GLOBAL_STATE.rtnSelfRecMap.emplace(rtnStart, info);
+    if (!ins.second) {
+        // We lost the race. Free our copy; return theirs.
+        if (info.selfRecReturnAddrs) free(info.selfRecReturnAddrs);
+    }
+    const RtnInfo* p = &ins.first->second;
+    PIN_RWMutexUnlock(&GLOBAL_STATE.rtnSelfRecRWMutex);
+    return p;
+}
+
 // Analysis routine called on making a function call
 static inline VOID SetCallInitFlag(uint32_t slot, THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
@@ -875,6 +991,32 @@ static inline VOID GoUpCallChain(THREADID threadId) {
         int offset =  tData->tlsCurrentCtxtHndl - tData->tlsCurrentTraceNode->childCtxtStartIdx;
         printf("\n Returning to the caller IP = %p", tracesIPs[offset]);
 #endif
+}
+
+// Analysis routine for RET in routines with hasSelfRec=true. If the
+// return target matches any INS_NextAddress(callIns) of a direct self
+// call in this routine, we are unwinding a collapsed recursion frame
+// and must NOT walk up the CCT -- doing so would strand tData at an
+// ancestor of the true caller when the outermost RET fires. If the
+// target is not in the set, this is the outermost RET (returning to
+// the actual caller); behave like GoUpCallChain.
+//
+// n is bounded (typically 1-4, hard-capped at UINT16_MAX by the
+// classifier) so the linear scan is trivially cheap and, per Pin
+// conventions, kept off the pointer-chasing path when possible.
+static inline VOID MaybeGoUpCallChain(ADDRINT retTarget,
+                                      ADDRINT* returnAddrs, uint32_t n,
+                                      THREADID threadId) {
+    for (uint32_t i = 0; i < n; ++i) {
+        if (returnAddrs[i] == retTarget) return; // recursion-return: no-op
+    }
+    ThreadData* tData = CCTLibGetTLS(threadId);
+    if (tData->tlsCurrentTraceNode->callerCtxtHndl == tData->tlsRootCtxtHndl) {
+        tData->tlsInitiatedCall = true;
+    }
+    tData->tlsCurrentCtxtHndl = tData->tlsCurrentTraceNode->callerCtxtHndl;
+    UpdateCurTraceOnly(tData,
+        GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentCtxtHndl)->parentTraceNode);
 }
 
 // Analysis routine called interesting instructions to remember the slot no.
@@ -929,7 +1071,7 @@ static inline VOID CCTLibInstrumentImageLoad(IMG img, VOID* v) {
 // Called each time a new trace is JITed.
 // Given a trace this function adds instruction to each instruction in the trace.
 // It also adds the trace to a hash table "GLOBAL_STATE.traceShadowMap" to maintain the reverse mapping from an (interesting) instruction's position in CCT back to its IP.
-static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, uint32_t traceKey, uint32_t numInterestingInstInTrace, IsInterestingInsFptr isInterestingIns) {
+static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, uint32_t traceKey, uint32_t numInterestingInstInTrace, IsInterestingInsFptr isInterestingIns, const RtnInfo* rinfo) {
     // if there were 0 numInterestingInstInTrace, then let us simply return since it makes no sense to record anything about it.
     if (numInterestingInstInTrace == 0)
         return;
@@ -947,8 +1089,19 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
             // If it is a call/ret instruction, we need to adjust the CCT.
             // manage context
             if (INS_IsProcedureCall(ins)) {
-                // INS_InsertPredicatedCall if the call is not made, we should not set the flag
-                INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
+                // Fold direct self-recursion: at a direct call whose
+                // immediate target is the enclosing routine's entry,
+                // suppress SetCallInitFlag so the callee's
+                // InstrumentTraceEntry takes its sibling-branch and
+                // splays under the same collapsed frame. See design
+                // notes at RtnInfo/MaybeGoUpCallChain above.
+                bool isDirectSelfRec = rinfo && rinfo->hasSelfRec
+                    && INS_IsDirectControlFlow(ins)
+                    && INS_DirectControlFlowTargetAddress(ins) == rinfo->rtnStart;
+                if (!isDirectSelfRec) {
+                    // INS_InsertPredicatedCall if the call is not made, we should not set the flag
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)SetCallInitFlag, IARG_UINT32, slot, IARG_THREAD_ID, IARG_END);
+                }
 
                 if (GLOBAL_STATE.userInstrumentationCallback) {
                     // Call user instrumentation passing the flag
@@ -966,7 +1119,22 @@ static inline VOID PopulateIPReverseMapAndAccountTraceInstructions(TRACE trace, 
             } else if (INS_IsRet(ins)) {
                 // INS_InsertPredicatedCall if the RET is not made, we should not change CCT node
                 // CALL_ORDER_LAST because we want update context after all analysis routines for RET have executed.
-                INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+                if (rinfo && rinfo->hasSelfRec) {
+                    // Fold direct self-recursion: a RET whose target is
+                    // in the routine's set of direct-self-call return
+                    // addresses is unwinding a collapsed frame -- no-op.
+                    // The outermost RET returns to the actual caller,
+                    // whose address is outside the routine's body and
+                    // therefore never in the set: exactly one pop fires.
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)MaybeGoUpCallChain,
+                        IARG_CALL_ORDER, CALL_ORDER_LAST,
+                        IARG_BRANCH_TARGET_ADDR,
+                        IARG_PTR, rinfo->selfRecReturnAddrs,
+                        IARG_UINT32, (uint32_t)rinfo->nReturnAddrs,
+                        IARG_THREAD_ID, IARG_END);
+                } else {
+                    INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)GoUpCallChain, IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
+                }
 
                 if (GLOBAL_STATE.userInstrumentationCallback) {
                     // Call user instrumentation passing the flag
@@ -1012,8 +1180,44 @@ static struct TraceSplay* splay(struct TraceSplay* root, ADDRINT ip) {
 // 2. Look up the current trace under the CCT node creating new if if needed.
 // 3. Update iterators and curXXXX pointers.
 
-static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInterestingInstInTrace, THREADID threadId) {
+static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInterestingInstInTrace, ADDRINT traceFirstIp, THREADID threadId) {
     ThreadData* tData = CCTLibGetTLS(threadId);
+
+    // Post-exception landing-pad re-anchor. See the design notes above
+    // CaptureLandingPadTarget: if a _Unwind_SetIP call armed a pending
+    // landing pad and THIS trace's first IP matches, libgcc just
+    // context-restored into the handler frame and we need to move
+    // tlsCurrentTraceNode back to that frame BEFORE the sibling/normal
+    // branch logic below runs. tlsInitiatedCall=false forces the
+    // sibling branch so the landing pad's own Pin trace becomes a
+    // sibling of the handler's own trace under the same parent --
+    // giving chains like `handler_caller -> handler(landing pad) -> C`
+    // for the post-catch path (landing pad's function name resolves
+    // to the handler's since its IP lies inside the handler's body).
+    if (tData->tlsPendingLandingPadIp != 0 &&
+        tData->tlsPendingLandingPadIp == traceFirstIp) {
+        // Re-anchor as a CHILD of the handler frame (normal branch)
+        // rather than a sibling. Sibling placement was ambiguous
+        // because Pin can produce multiple "main"-labeled Pin traces
+        // (loop body vs post-return continuation) with different
+        // callerCtxtHndl values, so which parent we'd splay under
+        // depended on which handler-labeled TraceNode the walker
+        // returned. Normal-branch places the landing pad
+        // deterministically as a child of the specific handler
+        // TraceNode. The landing pad's function name still resolves
+        // to the handler's own name (its IP lies inside the handler
+        // function's body), so chain function-names read
+        // `... -> handler -> handler(landing pad) -> C` which is
+        // exactly the shape the user asked for -- C's immediate
+        // parent function-name is the handler.
+        UpdateCurTraceOnly(tData, tData->tlsPendingHandlerFrame);
+        tData->tlsCurrentChildContextStartIndex = tData->tlsPendingHandlerFrame->childCtxtStartIdx;
+        tData->tlsCurrentCtxtHndl = tData->tlsPendingHandlerCtxt;
+        tData->tlsInitiatedCall = true;  // NORMAL branch: landing pad becomes CHILD of handler
+        tData->tlsPendingLandingPadIp = 0;
+        tData->tlsPendingHandlerFrame = NULL;
+        tData->tlsPendingHandlerCtxt = 0;
+    }
 
     // if landed here w/o a call instruction, then let's make this trace a sibling.
     // The trick to do it is to go to the parent TraceNode and make this trace a child of it
@@ -1099,8 +1303,13 @@ static void CCTLibInstrumentTrace(TRACE trace, void* isInterestingIns) {
     INS ins = BBL_InsHead(bbl);
     uint32_t numInterestingInstInTrace = GetNumInterestingInsInTrace(trace, (IsInterestingInsFptr)isInterestingIns);
     uint32_t traceKey = GetNextTraceKey();
-    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)InstrumentTraceEntry, IARG_UINT32, traceKey, IARG_UINT32, numInterestingInstInTrace, IARG_THREAD_ID, IARG_END);
-    PopulateIPReverseMapAndAccountTraceInstructions(trace, traceKey, numInterestingInstInTrace, (IsInterestingInsFptr)isInterestingIns);
+    // Classify the enclosing routine for direct self-recursion. If Pin
+    // has no valid RTN for this trace (data-in-code, unbacked JIT, etc.)
+    // rinfo is null and instrumentation falls back to today's behavior.
+    RTN rtn = TRACE_Rtn(trace);
+    const RtnInfo* rinfo = RTN_Valid(rtn) ? GetOrClassifyRoutine(rtn) : nullptr;
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)InstrumentTraceEntry, IARG_UINT32, traceKey, IARG_UINT32, numInterestingInstInTrace, IARG_ADDRINT, TRACE_Address(trace), IARG_THREAD_ID, IARG_END);
+    PopulateIPReverseMapAndAccountTraceInstructions(trace, traceKey, numInterestingInstInTrace, (IsInterestingInsFptr)isInterestingIns, rinfo);
 }
 
 
@@ -2699,11 +2908,6 @@ static VOID ComputeVarBounds(IMG img, VOID* v) {
 // end DO_DATA_CENTRIC #endif
 
 VOID CCTLibImage(IMG img, VOID* v) {
-    // Populate g_appUnwindGetIP if this image is libgcc_s / LLVM
-    // libunwind; see the comment on RememberUnwindGetIPFromImage()
-    // for why we resolve via Pin's RTN API rather than dl*.
-    RememberUnwindGetIPFromImage(img);
-
     //  Find the pthread_create() function.
 #define PTHREAD_CREATE_RTN "pthread_create"
 #define ARCH_LONGJMP_RTN "__longjmp"
@@ -2725,9 +2929,11 @@ VOID CCTLibImage(IMG img, VOID* v) {
     RTN siglongjmpRtn = RTN_FindByName(img, SIGLONGJMP_RTN);
     RTN archlongjmpRtn = RTN_FindByName(img, ARCH_LONGJMP_RTN);
     RTN unwindSetIpRtn = RTN_FindByName(img, UNWIND_SETIP);
-    RTN unwindRaiseExceptionRtn = RTN_FindByName(img, UNWIND_RAISEEXCEPTION);
-    RTN unwindResumeRtn = RTN_FindByName(img, UNWIND_RESUME);
-    RTN unwindForceUnwindRtn = RTN_FindByName(img, UNWIND_FORCEUNWIND);
+    // _Unwind_RaiseException / _Unwind_Resume / _Unwind_ForcedUnwind
+    // are no longer hooked -- their pre-existing "reset on last RET"
+    // schemes were dead for caught exceptions (libgcc uses
+    // __builtin_eh_return, which is not a RET). The new scheme reaches
+    // every landing pad via the _Unwind_SetIP entry hook alone.
     //RTN unwindResumeOrRethrowRtn = RTN_FindByName(img, UNWIND_RESUME_OR_RETHROW);
 #if 0
         cout << "\n Image name" << IMG_Name(img);
@@ -2798,149 +3004,37 @@ VOID CCTLibImage(IMG img, VOID* v) {
 //#if DISABLE_EXCEPTION_HANDLING
 #if 1
 
-    // Look for unwinding related routines present in libc.so.x file only
+    // C++ exception (Itanium ABI) hookpoint: intercept `_Unwind_SetIP`
+    // at entry. That's the ONLY function libgcc's driver uses to install
+    // a resume IP (see ~/gcc/libgcc/unwind-dw2.c:368 — grep confirms it's
+    // called nowhere in the driver itself, only from personality
+    // routines). CaptureLandingPadTarget reads the pending resume IP,
+    // walks cctlib's parent chain to identify the handler frame by
+    // routine-address containment, and arms a pending re-anchor that
+    // fires on the next Pin trace entry whose first IP matches. That
+    // pairing is the reliable substitute for the pre-existing "reset on
+    // _Unwind_RaiseException's last RET" scheme, which silently missed
+    // every caught exception because libgcc uses __builtin_eh_return
+    // (a non-RET epilogue) to jump to landing pads. Same hook covers
+    // cleanup landing pads (dtor unwind) and handler landing pads
+    // (catch clauses) uniformly, because personality functions call
+    // _Unwind_SetIP for both.
     if (strstr(IMG_Name(img).c_str(), "libgcc_s.so")) {
         if (RTN_Valid(unwindSetIpRtn)) {
 #ifdef DEBUG_CCTLIB
             fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_SETIP, IMG_Name(img).c_str());
 #endif
             RTN_Open(unwindSetIpRtn);
-            // Get the intended target IP and prepare the call stack to be ready to unwind to that level
-            RTN_InsertCall(unwindSetIpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureCallerThatCanHandleException, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_THREAD_ID, IARG_END);
-#if 0
-
-                // We should conditionally enable this only for SjLj style exceptions which overwrite RA in _Unwind_SetIP
-                // After every return instruction in this function, call SetCurTraceNodeAfterException
-                for(INS i = RTN_InsHead(unwindSetIpRtn); INS_Valid(i); i = INS_Next(i)) {
-                    if(!INS_IsRet(i))
-                        continue;
-
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR) SetCurTraceNodeAfterException,  IARG_CALL_ORDER, CALL_ORDER_LAST, IARG_THREAD_ID, IARG_END);
-                }
-
-#endif
-            // I don;t think there is a need to do this as the last instruction unlike RestoreSigLongJmpCtxt.
-            // Since _Unwind_SetIP implementations employ a technique of overwriting the return address to jump to the
-            // exception handler, calls made by _Unwind_SetIP if any will not cause any problem even if we rewire the call path before executing the return.
+            RTN_InsertCall(unwindSetIpRtn, IPOINT_BEFORE, (AFUNPTR)CaptureLandingPadTarget, IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_THREAD_ID, IARG_END);
             RTN_Close(unwindSetIpRtn);
         }
-
-        if (RTN_Valid(unwindResumeRtn)) {
-#ifdef DEBUG_CCTLIB
-            fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_RESUME, IMG_Name(img).c_str());
-#endif
-            RTN_Open(unwindResumeRtn);
-
-            // *** THIS ROUTINE NEVER RETURNS ****
-            // After every return instruction in this function, call SetCurTraceNodeAfterException
-            for (INS i = RTN_InsHead(unwindResumeRtn); INS_Valid(i); i = INS_Next(i)) {
-                if (!INS_IsRet(i))
-                    continue;
-
-                // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
-                INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR)SetCurTraceNodeAfterException, IARG_CALL_ORDER, CALL_ORDER_LAST + 10, IARG_THREAD_ID, IARG_END);
-                //INS_InsertCall(i, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterException, IARG_THREAD_ID, IARG_END);
-            }
-
-            RTN_Close(unwindResumeRtn);
-        }
-
-#if 1
-
-        if (RTN_Valid(unwindRaiseExceptionRtn)) {
-#ifdef DEBUG_CCTLIB
-            fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_RAISEEXCEPTION, IMG_Name(img).c_str());
-#endif
-            RTN_Open(unwindRaiseExceptionRtn);
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            INS lastIns = INS_Invalid();
-
-            for (INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
-                if (!INS_IsRet(i))
-                    continue;
-                else
-                    lastIns = i;
-            }
-
-            if (lastIns != INS_Invalid()) {
-                // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
-                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR)SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_CALL_ORDER, CALL_ORDER_LAST + 10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                //INS_InsertCall(lastIns, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-            } else {
-                //assert(0 && "did not find the last return in unwindRaiseExceptionRtn");
-                //printf("\n did not find the last return in unwindRaiseExceptionRtn");
-                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindRaiseExceptionRtn");
-            }
-
-            RTN_Close(unwindRaiseExceptionRtn);
-        }
-
-        if (RTN_Valid(unwindForceUnwindRtn)) {
-#ifdef DEBUG_CCTLIB
-            fprintf(GLOBAL_STATE.CCTLibLogFile, "\n %s found in %s", UNWIND_FORCEUNWIND, IMG_Name(img).c_str());
-#endif
-            RTN_Open(unwindForceUnwindRtn);
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            INS lastIns = INS_Invalid();
-
-            for (INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
-                if (!INS_IsRet(i))
-                    continue;
-                else
-                    lastIns = i;
-            }
-
-            if (lastIns != INS_Invalid()) {
-                // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
-                INS_InsertCall(lastIns, IPOINT_BEFORE, (AFUNPTR)SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_CALL_ORDER, CALL_ORDER_LAST + 10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                //INS_InsertCall(lastIns, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-            } else {
-                // TODO : This function _Unwind_ForcedUnwind also appears in /lib64/libpthread.so.0. in which case, we should ignore it.
-                //assert(0 && "did not find the last return in unwindForceUnwindRtn");
-                //printf("\n did not find the last return in unwindForceUnwindRtn");
-                fprintf(GLOBAL_STATE.CCTLibLogFile, "\n did not find the last return in unwindForceUnwindRtn");
-            }
-
-            RTN_Close(unwindForceUnwindRtn);
-        }
-
-#else
-
-        if (RTN_Valid(unwindRaiseExceptionRtn)) {
-            RTN_Open(unwindRaiseExceptionRtn);
-
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            for (INS i = RTN_InsHead(unwindRaiseExceptionRtn); INS_Valid(i); i = INS_Next(i)) {
-                if (!INS_IsRet(i))
-                    continue;
-                else {
-                    // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR)SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_CALL_ORDER, CALL_ORDER_LAST + 10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                    //INS_InsertCall(i, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                }
-            }
-
-            RTN_Close(unwindRaiseExceptionRtn);
-        }
-
-        if (RTN_Valid(unwindForceUnwindRtn)) {
-            RTN_Open(unwindForceUnwindRtn);
-
-            // After the last return instruction in this function, call SetCurTraceNodeAfterExceptionIfContextIsInstalled
-            for (INS i = RTN_InsHead(unwindForceUnwindRtn); INS_Valid(i); i = INS_Next(i)) {
-                if (!INS_IsRet(i))
-                    continue;
-                else {
-                    // CALL_ORDER_LAST+10 because CALL_ORDER_LAST is reserved for  GoUpCallChain that is executed on each RET instruction. We need to adjust the context after GoUpCallChain has executed.
-                    INS_InsertCall(i, IPOINT_BEFORE, (AFUNPTR)SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_CALL_ORDER, CALL_ORDER_LAST + 10, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                    //INS_InsertCall(i, IPOINT_TAKEN_BRANCH, (AFUNPTR) SetCurTraceNodeAfterExceptionIfContextIsInstalled, IARG_FUNCRET_EXITPOINT_VALUE, IARG_THREAD_ID, IARG_END);
-                }
-            }
-
-            RTN_Close(unwindForceUnwindRtn);
-        }
-
-#endif
+        // _Unwind_Resume, _Unwind_RaiseException, _Unwind_ForcedUnwind,
+        // _Unwind_Resume_or_Rethrow: no hooks needed. The pre-existing
+        // "reset on last RET" schemes on these routines were dead code
+        // for caught exceptions (libgcc __builtin_eh_returns to the
+        // landing pad without executing a real RET). All landing pads
+        // -- cleanup and handler alike -- are covered by the
+        // _Unwind_SetIP entry hook above.
     } // end strstr
 
 #endif
@@ -3047,6 +3141,9 @@ int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibIn
     GLOBAL_STATE.cctLibUsageMode = CCT_LIB_MODE_COLLECTION;
     // Initialize Symbols, we need them to report functions and lines
     PIN_InitSymbols();
+    // Guard rtnSelfRecMap against concurrent JIT (Pin JITs traces on
+    // any thread). Init before TRACE_AddInstrumentFunction below.
+    PIN_RWMutexInit(&GLOBAL_STATE.rtnSelfRecRWMutex);
     // Intialize
     InitBuffers();
     InitLogFile(logFile);
