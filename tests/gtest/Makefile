@@ -33,7 +33,8 @@ TESTS := \
     $(OBJDIR)/footprint_integration_test \
     $(OBJDIR)/ins_reuse_integration_test \
     $(OBJDIR)/rvn_integration_test \
-    $(OBJDIR)/exception_integration_test
+    $(OBJDIR)/exception_integration_test \
+    $(OBJDIR)/recursion_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
 # (not pin-g++); they are the TARGET that Pin instruments, not Pin tools
@@ -96,7 +97,15 @@ VICTIMS := \
     $(OBJDIR)/apps/exceptions/exc_ctor_throw \
     $(OBJDIR)/apps/exceptions/exc_catch_and_resume \
     $(OBJDIR)/apps/exceptions/sig_longjmp \
-    $(OBJDIR)/apps/exceptions/sig_sigsegv_recover
+    $(OBJDIR)/apps/exceptions/sig_sigsegv_recover \
+    $(OBJDIR)/apps/recursion/rec_fib_deep \
+    $(OBJDIR)/apps/recursion/rec_ackermann \
+    $(OBJDIR)/apps/recursion/rec_multi_direct \
+    $(OBJDIR)/apps/recursion/rec_indirect_only \
+    $(OBJDIR)/apps/recursion/rec_mixed_direct_indirect \
+    $(OBJDIR)/apps/recursion/rec_stripped \
+    $(OBJDIR)/apps/recursion/rec_exception \
+    $(OBJDIR)/apps/recursion/rec_baseline_nonrec
 
 # OpenMP victims need -fopenmp on both compile and link.
 $(OBJDIR)/apps/omp_race_%: apps/omp_race_%.c | $(OBJDIR)/apps
@@ -111,6 +120,16 @@ ISA_CFLAGS := -O0 -g -Wall -mavx -mavx2 -msse4.2
 # also participate in unwinding tests. -Wno-infinite-recursion silences
 # GCC's false positive on recursion that terminates via longjmp.
 EXC_CXXFLAGS := -O0 -g -Wall -std=c++17 -fexceptions -frtti -fnon-call-exceptions -Wno-infinite-recursion
+
+# Recursion victims. -O0 keeps recursive calls from being inlined /
+# tail-call-optimized away (both would defeat the direct-self-call
+# classifier the test suite is exercising). -fno-optimize-sibling-calls
+# provides belt-and-braces protection against tail-call rewrites on
+# compilers that ignore -O0's guarantee. -Wno-infinite-recursion
+# silences a static-analyzer warning on rec_exception whose base case
+# is a throw rather than a plain return. rec_stripped picks up an
+# additional -s at link time via its own pattern rule below.
+REC_CXXFLAGS := -O0 -g -Wall -std=c++17 -fno-optimize-sibling-calls -Wno-infinite-recursion
 
 .PHONY: all test clean
 all: $(TESTS) $(VICTIMS)
@@ -127,6 +146,19 @@ $(OBJDIR)/apps/isa/%: apps/isa/%.c | $(OBJDIR)/apps/isa
 $(OBJDIR)/apps/exceptions/%: apps/exceptions/%.cpp | $(OBJDIR)/apps/exceptions
 	$(CXX) $(EXC_CXXFLAGS) $< -o $@
 
+# rec_stripped: same recipe as other recursion victims but stripped at
+# link time so the classifier only has the CALL immediates to work
+# from -- no RTN_Name / no debug info / RTN_Size may be 0.
+$(OBJDIR)/apps/recursion/rec_stripped: apps/recursion/rec_stripped.cpp | $(OBJDIR)/apps/recursion
+	$(CXX) $(REC_CXXFLAGS) $< -o $@
+	strip -s $@
+
+$(OBJDIR)/apps/recursion/rec_exception: apps/recursion/rec_exception.cpp | $(OBJDIR)/apps/recursion
+	$(CXX) $(REC_CXXFLAGS) -fexceptions -frtti $< -o $@
+
+$(OBJDIR)/apps/recursion/%: apps/recursion/%.cpp | $(OBJDIR)/apps/recursion
+	$(CXX) $(REC_CXXFLAGS) $< -o $@
+
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
@@ -138,6 +170,9 @@ $(OBJDIR)/apps/isa:
 
 $(OBJDIR)/apps/exceptions:
 	mkdir -p $(OBJDIR)/apps/exceptions
+
+$(OBJDIR)/apps/recursion:
+	mkdir -p $(OBJDIR)/apps/recursion
 
 # Run each test binary. GoogleTest exits non-zero on failure, propagating
 # through the `for` loop's `|| exit $$?`. Integration tests need PIN_ROOT
