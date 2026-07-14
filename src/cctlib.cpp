@@ -3152,6 +3152,11 @@ bool HaveSameCallerPrefix(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
     return t1 == t2;
 }
 
+ContextHandle_t GetTraceStartHandle(ContextHandle_t ctxtHandle) {
+    if (!ctxtHandle) return 0;
+    return GET_IPNODE_FROM_CONTEXT_HANDLE(ctxtHandle)->parentTraceNode->childCtxtStartIdx;
+}
+
 bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
     if (ctxt1 == ctxt2)
         return true;

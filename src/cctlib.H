@@ -177,6 +177,25 @@ void** GetIPNodeMetric(const THREADID threadId, const uint32_t opaqueHandle);
 bool HaveSameCallerPrefix(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 
 bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2);
+
+/*
+       Description:
+           Given a ContextHandle, returns the childCtxtStartIdx of
+           the TraceNode that contains it. Two handles that live in
+           the SAME TraceNode return the same value from this call,
+           so it doubles as a compact "same-trace identifier" that
+           clients can use to compare two arbitrary ContextHandle_t's
+           without needing to peek into cctlib internals. Returns 0
+           for the reserved uninitialized handle 0.
+
+           Motivation: shape-inspection clients (e.g. cct_shape_check)
+           need to identify "is ancestor X the same TraceNode as
+           handle Y?" -- e.g. to slice a chain at main's frame -- but
+           GetFullCallingContext returns a vector<Context> whose
+           ctxtHandle values are specific slots, not TraceNode
+           identifiers. GetTraceStartHandle lets clients canonicalize.
+    */
+ContextHandle_t GetTraceStartHandle(ContextHandle_t ctxtHandle);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
 //NOP
 #elif !defined(USE_SHADOW_FOR_DATA_CENTRIC)
