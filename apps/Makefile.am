@@ -3,7 +3,7 @@
 CONFIG_ROOT=$(PIN_ROOT)/source/tools/Config
 include $(CONFIG_ROOT)/makefile.config
 
-APP_ROOTS = deadWrites threaded  reuseApp
+APP_ROOTS = deadWrites threaded  reuseApp reuse_test
 
 ALLOW_UNUSED_BUT_SET= -Wno-unused-but-set-variable
 CCTLIB_TEST_FLAGS =  $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)

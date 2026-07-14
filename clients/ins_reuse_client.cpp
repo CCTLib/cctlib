@@ -252,17 +252,17 @@ static inline void UpdateBlockReuseStats(uint64_t distance, uint64_t count, uint
 }
 
 static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData* tData, RBTree_t* rbt) {
-    // Find how many RB-Tree nodes are to the right of this node.
     uint64_t reuseDist;
-    auto* node = rbt->FindSumGreaterEqual(prevTick, &reuseDist);
+    auto* node = rbt->FindSumGreaterThan(prevTick, &reuseDist);
     if (node) {
-        //  Delete the node from RB-tree
         auto* retNode = rbt->Delete(node);
-        // reinsert the node with new tick
         retNode->key = newTick;
         retNode->value = v;
         rbt->Insert(retNode);
-        return reuseDist;
+        // reuseDist = instructions executed by *other* BBLs since last access.
+        // Add (v-1) for the within-BBL instructions that also execute
+        // between two accesses to the same instruction in this BBL.
+        return reuseDist + v - 1;
     } else {
         return FIRST_USE;
     }
