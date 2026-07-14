@@ -1,0 +1,50 @@
+name: lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel any earlier still-running job for the same ref -- format is
+# fast, no need to queue.
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format-check:
+    name: clang-format-check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format-15
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-15
+
+      - name: Verify clang-format is version 15
+        run: clang-format-15 --version
+
+      - name: clang-format --dry-run --Werror on all C/C++ sources
+        # Same file set as `make format-check` (which lives in Makefile.am
+        # and needs PIN_ROOT via automake -- avoid that in CI by invoking
+        # clang-format directly with the same globs).
+        run: |
+          shopt -s nullglob
+          files=(src/*.cpp src/*.H src/*.h clients/*.cpp tests/*.cpp)
+          if [ ${#files[@]} -eq 0 ]; then
+              echo "no C/C++ sources found" >&2
+              exit 1
+          fi
+          clang-format-15 --dry-run --Werror "${files[@]}"
+
+  # clang-tidy is NOT run in CI:
+  #   * clang-tidy needs compile_commands.json (produced by `bear -- make`)
+  #   * bear -- make needs to actually build cctlib, which needs PIN_ROOT
+  #   * Pin is a large closed-source download from Intel with license
+  #     acceptance -- painful to set up on a hosted runner
+  # `make lint` is a workstation step for now. When PIN_ROOT caching is
+  # sorted out, add a `lint` job here that installs Pin, runs `bear`, then
+  # `make lint`.
