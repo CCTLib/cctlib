@@ -10,12 +10,22 @@
 // (the dtor stores would appear under the wrong CCT node). This is a
 // tp-shape victim: the tool must not crash and the byte pattern in `buf`
 // must match the expected shape at the end.
+//
+// ctorthrow_try_marker / ctorthrow_catch_marker verify catch-body
+// attribution when the ctor-throw path is taken.
 #include <cstdint>
 #include <cstdio>
 #include <stdexcept>
 #define ITERS 200
 static volatile uint64_t sink;
 static uint8_t buf[ITERS * 4];   // 4 bytes per iter: ctor+dtor for members A,B
+
+extern "C" __attribute__((noinline)) void ctorthrow_try_marker(int i) {
+    __asm__ __volatile__("" ::: "memory"); sink ^= (uint64_t)i;
+}
+extern "C" __attribute__((noinline)) void ctorthrow_catch_marker(int i) {
+    __asm__ __volatile__("" ::: "memory"); sink ^= (uint64_t)i << 8;
+}
 
 struct A {
     uint8_t* slot;
@@ -50,9 +60,11 @@ int main(int argc, char** argv) {
     for (int i = 0; i < ITERS; ++i) {
         uint8_t* base = &buf[i * 4];
         try {
+            ctorthrow_try_marker(i);
             Wrap w(base);
             (void)w;
         } catch (const std::exception&) {
+            ctorthrow_catch_marker(i);
             ++caught;
             base[1] = 0xCC;
         }

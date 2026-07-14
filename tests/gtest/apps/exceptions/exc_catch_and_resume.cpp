@@ -10,6 +10,10 @@
 // unrelated contexts. Correct behavior: after `resume_after_catch`
 // returns, the next call to `post_catch_worker` sees the same CCT
 // parent as if no exception had happened.
+//
+// resume_try_marker (inside the try block of resume_after_catch) and
+// resume_catch_marker (inside the catch block) both must appear as
+// direct children of resume_after_catch, NOT under __cxa_throw.
 #include <cstdint>
 #include <cstdio>
 #define ITERS 2000
@@ -17,6 +21,13 @@ static volatile uint64_t sink;
 static uint64_t pre_marker[ITERS];
 static uint64_t catch_marker[ITERS];
 static uint64_t post_marker[ITERS];
+
+extern "C" __attribute__((noinline)) void resume_try_marker(int i) {
+    __asm__ __volatile__("" ::: "memory"); sink ^= (uint64_t)i;
+}
+extern "C" __attribute__((noinline)) void resume_catch_marker(int i) {
+    __asm__ __volatile__("" ::: "memory"); sink ^= (uint64_t)i << 8;
+}
 
 static void may_throw(int i) {
     pre_marker[i] = 0xAAAA;
@@ -27,8 +38,10 @@ static void may_throw(int i) {
 // Catch locally and return normally (no rethrow).
 static void resume_after_catch(int i) {
     try {
+        resume_try_marker(i);
         may_throw(i);
     } catch (int v) {
+        resume_catch_marker(i);
         catch_marker[i] = (uint64_t)v ^ 0xCCCCCCCC;
     }
     // We land here for BOTH the throw and the non-throw path. cctlib's

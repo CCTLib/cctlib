@@ -7,12 +7,25 @@
 // CCTLibFini/VisitAllNodesOfSplayTree walker. Deeper/wider is a
 // separate stress that hits a Pin-side limit, not a cctlib exception
 // bug.
+//
+// deep_try_marker / deep_catch_marker verify that the try-body call and
+// the catch-body call are direct children of main and NOT descendants
+// of __cxa_throw.
 #include <cstdint>
 #include <cstdio>
 #define D 32
 #define ITERS 200
 static volatile uint64_t sink;
 static uint64_t buf[ITERS];
+
+extern "C" __attribute__((noinline)) void deep_try_marker(int i) {
+    __asm__ __volatile__("" ::: "memory");
+    sink ^= (uint64_t)i;
+}
+extern "C" __attribute__((noinline)) void deep_catch_marker(int i) {
+    __asm__ __volatile__("" ::: "memory");
+    sink ^= (uint64_t)i << 8;
+}
 
 static void recurse(int depth, int iter) {
     // Force a stack write so each frame is materialized.
@@ -31,8 +44,10 @@ int main(int argc, char** argv) {
     int ok = 0;
     for (int i = 0; i < ITERS; ++i) {
         try {
+            deep_try_marker(i);
             recurse(D, i);
         } catch (uint64_t v) {
+            deep_catch_marker(i);
             (void)v;
             ++ok;
         }

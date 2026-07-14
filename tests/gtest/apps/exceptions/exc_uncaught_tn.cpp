@@ -1,13 +1,11 @@
-// Regression test for the uncaught-exception NULL guard in
-// SetCurTraceNodeAfterException / SetCurTraceNodeAfterExceptionIfContextIsInstalled
-// (cctlib.cpp:668, 685).
+// Regression test for the uncaught-exception path in cctlib.
 //
 // When an exception has no handler, libgcc's phase-1 search returns
 // _URC_END_OF_STACK -> phase 2 is never entered -> _Unwind_SetIP is
-// never called -> cctlib's CaptureCallerThatCanHandleException never
-// populates tData->tlsExceptionHandlerTraceNode. But cctlib IS still
-// hooked at the RET of _Unwind_Resume; that hook (SetCurTraceNodeAfter*)
-// used to dereference the NULL trace node and crash the tool.
+// never called -> cctlib's CaptureLandingPadTarget never fires and
+// no pending landing-pad reset is armed. The tool must nonetheless
+// survive the uncaught-exception path (which continues through
+// std::terminate) without crashing on stale exception TLS.
 //
 // The victim throws, no one catches, and set_terminate installs a
 // handler that _exit(0)s so the OS-visible exit is clean while the
