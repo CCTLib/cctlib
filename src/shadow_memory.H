@@ -39,7 +39,7 @@ template <typename... Ts>
 struct ShadowType {
     tuple<Ts[SHADOW_PAGE_SIZE]...> f;
     void * operator new(size_t sz) {
-        void * p = mmap(0, sz, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        void * p = mmap(nullptr, sz, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if(p == MAP_FAILED) {
             perror("mmap l2pg");
             PIN_ExitProcess(-1);
@@ -65,7 +65,7 @@ class ConcurrentShadowMemory {
     // If the shadow page does not exist a new one is MMAPed
   public:
     inline ConcurrentShadowMemory() {
-        pageDirectory = (atomic<atomic<ShadowTuple<Ts...>*>*>*)mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        pageDirectory = (atomic<atomic<ShadowTuple<Ts...>*>*>*)mmap(nullptr, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if (pageDirectory == MAP_FAILED) {
             perror("mmap pageDirectory");
             PIN_ExitProcess(-1);
@@ -75,10 +75,10 @@ class ConcurrentShadowMemory {
     inline ~ConcurrentShadowMemory() {
         for (uint64_t i = 0; i < LEVEL_1_PAGE_TABLE_ENTRIES; i++) {
             atomic<ShadowTuple<Ts...>*>* l1Page;
-            if ((l1Page = pageDirectory[i].load(memory_order_relaxed)) != 0) {
+            if ((l1Page = pageDirectory[i].load(memory_order_relaxed)) != nullptr) {
                 for (uint64_t j = 0; j < LEVEL_2_PAGE_TABLE_ENTRIES; j++) {
                     ShadowTuple<Ts...>* l2Page;
-                    if ((l2Page = l1Page[j].load(memory_order_relaxed)) != 0) {
+                    if ((l2Page = l1Page[j].load(memory_order_relaxed)) != nullptr) {
                         delete l2Page;
                     }
                 }
@@ -97,14 +97,14 @@ class ConcurrentShadowMemory {
     inline ShadowTuple<Ts...>& GetOrCreateShadowBaseAddress(const size_t address) {
         atomic<atomic<ShadowTuple<Ts...>*>*>* l1Ptr = &pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
         atomic<ShadowTuple<Ts...>*>* v1;
-        if ((v1 = l1Ptr->load(memory_order_consume)) == 0) {
-            atomic<ShadowTuple<Ts...>*>* l1pg = (atomic<ShadowTuple<Ts...>*>*)mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        if ((v1 = l1Ptr->load(memory_order_consume)) == nullptr) {
+            atomic<ShadowTuple<Ts...>*>* l1pg = (atomic<ShadowTuple<Ts...>*>*)mmap(nullptr, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             if (l1pg == MAP_FAILED) {
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);
             }
 
-            atomic<ShadowTuple<Ts...>*>* nullVal = 0;
+            atomic<ShadowTuple<Ts...>*>* nullVal = nullptr;
             if (!l1Ptr->compare_exchange_strong(nullVal, l1pg, memory_order_acq_rel, memory_order_relaxed)) {
                 // Another thread won the race. Release OUR unused mmap
                 // allocation with munmap -- calling free() on an mmap'd
@@ -117,13 +117,13 @@ class ConcurrentShadowMemory {
         }
         atomic<ShadowTuple<Ts...>*>* l2Ptr = &v1[LEVEL_2_PAGE_TABLE_SLOT(address)];
         ShadowTuple<Ts...>* v2;
-        if ((v2 = l2Ptr->load(memory_order_consume)) == 0) {
+        if ((v2 = l2Ptr->load(memory_order_consume)) == nullptr) {
             ShadowTuple<Ts...>* l2pg = new ShadowTuple<Ts...>;
             if (l2pg == MAP_FAILED) {
                 perror("mmap l2pg");
                 PIN_ExitProcess(-1);
             }
-            ShadowTuple<Ts...>* nullVal = 0;
+            ShadowTuple<Ts...>* nullVal = nullptr;
             if (!l2Ptr->compare_exchange_strong(nullVal, l2pg, memory_order_acq_rel, memory_order_relaxed)) {
                 delete l2pg;
                 v2 = l2Ptr->load(memory_order_consume);
@@ -158,7 +158,7 @@ class ShadowMemory {
     // If the shadow page does not exist a new one is MMAPed
   public:
     inline ShadowMemory() {
-        pageDirectory = (ShadowTuple<Ts...>***)mmap(0, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        pageDirectory = (ShadowTuple<Ts...>***)mmap(nullptr, LEVEL_1_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         if (pageDirectory == MAP_FAILED) {
             perror("mmap pageDirectory");
             PIN_ExitProcess(-1);
@@ -168,10 +168,10 @@ class ShadowMemory {
     inline ~ShadowMemory() {
         for (uint64_t i = 0; i < LEVEL_1_PAGE_TABLE_ENTRIES; i++) {
             ShadowTuple<Ts...>** l1Page;
-            if ((l1Page = pageDirectory[i]) != 0) {
+            if ((l1Page = pageDirectory[i]) != nullptr) {
                 for (uint64_t j = 0; j < LEVEL_2_PAGE_TABLE_ENTRIES; j++) {
                     ShadowTuple<Ts...>* l2Page;
-                    if ((l2Page = l1Page[j]) != 0) {
+                    if ((l2Page = l1Page[j]) != nullptr) {
                         delete l2Page;
                     }
                 }
@@ -190,8 +190,8 @@ class ShadowMemory {
     inline ShadowTuple<Ts...>& GetOrCreateShadowBaseAddress(const size_t address) {
         ShadowTuple<Ts...>*** l1Ptr = &pageDirectory[LEVEL_1_PAGE_TABLE_SLOT(address)];
         ShadowTuple<Ts...>** v1;
-        if ((v1 = *l1Ptr) == 0) {
-            ShadowTuple<Ts...>** l1pg = (ShadowTuple<Ts...>**)mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        if ((v1 = *l1Ptr) == nullptr) {
+            ShadowTuple<Ts...>** l1pg = (ShadowTuple<Ts...>**)mmap(nullptr, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             if (l1pg == MAP_FAILED) {
                 perror("mmap l1pg");
                 PIN_ExitProcess(-1);
@@ -201,7 +201,7 @@ class ShadowMemory {
         }
         ShadowTuple<Ts...>** l2Ptr = &v1[LEVEL_2_PAGE_TABLE_SLOT(address)];
         ShadowTuple<Ts...>* v2;
-        if ((v2 = *l2Ptr) == 0) {
+        if ((v2 = *l2Ptr) == nullptr) {
             ShadowTuple<Ts...>* l2pg = new ShadowTuple<Ts...>;
             if (l2pg == MAP_FAILED) {
                 perror("mmap l2pg");

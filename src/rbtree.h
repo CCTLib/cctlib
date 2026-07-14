@@ -35,23 +35,23 @@ class RBTree {
 
   public:
     RBTree()
-        : root(0) {
+        : root(nullptr) {
     }
 
     TNKV* InsertBST(TNKV* newNode) {
         V inc = newNode->value;
-        newNode->left = newNode->right = newNode->parent = NULL;
+        newNode->left = newNode->right = newNode->parent = nullptr;
         // always begin with a red color node
         newNode->color = RED;
         newNode->sum = inc;
 
-        if (root == NULL) {
+        if (root == nullptr) {
             root = newNode;
             return newNode;
         }
 
         TNKV* cur = root;
-        TNKV* parent = NULL;
+        TNKV* parent = nullptr;
 
         while (cur) {
             parent = cur;
@@ -64,10 +64,10 @@ class RBTree {
         }
 
         if (newNode->key < parent->key) {
-            assert(parent->left == NULL);
+            assert(parent->left == nullptr);
             parent->left = newNode;
         } else {
-            assert(parent->right == NULL);
+            assert(parent->right == nullptr);
             parent->right = newNode;
         }
         newNode->parent = parent;
@@ -76,12 +76,12 @@ class RBTree {
 
     TNKV* FindSumGreaterEqual(K key, S* sum) {
         *sum = 0;
-        if (root == NULL) {
-            return NULL;
+        if (root == nullptr) {
+            return nullptr;
         }
 
         TNKV* cur = root;
-        TNKV* parent = NULL;
+        TNKV* parent = nullptr;
 
         while (cur) {
             parent = cur;
@@ -101,12 +101,12 @@ class RBTree {
 
     TNKV* FindSumGreaterThan(K key, S* sum) {
         *sum = 0;
-        if (root == NULL) {
-            return NULL;
+        if (root == nullptr) {
+            return nullptr;
         }
 
         TNKV* cur = root;
-        TNKV* parent = NULL;
+        TNKV* parent = nullptr;
 
         while (cur) {
             parent = cur;
@@ -528,17 +528,17 @@ class RBTree {
 
     TNKV* DeleteHelper(TNKV* node) {
         // Case 1: no children
-        if (node->left == NULL && node->right == NULL) {
+        if (node->left == nullptr && node->right == nullptr) {
             if (node == root) {
-                root = NULL;
+                root = nullptr;
             } else {
                 TNKV** whomToUpdate = (node->parent->left == node) ? (&node->parent->left) : (&node->parent->right);
-                *whomToUpdate = NULL;
+                *whomToUpdate = nullptr;
             }
             return node;
         }
         // Case 2: single child
-        if (node->left == NULL || node->right == NULL) {
+        if (node->left == nullptr || node->right == nullptr) {
             TNKV* parent = node->parent;
 
             TNKV* theChild = (node->left) ? (node->left) : (node->right);
@@ -555,8 +555,8 @@ class RBTree {
 
         // Get the in-order successor
 
-        TNKV* curParent = NULL;
-        for (TNKV* cur = node->right; cur != NULL; cur = cur->left) {
+        TNKV* curParent = nullptr;
+        for (TNKV* cur = node->right; cur != nullptr; cur = cur->left) {
             curParent = cur;
         }
 
@@ -581,20 +581,20 @@ class RBTree {
 
     TNKV* WhichNodeToDelete(TNKV* node) {
         // Case 1: no or single single child
-        if (node->left == NULL || node->right == NULL) {
+        if (node->left == nullptr || node->right == nullptr) {
             node->sum = 0;
-            if (node->left != NULL) {
+            if (node->left != nullptr) {
                 node->sum += node->left->sum;
             }
-            if (node->right != NULL) {
+            if (node->right != nullptr) {
                 node->sum += node->right->sum;
             }
             return node;
         }
         // Get the in-order successor
 
-        TNKV* curParent = NULL;
-        for (TNKV* cur = node->right; cur != NULL; cur = cur->left) {
+        TNKV* curParent = nullptr;
+        for (TNKV* cur = node->right; cur != nullptr; cur = cur->left) {
             curParent = cur;
         }
 
@@ -626,7 +626,7 @@ class RBTree {
         //        auto delNode =  DeleteHelper(node);
         auto delNode = WhichNodeToDelete(node);
         BalanceDeletion(delNode);
-        assert(delNode->left == NULL || (delNode->right == NULL));
+        assert(delNode->left == nullptr || (delNode->right == nullptr));
         if (delNode->parent) {
             if (delNode->parent->left == delNode) {
                 if (delNode->right) {
@@ -636,7 +636,7 @@ class RBTree {
                     delNode->parent->left = delNode->left;
                     delNode->left->parent = delNode->parent;
                 } else {
-                    delNode->parent->left = NULL;
+                    delNode->parent->left = nullptr;
                 }
             } else {
                 if (delNode->right) {
@@ -646,18 +646,18 @@ class RBTree {
                     delNode->parent->right = delNode->left;
                     delNode->left->parent = delNode->parent;
                 } else {
-                    delNode->parent->right = NULL;
+                    delNode->parent->right = nullptr;
                 }
             }
         } else {
             if (delNode->right) {
                 root = delNode->right;
-                delNode->right->parent = NULL;
+                delNode->right->parent = nullptr;
             } else if (delNode->left) {
                 root = delNode->left;
-                delNode->left->parent = NULL;
+                delNode->left->parent = nullptr;
             } else {
-                root = NULL;
+                root = nullptr;
             }
         }
         return delNode;
@@ -688,7 +688,7 @@ class RBTree {
     }
 
     bool IsSumCorrectHeler(TNKV* node, V& curSum) {
-        if (node == NULL) {
+        if (node == nullptr) {
             curSum = 0;
             return true;
         }
@@ -720,7 +720,7 @@ class RBTree {
     }
 
     bool IsTreeCorrectHeler(TNKV* node) {
-        if (node == NULL) {
+        if (node == nullptr) {
             return true;
         }
 

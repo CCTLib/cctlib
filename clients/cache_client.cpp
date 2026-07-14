@@ -515,23 +515,23 @@ int main(int argc, char* argv[]) {
     ClientInit(argc, argv);
 
     // Obtain  a key for TLS storage.
-    client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
+    client_tls_key = PIN_CreateThreadDataKey(nullptr /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(ThreadStart, 0);
+    PIN_AddThreadStartFunction(ThreadStart, nullptr);
 
 
     // fini function for post-mortem analysis
-    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, nullptr);
 
     // Register SyscallEntry
-    PIN_AddSyscallEntryFunction(HandleSysCall, 0);
+    PIN_AddSyscallEntryFunction(HandleSysCall, nullptr);
     //  PIN_AddSyscallExitFunction (HandleSysCall, 0);
 
-    INS_AddInstrumentFunction(InstrumentInsCallback, 0);
+    INS_AddInstrumentFunction(InstrumentInsCallback, nullptr);
     // fini function for post-mortem analysis
-    PIN_AddFiniFunction(FiniFunc, 0);
+    PIN_AddFiniFunction(FiniFunc, nullptr);
 
-    TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+    TRACE_AddInstrumentFunction(InstrumentTrace, nullptr);
 
 
     // Launch program now

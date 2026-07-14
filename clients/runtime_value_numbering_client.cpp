@@ -85,7 +85,7 @@ FILE* gTraceFile;
 static uint64_t gValue;
 static uint8_t** gL1PageTable[LEVEL_1_PAGE_TABLE_SIZE];
 
-bool Sample = 1;
+bool Sample = true;
 uint64_t Num_instructions = 0;
 uint64_t lastGValue;
 
@@ -93,10 +93,10 @@ uint64_t lastGValue;
 uint64_t Num_redundant = 0;
 uint64_t Num_ins = 0;
 
-typedef struct opMap {
+using OPMap = struct opMap {
     uint64_t vNum;
     uint32_t ip;
-} OPMap;
+};
 
 
 class ThreadData_t {
@@ -116,7 +116,7 @@ class ThreadData_t {
     }
 };
 
-typedef struct opcodeInfo {
+using OPInfo = struct opcodeInfo {
     OPCODE opCode;
     int sCount;
     int immeCount;
@@ -124,7 +124,7 @@ typedef struct opcodeInfo {
     REG sRegs[MAX_OPERAND];
     uint64_t immediates[MAX_OPERAND];
     REG tRegs[MAX_OPERAND];
-} OPInfo;
+};
 
 // key for accessing TLS storage in the threads. initialized once in main()
 static TLS_KEY tls_key;
@@ -299,11 +299,11 @@ inline void UpdateValue(uint32_t reg, uint64_t value, ThreadData_t* td) {
 static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     uint8_t* shadowPage;
     uint8_t*** l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
-    if (*l1Ptr == 0) {
+    if (*l1Ptr == nullptr) {
         *l1Ptr = (uint8_t**)calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(0, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-    } else if ((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0) {
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(0, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(nullptr, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    } else if ((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == nullptr) {
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(nullptr, PAGE_SIZE * sizeof(uint64_t), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     return shadowPage;
 }
@@ -565,7 +565,7 @@ VOID valueNumbering(void* op, bool movOrnot, THREADID threadid, void* ip, const 
     if (Sample) {
         Num_instructions++;
         if (Num_instructions > SAMPLE_PERIOD) {
-            Sample = 0;
+            Sample = false;
             Num_instructions = 0;
             CleanValueNumbers(threadid);
             return;
@@ -573,7 +573,7 @@ VOID valueNumbering(void* op, bool movOrnot, THREADID threadid, void* ip, const 
     } else {
         Num_instructions++;
         if (Num_instructions > STOP_PERIOD) {
-            Sample = 1;
+            Sample = true;
             Num_instructions = 0;
         }
         return;
@@ -628,7 +628,7 @@ VOID valueNumberingMem1(void* op, void* addr, uint32_t rMem, uint32_t wMem, bool
     if (Sample) {
         Num_instructions++;
         if (Num_instructions > SAMPLE_PERIOD) {
-            Sample = 0;
+            Sample = false;
             Num_instructions = 0;
             CleanValueNumbers(threadID);
             return;
@@ -636,7 +636,7 @@ VOID valueNumberingMem1(void* op, void* addr, uint32_t rMem, uint32_t wMem, bool
     } else {
         Num_instructions++;
         if (Num_instructions > STOP_PERIOD) {
-            Sample = 1;
+            Sample = true;
             Num_instructions = 0;
         }
         return;
@@ -729,7 +729,7 @@ VOID valueNumberingMem2(void* op, void* addr1, void* addr2, uint32_t rMem, uint3
     if (Sample) {
         Num_instructions++;
         if (Num_instructions > SAMPLE_PERIOD) {
-            Sample = 0;
+            Sample = false;
             Num_instructions = 0;
             CleanValueNumbers(threadID);
             return;
@@ -737,7 +737,7 @@ VOID valueNumberingMem2(void* op, void* addr1, void* addr2, uint32_t rMem, uint3
     } else {
         Num_instructions++;
         if (Num_instructions > STOP_PERIOD) {
-            Sample = 1;
+            Sample = true;
             Num_instructions = 0;
         }
         return;
@@ -825,7 +825,7 @@ VOID valueNumberingMem3(void* op, void* addr1, void* addr2, void* addr3, uint32_
     if (Sample) {
         Num_instructions++;
         if (Num_instructions > SAMPLE_PERIOD) {
-            Sample = 0;
+            Sample = false;
             Num_instructions = 0;
             CleanValueNumbers(threadID);
             return;
@@ -833,7 +833,7 @@ VOID valueNumberingMem3(void* op, void* addr1, void* addr2, void* addr3, uint32_
     } else {
         Num_instructions++;
         if (Num_instructions > STOP_PERIOD) {
-            Sample = 1;
+            Sample = true;
             Num_instructions = 0;
         }
         return;
@@ -957,7 +957,7 @@ VOID valueNumberingMem4(void* op, void* addr1, void* addr2, void* addr3, void* a
     if (Sample) {
         Num_instructions++;
         if (Num_instructions > SAMPLE_PERIOD) {
-            Sample = 0;
+            Sample = false;
             Num_instructions = 0;
             CleanValueNumbers(threadID);
             return;
@@ -965,7 +965,7 @@ VOID valueNumberingMem4(void* op, void* addr1, void* addr2, void* addr3, void* a
     } else {
         Num_instructions++;
         if (Num_instructions > STOP_PERIOD) {
-            Sample = 1;
+            Sample = true;
             Num_instructions = 0;
         }
         return;
@@ -1414,23 +1414,23 @@ void InitValueNumbering(int argc, char* argv[]) {
     fprintf(gTraceFile, "\n");
 
     // Obtain  a key for TLS storage.
-    tls_key = PIN_CreateThreadDataKey(0);
+    tls_key = PIN_CreateThreadDataKey(nullptr);
 
     //initilize the global value used for value numbering
     gValue = 0;
     lastGValue = 0;
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(ThreadStart, 0);
+    PIN_AddThreadStartFunction(ThreadStart, nullptr);
 
     // INitialize the mutex
     PIN_MutexInit(&gMutex);
 
 
     // Register ImageUnload to be called when the image is unloaded
-    IMG_AddUnloadFunction(ImageUnload, 0);
+    IMG_AddUnloadFunction(ImageUnload, nullptr);
 
     // Register Fini to be called when the application exits
-    PIN_AddFiniFunction(RegDeadFini, 0);
+    PIN_AddFiniFunction(RegDeadFini, nullptr);
 }
 
 
@@ -1448,7 +1448,7 @@ int main(int argc, char* argv[]) {
     InitValueNumbering(argc, argv);
 
     // Init CCTlib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, Instruction, 0, false);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, Instruction, nullptr, false);
 
 
     // When line level info in not needed, simplt instrument each instruction

@@ -50,22 +50,22 @@ using namespace PinCCTLib;
 #define REG_ANALYSIS_FN_NAME "Analyze_regs"
 
 
-typedef struct valueGroup {
+using ValueGroup = struct valueGroup {
     list<uint32_t> indexes;
-} ValueGroup;
+};
 
-typedef struct intraRedRecord {
+using IntraRedRecord = struct intraRedRecord {
     double redundancy;
     uint32_t curCtxt;
     list<ValueGroup> group;
     list<uint32_t> spatialRedInd;
-} IntraRedRecord;
+};
 
-typedef struct intraRegsRed {
+using IntraRegsRed = struct intraRegsRed {
     double genRegRed;
     double x87RegRed;
     double simdRegRed;
-} IntraRegsRed;
+};
 
 struct RedSpyThreadData {
     long long numIns;
@@ -293,7 +293,7 @@ static void CheckRegValues(CONTEXT* ctxt, THREADID threadId) {
 
 template <typename T, bool isApprox>
 struct ArrayAnalysis {
-    typedef typename unordered_map<T, list<uint32_t>>::iterator MyIterator;
+    using MyIterator = typename unordered_map<T, list<uint32_t>>::iterator;
 
     static __attribute__((always_inline)) bool CheckIntraArrayRedundancy(uint64_t begAddr, uint64_t endAddr, uint32_t stride, IntraRedRecord* newPair) {
         unordered_map<T, list<uint32_t>> valuesMap;
@@ -591,23 +591,23 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0, true);
+    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, nullptr, true);
 
 
     // Obtain  a key for TLS storage.
-    client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
+    client_tls_key = PIN_CreateThreadDataKey(nullptr /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(ThreadStart, 0);
+    PIN_AddThreadStartFunction(ThreadStart, nullptr);
 
 
     // fini function for post-mortem analysis
-    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
-    PIN_AddFiniFunction(FiniFunc, 0);
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, nullptr);
+    PIN_AddFiniFunction(FiniFunc, nullptr);
 
-    IMG_AddInstrumentFunction(Overrides, 0);
+    IMG_AddInstrumentFunction(Overrides, nullptr);
 
     // Register ImageUnload to be called when an image is unloaded
-    IMG_AddUnloadFunction(ImageUnload, 0);
+    IMG_AddUnloadFunction(ImageUnload, nullptr);
 
     // Launch program now
     PIN_StartProgram();

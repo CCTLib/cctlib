@@ -35,7 +35,7 @@
 // (see $PIN_ROOT/source/tools/Utils/regvalue_utils.h). The union has the
 // same field names, so a plain typedef is safe and callback signatures
 // keep matching IARG_REG_REFERENCE / IARG_REG_CONST_REFERENCE.
-typedef PINTOOL_REGISTER PIN_REGISTER;
+using PIN_REGISTER = PINTOOL_REGISTER;
 
 // REG_is_in_X87(reg) -> REG_is_st(reg). Same semantics: true iff `reg` is
 // one of the x87 stack registers ST0..ST7 (REG_CLASS_ST).

@@ -1167,7 +1167,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, nullptr);
     /*
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, NULL, NULL, false);
@@ -1176,19 +1176,19 @@ int main(int argc, char* argv[]) {
     redload_approx_metric_id = hpcrun_create_metric("RED_LOAD_APPROX");
     */
     // Obtain  a key for TLS storage.
-    client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
+    client_tls_key = PIN_CreateThreadDataKey(nullptr /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(ThreadStart, 0);
+    PIN_AddThreadStartFunction(ThreadStart, nullptr);
 
 
     // fini function for post-mortem analysis
-    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
-    PIN_AddFiniFunction(FiniFunc, 0);
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, nullptr);
+    PIN_AddFiniFunction(FiniFunc, nullptr);
 
-    TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+    TRACE_AddInstrumentFunction(InstrumentTrace, nullptr);
 
     // Register ImageUnload to be called when an image is unloaded
-    IMG_AddUnloadFunction(ImageUnload, 0);
+    IMG_AddUnloadFunction(ImageUnload, nullptr);
 
     // Launch program now
     PIN_StartProgram();

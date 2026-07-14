@@ -159,11 +159,11 @@ static void ClientInit(int argc, char* argv[]) {
 static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     uint8_t* shadowPage;
     uint8_t*** l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
-    if (*l1Ptr == 0) {
+    if (*l1Ptr == nullptr) {
         *l1Ptr = (uint8_t**)calloc(1, LEVEL_2_PAGE_TABLE_SIZE);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(0, PAGE_SIZE * (sizeof(ADDRINT)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-    } else if ((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0) {
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(0, PAGE_SIZE * (sizeof(ADDRINT)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(nullptr, PAGE_SIZE * (sizeof(ADDRINT)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    } else if ((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == nullptr) {
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(nullptr, PAGE_SIZE * (sizeof(ADDRINT)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     return shadowPage;
 }
@@ -465,11 +465,11 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, nullptr);
 
     // fini function for post-mortem analysis
-    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
-    PIN_AddFiniFunction(FiniFunc, 0);
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, nullptr);
+    PIN_AddFiniFunction(FiniFunc, nullptr);
     // Launch program now
     PIN_StartProgram();
     return 0;

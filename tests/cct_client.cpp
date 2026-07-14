@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, nullptr);
     // Launch program now
     PIN_StartProgram();
     return 0;

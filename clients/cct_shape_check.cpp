@@ -1155,7 +1155,7 @@ int main(int argc, char* argv[]) {
     // is enough to enumerate the full CCT via GetFullCallingContext
     // from any recorded handle -- and it skips all the memory-access
     // instrumentation that was dominating runtime.
-    PinCCTLibInit(InterestingInsCallOrRet, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(InterestingInsCallOrRet, gTraceFile, InstrumentInsCallback, nullptr);
     // Hook main's entry AFTER PinCCTLibInit so cctlib's
     // TRACE_AddInstrumentFunction is registered before our
     // RTN_InsertCall (order of instrumentation callbacks in Pin does

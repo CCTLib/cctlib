@@ -183,11 +183,11 @@ static void ClientInit(int argc, char* argv[]) {
 static uint8_t* GetOrCreateShadowBaseAddress(uint64_t address) {
     uint8_t* shadowPage;
     uint8_t*** l1Ptr = &gL1PageTable[LEVEL_1_PAGE_TABLE_SLOT(address)];
-    if (*l1Ptr == 0) {
-        *l1Ptr = (uint8_t**)mmap(0, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(0, PAGE_SIZE * (sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-    } else if ((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == 0) {
-        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(0, PAGE_SIZE * (sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    if (*l1Ptr == nullptr) {
+        *l1Ptr = (uint8_t**)mmap(nullptr, LEVEL_2_PAGE_TABLE_SIZE, PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(nullptr, PAGE_SIZE * (sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    } else if ((shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)]) == nullptr) {
+        shadowPage = (*l1Ptr)[LEVEL_2_PAGE_TABLE_SLOT(address)] = (uint8_t*)mmap(nullptr, PAGE_SIZE * (sizeof(uint64_t)), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     }
     return shadowPage;
 }
@@ -707,7 +707,7 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, nullptr);
 
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, NULL, NULL, false);
@@ -715,19 +715,19 @@ int main(int argc, char* argv[]) {
     redspy_metric_id = hpcrun_create_metric("RED_STORES");
 
     // Obtain  a key for TLS storage.
-    client_tls_key = PIN_CreateThreadDataKey(0 /*TODO have a destructir*/);
+    client_tls_key = PIN_CreateThreadDataKey(nullptr /*TODO have a destructir*/);
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(ThreadStart, 0);
+    PIN_AddThreadStartFunction(ThreadStart, nullptr);
 
 
     // fini function for post-mortem analysis
-    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
-    PIN_AddFiniFunction(FiniFunc, 0);
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, nullptr);
+    PIN_AddFiniFunction(FiniFunc, nullptr);
     //TRACE_AddInstrumentFunction(InstrumentTrace, 0);
 
 
     // Register ImageUnload to be called when an image is unloaded
-    IMG_AddUnloadFunction(ImageUnload, 0);
+    IMG_AddUnloadFunction(ImageUnload, nullptr);
 
     // Launch program now
     PIN_StartProgram();

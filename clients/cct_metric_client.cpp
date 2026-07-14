@@ -112,14 +112,14 @@ int main(int argc, char* argv[]) {
     // Init Client
     ClientInit(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, nullptr);
     // Init hpcrun format output
     init_hpcrun_format(argc, argv, mergeFunc, computeMetricVal, false);
     ins_metric_id = hpcrun_create_metric("TOT_INS");
 
     // Collete data for visualization
-    PIN_AddThreadStartFunction(ThreadStartFunc, 0);
-    PIN_AddThreadFiniFunction(ThreadFiniFunc, 0);
+    PIN_AddThreadStartFunction(ThreadStartFunc, nullptr);
+    PIN_AddThreadFiniFunction(ThreadFiniFunc, nullptr);
     // Launch program now
     PIN_StartProgram();
     return 0;

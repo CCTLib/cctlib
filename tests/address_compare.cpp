@@ -216,7 +216,7 @@ VOID Checker(ADDRINT addr, ADDRINT ip, const CONTEXT* ctxt, UINT32 idx) {
     if (addr != (ADDRINT)(address)) {
         if (hm.find(addr) == hm.end()) {
             char buf[200];
-            if (0 == xed_format_context(XED_SYNTAX_ATT, &xedd, buf, 200, ip, 0, 0))
+            if (0 == xed_format_context(XED_SYNTAX_ATT, &xedd, buf, 200, ip, nullptr, nullptr))
                 strcpy(buf, "xed_decoded_inst_dump_att_format failed");
             printf("\n %s, %p, %p", buf, (void*)addr, (void*)address);
             hm.insert(addr);
@@ -252,10 +252,10 @@ int main(int argc, char* argv[]) {
     ClientInit(argc, argv);
 
     // Register Instruction to be called to instrument instructions
-    INS_AddInstrumentFunction(Instruction, 0);
+    INS_AddInstrumentFunction(Instruction, nullptr);
 
     // Register Fini to be called when the application exits
-    PIN_AddFiniFunction(Fini, 0);
+    PIN_AddFiniFunction(Fini, nullptr);
 
     // Launch program now
     PIN_StartProgram();

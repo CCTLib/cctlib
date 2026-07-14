@@ -19,7 +19,7 @@
 
 namespace PinCCTLib {
 
-typedef uint32_t ContextHandle_t;
+using ContextHandle_t = uint32_t;
 
 // Enum representing different data object types
 enum ObjectTypeEnum { STACK_OBJECT,
@@ -28,7 +28,7 @@ enum ObjectTypeEnum { STACK_OBJECT,
                       UNKNOWN_OBJECT };
 
 // The handle representing a data object
-typedef struct DataHandle_t {
+using DataHandle_t = struct DataHandle_t {
     uint8_t objectType;
     union {
         ContextHandle_t pathHandle;
@@ -42,30 +42,30 @@ typedef struct DataHandle_t {
     uint64_t end_addr;
 #endif
 #endif
-} DataHandle_t;
+};
 
 // Data type returned when a client tool queries  GetFullCallingContext
-typedef struct Context {
+using Context = struct Context {
     std::string functionName;
     std::string filePath;
     std::string disassembly;
     ContextHandle_t ctxtHandle;
     uint32_t lineNo;
     ADDRINT ip;
-} Context;
+};
 
-typedef struct HPCRunCCT_t {
+using HPCRunCCT_t = struct HPCRunCCT_t {
     ContextHandle_t ctxtHandle1;
     ContextHandle_t ctxtHandle2;
     uint64_t metric;
     int metric_id;
-} HPCRunCCT_t;
+};
 
 // Client callback function to determine if it wants to track a given INS
-typedef BOOL (*IsInterestingInsFptr)(INS ins);
+using IsInterestingInsFptr = BOOL (*)(INS);
 
 // Client callback made from CCTLib for each instruction indicated to be tracked by the client.
-typedef VOID (*CCTLibInstrumentInsCallback)(INS ins, VOID* v, const uint32_t slot);
+using CCTLibInstrumentInsCallback = VOID (*)(INS, VOID*, const uint32_t);
 
 // Predefined callback for tracking no INS
 inline BOOL InterestingInsNone(INS ins) {

@@ -162,7 +162,7 @@ struct NewIPNode;
 struct varType;
 struct PendingOps_t;
 struct ConcurrentReaderWriterTree_t;
-typedef set<varType> varSet;
+using varSet = set<varType>;
 #endif
 
 static inline ADDRINT GetIPFromInfo(ContextHandle_t);
@@ -220,7 +220,7 @@ struct IPNode {
 #endif
 };
 
-typedef struct QNode {
+using QNode = struct QNode {
     struct QNode* volatile next;
     union {
         struct {
@@ -229,7 +229,7 @@ typedef struct QNode {
         };
         volatile uint8_t status;
     };
-} QNode;
+};
 
 // should become TLS
 struct ThreadData {
@@ -735,18 +735,18 @@ inline VOID TakeLock() {
     do {
         while (GLOBAL_STATE.DSLock)
             ;
-    } while (!__sync_bool_compare_and_swap(&GLOBAL_STATE.DSLock, 0, 1));
+    } while (!__sync_bool_compare_and_swap(&GLOBAL_STATE.DSLock, false, true));
 }
 
 inline VOID ReleaseLock() {
-    GLOBAL_STATE.DSLock = 0;
+    GLOBAL_STATE.DSLock = false;
 }
 
 
 // Pauses creator thread from thread creation until
 // the previously created child thread has noted its parent.
 static inline void ThreadCreatePoint(THREADID threadId) {
-    while (1) {
+    while (true) {
         TakeLock();
 
         if (GLOBAL_STATE.threadCreateCount > GLOBAL_STATE.threadCaptureCount)
@@ -825,7 +825,7 @@ static inline void CCTLibInitThreadData(ThreadData* const tdata, CONTEXT* ctxt, 
     IPNode* ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(t->childCtxtStartIdx);
     ipNode->parentTraceNode = t;
 #ifdef USE_SPLAY_TREE
-    ipNode->calleeTraceNodes = 0;
+    ipNode->calleeTraceNodes = nullptr;
 #else
     ipNode->calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*>();
 #endif
@@ -837,7 +837,7 @@ static inline void CCTLibInitThreadData(ThreadData* const tdata, CONTEXT* ctxt, 
     tdata->tlsRootCtxtHndl = t->childCtxtStartIdx;
     UpdateCurTraceAndIp(tdata, t);
     tdata->tlsParentThreadCtxtHndl = 0;
-    tdata->tlsParentThreadTraceNode = 0;
+    tdata->tlsParentThreadTraceNode = nullptr;
     tdata->tlsInitiatedCall = true;
     tdata->curSlotNo = 0;
     tdata->tlsPendingLandingPadIp = 0;
@@ -1260,7 +1260,7 @@ static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInteresti
             //cerr<<"\n***:"<<numInterestingInstInTrace;
             for (uint32_t i = 0; i < numInterestingInstInTrace; i++) {
                 ipNode[i].parentTraceNode = newChild;
-                ipNode[i].calleeTraceNodes = 0;
+                ipNode[i].calleeTraceNodes = nullptr;
             }
         } else {
             // This can happen since we may hot a trace with 0 interesting instructions.
@@ -1505,7 +1505,7 @@ static TraceNode* DeserializeCCTNode(ContextHandle_t parentCtxtHndl, FILE* const
     for (uint32_t i = 0; i < traceNode->nSlots; i++) {
         ipNode[i].parentTraceNode = traceNode;
 
-        while (1) {
+        while (true) {
             TraceNode* childTrace = DeserializeCCTNode(traceNode->childCtxtStartIdx + i, fp);
 
             if (childTrace == NULL)
@@ -1575,7 +1575,7 @@ static void SerializeAllCCTs() {
 static bool IsDirectory(const char* path) {
     struct stat statbuf;
     if (stat(path, &statbuf) != 0)
-        return 0;
+        return false;
     return S_ISDIR(statbuf.st_mode);
 }
 
@@ -1995,7 +1995,7 @@ static void GetDecodedInstFromIP(ADDRINT ip) {
     xed_decoded_inst_zero_set_mode(&xedd, &GLOBAL_STATE.cct_xed_state);
 
     if (XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
-        if (0 == xed_format_context(XED_SYNTAX_ATT, &xedd, GLOBAL_STATE.disassemblyBuff, 200, ip, 0, 0))
+        if (0 == xed_format_context(XED_SYNTAX_ATT, &xedd, GLOBAL_STATE.disassemblyBuff, 200, ip, nullptr, nullptr))
             strcpy(GLOBAL_STATE.disassemblyBuff, "xed_decoded_inst_dump_att_format failed");
     } else {
         strcpy(GLOBAL_STATE.disassemblyBuff, "xed_decode failed");
@@ -2249,7 +2249,7 @@ static VOID GetFullCallingContextInSitu(ContextHandle_t curCtxtHndle, vector<Con
     }
 
     //reset sig handler
-    sigaction(SIGSEGV, &old, 0);
+    sigaction(SIGSEGV, &old, nullptr);
 }
 
 
@@ -2332,7 +2332,7 @@ tHandle*/
     }
 
     //reset sig handler
-    sigaction(SIGSEGV, &old, 0);
+    sigaction(SIGSEGV, &old, nullptr);
 }
 
 
@@ -2420,11 +2420,11 @@ void LogContexts(iostream& ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
 static void InitBuffers() {
     // prealloc IPNodeVec so that they all come from a continuous memory region.
     // IMPROVEME ... actually this can be as high as 24 GB since lower 3 bits are always zero for pointers
-    GLOBAL_STATE.preAllocatedContextBuffer = (IPNode*)mmap(0, MAX_IPNODES * sizeof(IPNode), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    GLOBAL_STATE.preAllocatedContextBuffer = (IPNode*)mmap(nullptr, MAX_IPNODES * sizeof(IPNode), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     // start from index 1 so that we can use 0 as empty key for the google hash table
     GLOBAL_STATE.curPreAllocatedContextBufferIndex = 1;
     // Init the string pool
-    GLOBAL_STATE.preAllocatedStringPool = (char*)mmap(0, MAX_STRING_POOL_NODES * sizeof(char), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    GLOBAL_STATE.preAllocatedStringPool = (char*)mmap(nullptr, MAX_STRING_POOL_NODES * sizeof(char), PROT_WRITE | PROT_READ, MAP_NORESERVE | MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     // start from index 1 so that we can use 0 as a special value
     GLOBAL_STATE.curPreAllocatedStringPoolIndex = 1;
 }
@@ -3114,9 +3114,9 @@ static void InitDataCentric() {
 #ifdef USE_SHADOW_FOR_DATA_CENTRIC
 #endif // end USE_SHADOW_FOR_DATA_CENTRIC
     // This will perform hpc_var_bounds functionality on each image load
-    IMG_AddInstrumentFunction(ComputeVarBounds, 0);
+    IMG_AddInstrumentFunction(ComputeVarBounds, nullptr);
     // delete image from the list at the unloading callback
-    IMG_AddUnloadFunction(DeleteStaticVar, 0);
+    IMG_AddUnloadFunction(DeleteStaticVar, nullptr);
 #ifdef USE_TREE_BASED_FOR_DATA_CENTRIC
     // make gLatestMallocVarSet point to one of mallocVarSets.
     GLOBAL_STATE.latestConcurrentTree = &(GLOBAL_STATE.concurrentReaderWriterTree[0]);
@@ -3149,18 +3149,18 @@ int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibIn
     InitXED();
     //InitLocks();
     // Obtain  a key for TLS storage.
-    GLOBAL_STATE.CCTLibTlsKey = PIN_CreateThreadDataKey(0 /*TODO have a destructor*/);
+    GLOBAL_STATE.CCTLibTlsKey = PIN_CreateThreadDataKey(nullptr /*TODO have a destructor*/);
     // remember user instrumentation callback
     GLOBAL_STATE.userInstrumentationCallback = userCallback;
     GLOBAL_STATE.userInstrumentationCallbackArg = userCallbackArg;
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(CCTLibThreadStart, 0);
+    PIN_AddThreadStartFunction(CCTLibThreadStart, nullptr);
     // Register for context change in case of signals .. Actually this is never used. // Todo: - fix me
-    PIN_AddContextChangeFunction(OnSig, 0);
+    PIN_AddContextChangeFunction(OnSig, nullptr);
     // Initialize ModuleInfoMap
     //ModuleInfoMap.set_empty_key(UINT_MAX);
     // Record Module information on each Image load.
-    IMG_AddInstrumentFunction(CCTLibInstrumentImageLoad, 0);
+    IMG_AddInstrumentFunction(CCTLibInstrumentImageLoad, nullptr);
 
     if (doDataCentric) {
         InitDataCentric();
@@ -3169,13 +3169,13 @@ int PinCCTLibInit(IsInterestingInsFptr isInterestingIns, FILE* logFile, CCTLibIn
     // Since some functions may not be known, instrument every "trace"
     TRACE_AddInstrumentFunction(CCTLibInstrumentTrace, (void*)isInterestingIns);
     // Register Image to be called to instrument functions.
-    IMG_AddInstrumentFunction(CCTLibImage, 0);
+    IMG_AddInstrumentFunction(CCTLibImage, nullptr);
     // Add a function to report entire stats at the termination.
-    PIN_AddFiniFunction(CCTLibFini, 0);
+    PIN_AddFiniFunction(CCTLibFini, nullptr);
     // Register Fini to be called when the application exits
-    PIN_AddFiniFunction(Fini, 0);
+    PIN_AddFiniFunction(Fini, nullptr);
     // We need to know if the applicated has started
-    PIN_AddApplicationStartFunction(CCTLibAppStartNotification, 0);
+    PIN_AddApplicationStartFunction(CCTLibAppStartNotification, nullptr);
     return 0;
 }
 
@@ -3197,7 +3197,7 @@ int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, const string& serializedFi
     InitXED();
     //InitLocks();
     // Obtain  a key for TLS storage.
-    GLOBAL_STATE.CCTLibTlsKey = PIN_CreateThreadDataKey(0 /*TODO have a destructor*/);
+    GLOBAL_STATE.CCTLibTlsKey = PIN_CreateThreadDataKey(nullptr /*TODO have a destructor*/);
     DeserializeMetadata(serializedFilesDirectory);
     return 0;
 }
@@ -3356,50 +3356,50 @@ struct NewIPNode {
     uint64_t* metricVal;
 };
 
-typedef uint16_t size_t;
+using size_t = uint16_t;
 
 
-typedef enum {
+using MetricFlags_Ty_t = enum {
     MetricFlags_Ty_NULL = 0,
     MetricFlags_Ty_Raw,
     MetricFlags_Ty_Final,
     MetricFlags_Ty_Derived
-} MetricFlags_Ty_t;
+};
 
 
-typedef enum {
+using MetricFlags_ValTy_t = enum {
     MetricFlags_ValTy_NULL = 0,
     MetricFlags_ValTy_Incl,
     MetricFlags_ValTy_Excl
-} MetricFlags_ValTy_t;
+};
 
 
-typedef enum {
+using MetricFlags_ValFmt_t = enum {
     MetricFlags_ValFmt_NULL = 0,
     MetricFlags_ValFmt_Int,
     MetricFlags_ValFmt_Real,
-} MetricFlags_ValFmt_t;
+};
 
 
-typedef struct epoch_flags_bitfield {
+using epoch_flags_bitfield = struct epoch_flags_bitfield {
     bool isLogicalUnwind : 1;
     uint64_t unused : 63;
-} epoch_flags_bitfield;
+};
 
 
-typedef union epoch_flags_t {
+using epoch_flags_t = union epoch_flags_t {
     epoch_flags_bitfield fields;
     uint64_t bits; // for reading/writing
-} epoch_flags_t;
+};
 
 
-typedef struct metric_desc_properties_t {
+using metric_desc_properties_t = struct metric_desc_properties_t {
     unsigned time : 1;
     unsigned cycles : 1;
-} metric_desc_properties_t;
+};
 
 
-typedef struct hpcrun_metricFlags_fields {
+using hpcrun_metricFlags_fields = struct hpcrun_metricFlags_fields {
     MetricFlags_Ty_t ty : 8;
     MetricFlags_ValTy_t valTy : 8;
     MetricFlags_ValFmt_t valFmt : 8;
@@ -3408,16 +3408,16 @@ typedef struct hpcrun_metricFlags_fields {
     uint8_t /*bool*/ show;
     uint8_t /*bool*/ showPercent;
     uint64_t unused1;
-} hpcrun_metricFlags_fields;
+};
 
 
-typedef union hpcrun_metricFlags_t {
+using hpcrun_metricFlags_t = union hpcrun_metricFlags_t {
     hpcrun_metricFlags_fields fields;
     uint8_t bits[2 * 8]; // for reading/writing
     uint64_t bits_big[2]; // for easy initialization
-} hpcrun_metricFlags_t;
+};
 
-typedef struct metric_desc_t {
+using metric_desc_t = struct metric_desc_t {
     char* name;
     char* description;
     //uint8_t bits[2 * 8];
@@ -3428,15 +3428,15 @@ typedef struct metric_desc_t {
     char* formula;
     char* format;
     bool is_frequency_metric;
-} metric_desc_t;
+};
 
 
-typedef struct metric_set_t metric_set_t;
+using metric_set_t = struct metric_set_t;
 
 
-typedef struct spinlock_s {
+using spinlock_t = struct spinlock_s {
     volatile long thelock;
-} spinlock_t;
+};
 
 
 struct fileid {
@@ -3538,7 +3538,7 @@ NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t pare
 void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t* nodeCount);
 NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node);
 void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t* nodeCount);
-uint32_t GetID(void);
+uint32_t GetID();
 // ************************************************************************************
 
 // ****************Print merged splay tree*********************************************
@@ -3633,7 +3633,7 @@ int hpcio_fclose(FILE* fs) {
     return 0;
 }
 
-static void hpcrun_files_init(void) {
+static void hpcrun_files_init() {
     pid_t cur_pid = getpid();
 
     if (mypid != cur_pid) {
@@ -3769,7 +3769,7 @@ void hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period,
     mdesc.flags.fields.showPercent = true;
     mdesc.formula = NULL;
     mdesc.format = NULL;
-    mdesc.is_frequency_metric = 0;
+    mdesc.is_frequency_metric = false;
 
     hpcfmt_str_fwrite(mdesc.name, fs);
     hpcfmt_str_fwrite(mdesc.description, fs);
@@ -4088,7 +4088,7 @@ void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t* nodeCount) {
 
 
 // Helper function to assign ID for each node
-uint32_t GetID(void) {
+uint32_t GetID() {
     // begin with 2 because 0 is the common root
     static uint32_t IDGlobal = 2;
     uint32_t id = __sync_fetch_and_add(&IDGlobal, 2);

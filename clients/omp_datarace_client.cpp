@@ -99,7 +99,7 @@ static string skipImages[] = {OMP_RUMTIMR_LIB_NAME, LINUX_LD_NAME};
 // A writer first increments writeStart via a CAS and then writes the data and then increments writeEnd.
 // Two writers use "writeStart" as their lock to ensure mutual exclusion.
 
-typedef struct VersionInfo_t {
+using VersionInfo_t = struct VersionInfo_t {
     union {
         volatile atomic<uint64_t> readStart;
         volatile atomic<uint64_t> writeEnd;
@@ -108,14 +108,14 @@ typedef struct VersionInfo_t {
         volatile atomic<uint64_t> writeStart;
         volatile atomic<uint64_t> readEnd;
     };
-} VersionInfo_t;
+};
 
 
 // 2 readers and 1 writer are recorded per byte of memory.
 // In addition, a concurrency control mechanism is used for atomic accesses to the shadow memory.
 // TODO: One may optimize the granularity of locking
 
-typedef struct DataraceInfo_t {
+using DataraceInfo_t = struct DataraceInfo_t {
     // Concurreny control via versioning
     VersionInfo_t versionInfo;
 
@@ -133,17 +133,17 @@ typedef struct DataraceInfo_t {
     Label* write1;
     // Last writer's CCT id
     ContextHandle_t write1Context;
-} DataraceInfo_t;
+};
 
 ConcurrentShadowMemory<DataraceInfo_t> sm;
 
 // This is just a wrapper for a piece of Label along with a pointer to the location of the shadow memory.
 // This is used for updating the shadow memory after reading from it.
 // By remembering the shadowAddress, we don't have to recompute it by following the page table indices.
-typedef struct ExtendedDataraceInfo_t {
+using ExtendedDataraceInfo_t = struct ExtendedDataraceInfo_t {
     DataraceInfo_t* shadowAddress;
     DataraceInfo_t data;
-} ExtendedDataraceInfo_t;
+};
 
 
 // A label is a concatenation of several LabelSegments
@@ -459,7 +459,7 @@ static inline bool HappensBefore(const Label* const oldLabel, const Label* const
     LabelSegment* oldLabelSegment = NULL;
     LabelSegment* newLabelSegment = NULL;
 
-    while (1) {
+    while (true) {
         oldLabelSegment = oldLabelIter.NextSegment();
         newLabelSegment = newLabelIter.NextSegment();
         if (oldLabelSegment == NULL)
@@ -503,7 +503,7 @@ static inline bool IsLeftOf(const Label* const newLabel, const Label* const oldL
     LabelIterator newLabelIter = LabelIterator(*newLabel);
 
 
-    while (1) {
+    while (true) {
         LabelSegment* oldLabelSegment = oldLabelIter.NextSegment();
         LabelSegment* newLabelSegment = newLabelIter.NextSegment();
         if (oldLabelSegment == NULL || newLabelSegment == NULL)
@@ -528,7 +528,7 @@ static inline bool MaximizesExitRank(const Label* const newLabel, const Label* c
     LabelIterator oldLabelIter = LabelIterator(*oldLabel);
     LabelIterator newLabelIter = LabelIterator(*newLabel);
 
-    while (1) {
+    while (true) {
         LabelSegment* oldLabelSegment = oldLabelIter.NextSegment();
         LabelSegment* newLabelSegment = newLabelIter.NextSegment();
         if (oldLabelSegment == NULL || newLabelSegment == NULL)
@@ -612,7 +612,7 @@ static inline void CheckRead(DataraceInfo_t* shadowAddress, Label* myLabel, uint
             }
         }
         break;
-    } while (1);
+    } while (true);
 }
 
 static inline void CheckWrite(DataraceInfo_t* shadowAddress, Label* myLabel, uint32_t opaqueHandle, THREADID threadId) {
@@ -660,7 +660,7 @@ static inline void CheckWrite(DataraceInfo_t* shadowAddress, Label* myLabel, uin
         }
         CommitChangesToShadowMemory(oldW1Label, myLabel);
         break;
-    } while (1);
+    } while (true);
 }
 
 
@@ -741,13 +741,13 @@ static inline bool IsIgnorableIns(INS ins) {
 //    void gomp_datarace_begin_ordered_section(uint64_t region_id);
 //    void gomp_datarace_begin_critical(void *);
 //    void gomp_datarace_end_critical(void *);
-typedef void (*FP_MASTER)(uint64_t region_id, long span);
-typedef void (*FP_WORKER)(uint64_t region_id, long span, long iter);
-typedef void (*FP_WORKER_END)();
-typedef void (*FP_ORDERED_ENTER)(uint64_t region_id);
-typedef void (*FP_ORDERED_EXIT)(uint64_t region_id);
-typedef void (*FP_CRITICAL_ENTER)(void*);
-typedef void (*FP_CRITICAL_EXIT)(void*);
+using FP_MASTER = void (*)(uint64_t, long);
+using FP_WORKER = void (*)(uint64_t, long, long);
+using FP_WORKER_END = void (*)();
+using FP_ORDERED_ENTER = void (*)(uint64_t);
+using FP_ORDERED_EXIT = void (*)(uint64_t);
+using FP_CRITICAL_ENTER = void (*)(void*);
+using FP_CRITICAL_EXIT = void (*)(void*);
 
 
 void new_MASTER_BEGIN_FN_NAME(uint64_t region_id, long span, THREADID threadid) {
@@ -1013,13 +1013,13 @@ void InitDataRaceSpy(int argc, char* argv[]) {
     gRegionIdToMasterLabelMap = (Label**)calloc(MAX_REGIONS, sizeof(Label*));
 
     // Obtain  a key for TLS storage.
-    tls_key = PIN_CreateThreadDataKey(0);
+    tls_key = PIN_CreateThreadDataKey(nullptr);
 
     // Register ThreadStart to be called when a thread starts.
-    PIN_AddThreadStartFunction(ThreadStart, 0);
+    PIN_AddThreadStartFunction(ThreadStart, nullptr);
 
     // Record Module information about OMP runtime
-    IMG_AddInstrumentFunction(InstrumentImageLoad, 0);
+    IMG_AddInstrumentFunction(InstrumentImageLoad, nullptr);
 }
 
 // Main for DataraceSpy, initialize the tool, register instrumentation functions and call the target program.
@@ -1032,9 +1032,9 @@ int main(int argc, char* argv[]) {
     // Intialize DataraceSpy
     InitDataRaceSpy(argc, argv);
     // Intialize CCTLib
-    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, 0);
+    PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, nullptr);
     // Look up and replace some functions
-    IMG_AddInstrumentFunction(Overrides, 0);
+    IMG_AddInstrumentFunction(Overrides, nullptr);
     fprintf(stderr, "\n TODO TODO ... eliminate stack local check and make it robust");
     // Launch program now
     PIN_StartProgram();
