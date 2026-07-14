@@ -6,8 +6,7 @@ on:
   pull_request:
     branches: [master]
 
-# Cancel any earlier still-running job for the same ref -- format is
-# fast, no need to queue.
+# Cancel any earlier still-running job for the same ref.
 concurrency:
   group: lint-${{ github.ref }}
   cancel-in-progress: true
@@ -40,11 +39,90 @@ jobs:
           fi
           clang-format-15 --dry-run --Werror "${files[@]}"
 
-  # clang-tidy is NOT run in CI:
-  #   * clang-tidy needs compile_commands.json (produced by `bear -- make`)
-  #   * bear -- make needs to actually build cctlib, which needs PIN_ROOT
-  #   * Pin is a large closed-source download from Intel with license
-  #     acceptance -- painful to set up on a hosted runner
-  # `make lint` is a workstation step for now. When PIN_ROOT caching is
-  # sorted out, add a `lint` job here that installs Pin, runs `bear`, then
-  # `make lint`.
+  clang-tidy:
+    name: clang-tidy (Pin build)
+    runs-on: ubuntu-22.04
+    # clang-tidy needs compile_commands.json (produced by `bear -- make`),
+    # which needs a full build, which needs Pin. Cache the Pin tarball so
+    # only the first run pays the 40 MB download.
+    env:
+      PIN_VERSION: pin-external-4.3-99850-gce5652921-gcc-linux
+      PIN_URL: https://software.intel.com/sites/landingpage/pintool/downloads/pin-external-4.3-99850-gce5652921-gcc-linux.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install apt dependencies
+        # clang-15 provides the resource-dir headers (xmmintrin.h, unwind.h,
+        # ...) that clang-tidy's -nostdinc/-idirafter path in
+        # LINT_PIN_EXTRA_ARGS expects. bear captures compile commands from
+        # the wrapping build. autoconf/automake/libtool + unzip are for
+        # ./build.sh's dep-install phase.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+              clang-15 clang-tidy-15 clang-format-15 \
+              bear \
+              autoconf automake libtool \
+              unzip \
+              build-essential
+
+      - name: Cache Pin tarball
+        id: pin-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/pin-cache/${{ env.PIN_VERSION }}.tar.gz
+          key: ${{ env.PIN_VERSION }}
+
+      - name: Download Pin (cache miss only)
+        if: steps.pin-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/pin-cache
+          curl -fSL "$PIN_URL" -o ~/pin-cache/${PIN_VERSION}.tar.gz
+
+      - name: Extract Pin
+        run: |
+          mkdir -p ~/pin
+          tar -C ~/pin -xzf ~/pin-cache/${PIN_VERSION}.tar.gz
+          test -x ~/pin/${PIN_VERSION}/pin
+          echo "PIN_ROOT=$HOME/pin/${PIN_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Build cctlib (bear -- ./build.sh) to capture compile_commands.json
+        # ./build.sh unpacks libelf / sparsehash / json from externals/ (all
+        # tracked in the repo), runs configure with the right paths, then
+        # make -j and make check. Wrap the whole build in bear so every
+        # compile invocation lands in compile_commands.json for clang-tidy.
+        # Skip `make check` in CI (that's the Pin runtime test suite; slow
+        # and out of scope for lint).
+        run: |
+          set -euxo pipefail
+          # Strip the `make check` line so build.sh only builds, not runs
+          # the Pin runtime suite.
+          sed -i '/^make check/d;/^echo "\*\*\*\*\*\*\*\*\*YOU SUCCESSFULLY TESTED/d' build.sh
+          bear -- bash build.sh
+          test -s compile_commands.json
+
+      - name: Verify clang-tidy version
+        run: clang-tidy-15 --version
+
+      - name: make lint  (fail if any warning / error)
+        # `make lint`'s recipe always exits 0 (it greps output for
+        # diagnostics and prints them). Re-run under a `tee | grep` so
+        # any diagnostic line fails the job.
+        # LINT_CLANG_RESOURCE_DIR defaults to a hardcoded /usr/lib/llvm-15
+        # path that varies by distro patch version; ask clang-15 directly.
+        run: |
+          set -o pipefail
+          RESOURCE_DIR="$(clang-15 -print-resource-dir)"
+          make lint LINT_CLANG_RESOURCE_DIR="$RESOURCE_DIR" 2>&1 | tee lint-output.log
+          if grep -qE ':[0-9]+:[0-9]+: (warning|error):' lint-output.log; then
+              echo "::error::clang-tidy reported diagnostics; see lint-output.log above"
+              exit 1
+          fi
+          echo "clang-tidy: zero warnings"
+
+      - name: Upload lint output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-output
+          path: lint-output.log
