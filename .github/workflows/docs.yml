@@ -1,0 +1,72 @@
+name: docs
+
+on:
+  push:
+    branches: [master]
+  # Allow manual runs from the Actions UI.
+  workflow_dispatch:
+
+# Only one Pages deploy in flight; queue skipped runs are wasted.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+# Pages deployment requires this specific permission set.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: doxygen build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doxygen + graphviz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+
+      - name: Version banner
+        run: |
+          doxygen --version
+          dot -V
+
+      - name: Run doxygen
+        # Invoke doxygen directly rather than `make docs`: Makefile.am
+        # unconditionally includes Pin's makefile.config at the top, so
+        # running any make target from it requires PIN_ROOT and the Pin
+        # tree. docs generation doesn't need Pin -- shell out directly.
+        run: doxygen docs/Doxyfile
+
+      - name: Ensure docs were produced
+        run: test -s docs/output/html/index.html
+
+      - name: Add .nojekyll (Pages preserves _underscored/ paths)
+        # GitHub Pages runs jekyll by default, which strips files whose
+        # names begin with underscore. Doxygen emits _formulas.tex,
+        # etc. Add .nojekyll to disable that.
+        run: touch docs/output/html/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/output/html
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+# One-time setup on the repo:
+#   Settings -> Pages -> Source: "GitHub Actions"
+# After the first successful run, docs are served at
+# https://<org>.github.io/<repo>/ (i.e. https://cctlib.github.io/cctlib/).
