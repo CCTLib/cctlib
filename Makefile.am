@@ -106,6 +106,17 @@ format:
 format-check:
 	@$(CLANG_FORMAT) --dry-run --Werror $(FORMAT_FILES)
 
+# Local git hooks: point core.hooksPath at .githooks/ so `git commit`
+# runs .githooks/pre-commit (which clang-formats staged files). See
+# .githooks/README.md. One-time setup per clone. Uninstall with
+# `git config --unset core.hooksPath`.
+.PHONY: install-hooks
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "hooks installed: core.hooksPath = .githooks"
+	@echo "  bypass a single commit with: git commit --no-verify"
+	@echo "  uninstall with: git config --unset core.hooksPath"
+
 # Coverage: builds the host gtest suite with gcov instrumentation, runs it,
 # and produces coverage/index.html via lcov+genhtml. Pin-tool coverage is
 # intentionally NOT collected -- Pin's runtime is a closed-source ELF that

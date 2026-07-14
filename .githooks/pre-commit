@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# CCTLib pre-commit hook: clang-format staged C/C++ files.
+#
+# Installed via `make install-hooks` (which sets core.hooksPath=.githooks).
+# Bypass for a single commit with `git commit --no-verify`.
+#
+# Behavior:
+#   1. Collect the staged .cpp/.H/.h/.hpp files (added / copied / modified).
+#   2. Run clang-format on each; if any of them changes, re-stage the fixed
+#      file with `git add` and print what was reformatted.
+#   3. If clang-format itself fails (missing binary, parse error), block the
+#      commit with a non-zero exit and let the user resolve it.
+#
+# The hook only touches STAGED files. Unstaged modifications on the same
+# path are left alone: we call `clang-format -i` on the working tree, then
+# only `git add` the specific staged paths back, so any extra unstaged
+# hunks stay unstaged.
+#
+# The lint pass (clang-tidy) is deliberately NOT in this hook -- it needs
+# compile_commands.json (produced by `bear -- make`) and PIN_ROOT, both of
+# which are workstation-only. CI catches lint drift on push.
+
+set -euo pipefail
+
+CLANG_FORMAT=${CLANG_FORMAT:-clang-format-15}
+
+if ! command -v "$CLANG_FORMAT" >/dev/null 2>&1; then
+    echo "pre-commit: $CLANG_FORMAT not found in PATH; skipping format check." >&2
+    echo "  install: sudo apt install clang-format-15  (or override with CLANG_FORMAT=...)" >&2
+    exit 0
+fi
+
+# Staged paths, filtered to formattable C/C++ sources. --diff-filter=ACM
+# = Added, Copied, Modified (skip deleted / renamed-without-content).
+mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACM \
+                     | grep -E '\.(cpp|H|h|hpp)$' || true)
+
+if [ ${#STAGED[@]} -eq 0 ]; then
+    exit 0
+fi
+
+# Run clang-format on each staged path. Record which ones were actually
+# modified so we can (a) re-stage them and (b) tell the user what changed.
+REFORMATTED=()
+for f in "${STAGED[@]}"; do
+    # Skip paths that were removed after `git add` (rare but possible).
+    [ -f "$f" ] || continue
+    before=$(sha1sum "$f" | awk '{print $1}')
+    "$CLANG_FORMAT" -i "$f"
+    after=$(sha1sum "$f" | awk '{print $1}')
+    if [ "$before" != "$after" ]; then
+        REFORMATTED+=("$f")
+        git add "$f"
+    fi
+done
+
+if [ ${#REFORMATTED[@]} -gt 0 ]; then
+    echo "pre-commit: clang-format reformatted (auto-re-staged):" >&2
+    for f in "${REFORMATTED[@]}"; do
+        echo "  - $f" >&2
+    done
+fi
+
+exit 0
