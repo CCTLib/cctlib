@@ -34,6 +34,7 @@ TESTS := \
     $(OBJDIR)/ins_reuse_integration_test \
     $(OBJDIR)/rvn_integration_test \
     $(OBJDIR)/exception_integration_test \
+    $(OBJDIR)/exception_shape_test \
     $(OBJDIR)/recursion_integration_test
 
 # Victim programs used by integration tests. Built with the HOST toolchain
@@ -92,6 +93,7 @@ VICTIMS := \
     $(OBJDIR)/apps/exceptions/exc_dtor_cleanup \
     $(OBJDIR)/apps/exceptions/exc_stress_loop \
     $(OBJDIR)/apps/exceptions/exc_polymorphic \
+    $(OBJDIR)/apps/exceptions/exc_recurse_trycatch \
     $(OBJDIR)/apps/exceptions/exc_none_tn \
     $(OBJDIR)/apps/exceptions/exc_uncaught_tn \
     $(OBJDIR)/apps/exceptions/exc_ctor_throw \
