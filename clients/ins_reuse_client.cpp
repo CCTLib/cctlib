@@ -55,10 +55,26 @@ using namespace PinCCTLib;
 #define CACHELINE_SIZE (1L << CACHELINE_BIT)
 
 #define NUM_BLOCKS (3)
+#define NUM_CACHE_LEVELS (4) // L1i, L2, L3, iTLB
 
 #define FIRST_USE (ULLONG_MAX)
 
 #define MULTI_THREADED
+
+// CCT/LRU knobs
+static KNOB<bool> KnobCCT(KNOB_MODE_WRITEONCE, "pintool", "cct", "0", "Enable CCT-level LRU eviction pair tracking");
+static KNOB<UINT64> KnobL1iCap(KNOB_MODE_WRITEONCE, "pintool", "l1i_cap", "8192", "L1i capacity in unique instructions");
+static KNOB<UINT64> KnobL2Cap(KNOB_MODE_WRITEONCE, "pintool", "l2_cap", "65536", "L2 capacity in unique instructions");
+static KNOB<UINT64> KnobL3Cap(KNOB_MODE_WRITEONCE, "pintool", "l3_cap", "2097152", "L3 capacity in unique instructions");
+static KNOB<UINT64> KnobITLBCap(KNOB_MODE_WRITEONCE, "pintool", "itlb_cap", "64", "iTLB capacity in 4K pages");
+static KNOB<UINT32> KnobTopN(KNOB_MODE_WRITEONCE, "pintool", "topn", "100", "Top-N eviction pairs to report per level");
+
+static bool gCCTEnabled = false;
+static uint64_t gCacheCapacities[NUM_CACHE_LEVELS];
+static const char* gCacheLevelNames[NUM_CACHE_LEVELS] = {"L1i", "L2", "L3", "iTLB"};
+
+// JIT-time mapping: instruction address → CCTLib slot
+static unordered_map<ADDRINT, uint32_t> gAddrToSlot;
 
 
 struct {
@@ -96,6 +112,17 @@ struct InsReuseThreadData {
         ShadowMemory<uint64_t> sm;
     } blockData[NUM_BLOCKS];
 
+    // iTLB page-level LRU model (BBL granularity)
+    RBTree_t itlbRBTree;
+    uint64_t itlbTick;
+    uint64_t itlbFootprint;
+    ShadowMemory<uint64_t> smITLBPage;
+
+    // CCT eviction pair tracking
+    unordered_map<uint64_t, ContextHandle_t> insTickToCtxt;
+    unordered_map<uint64_t, ContextHandle_t> itlbTickToCtxt;
+    unordered_map<uint64_t, uint64_t> missPairs[NUM_CACHE_LEVELS];
+
     bool sampleFlag;
     char padding2[128];
 };
@@ -110,6 +137,7 @@ static struct {
         uint64_t footprint;
         uint64_t reuseHisto[MAX_REUSE_DISTANCE_BINS];
     } blockData[NUM_BLOCKS];
+    unordered_map<uint64_t, uint64_t> missPairs[NUM_CACHE_LEVELS];
 } GLOBAL_STATS;
 
 
@@ -268,6 +296,39 @@ static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTi
     }
 }
 
+// CCTLib JIT-time callback: record each instruction's address → slot mapping
+static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
+    gAddrToSlot[INS_Address(ins)] = slot;
+}
+
+static inline void RecordEvictionPair(ContextHandle_t victimCtxt, ContextHandle_t curCtxt,
+                                      unordered_map<uint64_t, uint64_t>& pairMap) {
+    uint64_t key = ((uint64_t)victimCtxt << 32) | (uint64_t)curCtxt;
+    pairMap[key]++;
+}
+
+static inline void CheckEvictions(RBTree_t& tree,
+                                  unordered_map<uint64_t, ContextHandle_t>& tickToCtxt,
+                                  ContextHandle_t curCtxt,
+                                  uint64_t reuseDistance, bool isFirstUse,
+                                  const uint64_t* capacities, int numLevels,
+                                  unordered_map<uint64_t, uint64_t>* missPairs) {
+    for (int lvl = 0; lvl < numLevels; lvl++) {
+        bool isMiss = isFirstUse
+                          ? (tree.GetTotalSum() > capacities[lvl])
+                          : (reuseDistance > capacities[lvl]);
+        if (isMiss) {
+            auto* victim = tree.FindNodeAtRankFromRight(capacities[lvl]);
+            if (victim) {
+                auto it = tickToCtxt.find(victim->key);
+                if (it != tickToCtxt.end()) {
+                    RecordEvictionPair(it->second, curCtxt, missPairs[lvl]);
+                }
+            }
+        }
+    }
+}
+
 static inline uint64_t ComputeBlockReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData* tData, RBTree_t* rbt) {
     // Find how many RB-Tree nodes are to the right of this node.
     uint64_t reuseDist;
@@ -286,33 +347,90 @@ static inline uint64_t ComputeBlockReuseDistance(uint64_t prevTick, uint64_t new
 }
 
 
-static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, THREADID threadId) {
+static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, uint32_t slot, THREADID threadId) {
     assert(0 != numInsInBBL);
     InsReuseThreadData* tData = ClientGetTLS(threadId);
     tuple<uint64_t[SHADOW_PAGE_SIZE]>& t = tData->smIns.GetOrCreateShadowBaseAddress((uint64_t)insAddr);
     uint64_t* shadowMemAddr = &(get<0>(t)[PAGE_OFFSET((uint64_t)insAddr)]);
 
-
     uint64_t prevTick = *shadowMemAddr;
     uint64_t newTick = tData->numInsExecuted;
+    uint64_t reuseDistance = FIRST_USE;
+    bool isFirstUse = (prevTick == 0);
 
-    // Update the number of instructions executed
-    if (prevTick == 0 /* first use */) {
+    if (isFirstUse) {
         tData->numInsExecuted += numInsInBBL;
         tData->footprint += numInsInBBL;
-        // However, needs a new insertion
         auto* newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
         tData->insRBTree.Insert(newNode);
         *shadowMemAddr = tData->numInsExecuted;
     } else {
-        // Update the tick if prevTick != newTick
         if (prevTick != newTick) {
             tData->numInsExecuted += numInsInBBL;
         }
-        uint64_t reuseDistance = ComputeInsReuseDistance(prevTick, tData->numInsExecuted, numInsInBBL, tData, &tData->insRBTree);
+        reuseDistance = ComputeInsReuseDistance(prevTick, tData->numInsExecuted, numInsInBBL, tData, &tData->insRBTree);
         assert(FIRST_USE != reuseDistance);
         UpdateInsReuseStats(reuseDistance, numInsInBBL, tData);
         *shadowMemAddr = tData->numInsExecuted;
+    }
+
+    if (gCCTEnabled) {
+        ContextHandle_t curCtxt = GetContextHandle(threadId, slot);
+
+        // Update instruction tick→context mapping
+        if (!isFirstUse) {
+            tData->insTickToCtxt.erase(prevTick);
+        }
+        tData->insTickToCtxt[tData->numInsExecuted] = curCtxt;
+
+        // Check L1i, L2, L3 evictions
+        CheckEvictions(tData->insRBTree, tData->insTickToCtxt, curCtxt,
+                       reuseDistance, isFirstUse,
+                       gCacheCapacities, 3, tData->missPairs);
+
+        // iTLB page-level check
+        uint64_t page = (uint64_t)insAddr >> 12;
+        tuple<uint64_t[SHADOW_PAGE_SIZE]>& pt = tData->smITLBPage.GetOrCreateShadowBaseAddress(page);
+        uint64_t* pageShadow = &(get<0>(pt)[PAGE_OFFSET(page)]);
+        uint64_t pagePrevTick = *pageShadow;
+        bool pageFirstUse = (pagePrevTick == 0);
+
+        tData->itlbTick++;
+        uint64_t pageNewTick = tData->itlbTick;
+
+        if (pageFirstUse) {
+            tData->itlbFootprint++;
+            auto* newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(pageNewTick, 1);
+            tData->itlbRBTree.Insert(newNode);
+        } else {
+            uint64_t pageReuseDist;
+            auto* node = tData->itlbRBTree.FindSumGreaterThan(pagePrevTick, &pageReuseDist);
+            if (node) {
+                auto* retNode = tData->itlbRBTree.Delete(node);
+                retNode->key = pageNewTick;
+                retNode->value = 1;
+                tData->itlbRBTree.Insert(retNode);
+            }
+
+            // Check iTLB eviction
+            uint64_t itlbCap = gCacheCapacities[3];
+            bool itlbMiss = (pageReuseDist > itlbCap);
+            if (itlbMiss) {
+                auto* victim = tData->itlbRBTree.FindNodeAtRankFromRight(itlbCap);
+                if (victim) {
+                    auto it = tData->itlbTickToCtxt.find(victim->key);
+                    if (it != tData->itlbTickToCtxt.end()) {
+                        RecordEvictionPair(it->second, curCtxt, tData->missPairs[3]);
+                    }
+                }
+            }
+        }
+
+        if (!pageFirstUse) {
+            tData->itlbTickToCtxt.erase(pagePrevTick);
+        }
+        tData->itlbTickToCtxt[pageNewTick] = curCtxt;
+        *pageShadow = pageNewTick;
     }
 }
 
@@ -366,10 +484,18 @@ static void InstrumentInsLevelReuse(TRACE trace, void* f) {
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         uint32_t totInsInBbl = BBL_NumIns(bbl);
         ADDRINT insAddr = BBL_Address(bbl);
+        uint32_t slot = 0;
+        if (gCCTEnabled) {
+            auto it = gAddrToSlot.find(insAddr);
+            if (it != gAddrToSlot.end()) {
+                slot = it->second;
+            }
+        }
         BBL_InsertCall(bbl,
                        IPOINT_BEFORE, (AFUNPTR)AnalyzeInsLevelReuse,
                        IARG_ADDRINT, insAddr,
                        IARG_UINT32, totInsInBbl,
+                       IARG_UINT32, slot,
                        IARG_THREAD_ID, IARG_END);
     }
 }
@@ -434,6 +560,65 @@ static VOID ImageUnload(IMG img, VOID* v) {
     fprintf(gTraceFile, "\n TODO .. Multi-threading is not well supported.");
     fprintf(gTraceFile, "\nUnloading %s", IMG_Name(img).c_str());
     PIN_LockClient();
+
+    if (gCCTEnabled && IMG_IsMainExecutable(img)) {
+        for (int lvl = 0; lvl < NUM_CACHE_LEVELS; lvl++) {
+            auto& pairMap = GLOBAL_STATS.missPairs[lvl];
+            if (pairMap.empty())
+                continue;
+
+            vector<pair<uint64_t, uint64_t>> sorted(pairMap.begin(), pairMap.end());
+            sort(sorted.begin(), sorted.end(),
+                 [](const pair<uint64_t, uint64_t>& a, const pair<uint64_t, uint64_t>& b) {
+                     return a.second > b.second;
+                 });
+
+            uint64_t totalMisses = 0;
+            for (auto& kv : sorted)
+                totalMisses += kv.second;
+
+            fprintf(gTraceFile, "\n\n===== %s Eviction Pairs (capacity=%lu, total misses=%lu) =====\n",
+                    gCacheLevelNames[lvl], gCacheCapacities[lvl], totalMisses);
+
+            json jPairs;
+            jPairs["Metric"] = string("EvictionPairs_") + gCacheLevelNames[lvl];
+            jPairs["Capacity"] = gCacheCapacities[lvl];
+            jPairs["TotalMisses"] = totalMisses;
+
+            uint32_t topN = min((uint32_t)sorted.size(), KnobTopN.Value());
+            for (uint32_t i = 0; i < topN; i++) {
+                uint64_t key = sorted[i].first;
+                uint64_t count = sorted[i].second;
+                ContextHandle_t evictedCtxt = (ContextHandle_t)(key >> 32);
+                ContextHandle_t incomingCtxt = (ContextHandle_t)(key & 0xFFFFFFFF);
+                double pct = (double)count / totalMisses * 100.0;
+
+                fprintf(gTraceFile, "\n--- Rank %u: count=%lu (%.2f%%) ---\n", i + 1, count, pct);
+                fprintf(gTraceFile, "  Evicted context:\n");
+                PrintFullCallingContext(evictedCtxt);
+                fprintf(gTraceFile, "  Incoming context:\n");
+                PrintFullCallingContext(incomingCtxt);
+
+                json jEntry;
+                jEntry["rank"] = i + 1;
+                jEntry["count"] = count;
+                jEntry["percentage"] = pct;
+
+                vector<Context> evictedPath, incomingPath;
+                GetFullCallingContext(evictedCtxt, evictedPath);
+                GetFullCallingContext(incomingCtxt, incomingPath);
+
+                for (auto& c : evictedPath)
+                    jEntry["evicted"].push_back(c.functionName);
+                for (auto& c : incomingPath)
+                    jEntry["incoming"].push_back(c.functionName);
+
+                jPairs["pairs"].push_back(jEntry);
+            }
+            gJSONFile << jPairs.dump(4) << "\n";
+        }
+    }
+
     PIN_UnlockClient();
 }
 
@@ -482,6 +667,14 @@ static VOID ThreadFiniFunc(THREADID threadid, const CONTEXT* ctxt, INT32 code, V
         fprintf(gTraceFile, "\nTID %d %s histo (%zu byte blks footprint = %e)", threadid, BLK_INFO[j].blkDescription, BLK_INFO[j].blkSize, (double)tData->blockData[j].footprint);
 
         DumpHisto(tData->blockData[j].reuseHisto, tData->blockData[j].footprint, "TID " + to_string(threadid), BLK_INFO[j].blkDescription);
+    }
+
+    if (gCCTEnabled) {
+        for (int lvl = 0; lvl < NUM_CACHE_LEVELS; lvl++) {
+            for (auto& kv : tData->missPairs[lvl]) {
+                GLOBAL_STATS.missPairs[lvl][kv.first] += kv.second;
+            }
+        }
     }
 
     // release the lock
@@ -542,6 +735,9 @@ static void InitThreadData(InsReuseThreadData* tdata) {
     tdata->numInsExecuted = 0x42; // the start of clock
     tdata->footprint = 0x0; // the start of clock
     memset(tdata->insReuseHisto, 0, sizeof(uint64_t) * MAX_REUSE_DISTANCE_BINS);
+
+    tdata->itlbTick = 0x42;
+    tdata->itlbFootprint = 0;
 }
 
 static VOID ThreadStart(THREADID threadid, CONTEXT* ctxt, INT32 flags, VOID* v) {
@@ -567,8 +763,16 @@ int main(int argc, char* argv[]) {
 
     // Init Client
     ClientInit(argc, argv);
-    // Intialize CCTLib
-    //PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+
+    // Initialize CCTLib if -cct is enabled
+    gCCTEnabled = KnobCCT.Value();
+    if (gCCTEnabled) {
+        PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+        gCacheCapacities[0] = KnobL1iCap.Value();
+        gCacheCapacities[1] = KnobL2Cap.Value();
+        gCacheCapacities[2] = KnobL3Cap.Value();
+        gCacheCapacities[3] = KnobITLBCap.Value();
+    }
 
     // Obtain  a key for TLS storage.
     client_tls_key = PIN_CreateThreadDataKey(nullptr /*TODO have a destructir*/);

@@ -768,6 +768,34 @@ class RBTree {
     bool IsReachable(TNKV* target) {
         return IsReachableHelper(root, target);
     }
+
+    S GetTotalSum() {
+        return root ? root->sum : 0;
+    }
+
+    // Find the eviction victim for a fully-associative LRU cache of the
+    // given capacity (measured in sum of node values from the MRU end).
+    // Returns the node whose cumulative rank from the rightmost (MRU) end
+    // first exceeds capacity, i.e. the node at the cache boundary.
+    // Returns nullptr if the entire working set fits (total sum <= capacity).
+    TNKV* FindNodeAtRankFromRight(S capacity) {
+        if (!root || root->sum <= capacity)
+            return nullptr;
+        TNKV* cur = root;
+        S remaining = capacity;
+        while (cur) {
+            S rightSum = cur->right ? cur->right->sum : 0;
+            if (remaining < rightSum) {
+                cur = cur->right;
+            } else if (remaining < rightSum + (S)cur->value) {
+                return cur;
+            } else {
+                remaining -= rightSum + (S)cur->value;
+                cur = cur->left;
+            }
+        }
+        return nullptr;
+    }
 };
 
 #if RBTREE_TEST
