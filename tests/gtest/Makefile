@@ -6,7 +6,7 @@
 
 CXX      ?= g++
 CXXFLAGS ?= -O0 -g -std=c++17 -Wall -Wextra -Wno-unused-parameter
-CPPFLAGS ?= -I../../src
+CPPFLAGS ?= -I../../src -I../../clients
 LDLIBS   ?= -lgtest -lgtest_main -lpthread
 
 # Coverage: when make invokes us with COVERAGE=1, add gcov flags and
@@ -24,6 +24,7 @@ TESTS := \
     $(OBJDIR)/shadow_memory_test \
     $(OBJDIR)/splay_deserialize_test \
     $(OBJDIR)/rbtree_test \
+    $(OBJDIR)/reuse_distance_splay_test \
     $(OBJDIR)/cctlib_integration_test \
     $(OBJDIR)/deadspy_integration_test \
     $(OBJDIR)/redspy_integration_test \
