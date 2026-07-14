@@ -117,6 +117,27 @@ install-hooks:
 	@echo "  bypass a single commit with: git commit --no-verify"
 	@echo "  uninstall with: git config --unset core.hooksPath"
 
+# Doxygen: generate HTML API reference from src/ + clients/ + tests/
+# using docs/Doxyfile. Output lands in docs/output/html/index.html.
+# Auto-published to https://cctlib.github.io/cctlib/ by the
+# .github/workflows/docs.yml workflow.
+
+DOXYGEN ?= doxygen
+
+.PHONY: docs
+docs:
+	@if ! command -v $(DOXYGEN) >/dev/null 2>&1; then \
+	    echo "$(DOXYGEN): not found in PATH." >&2; \
+	    echo "  install: sudo apt install doxygen graphviz  (or your distro's equivalent)" >&2; \
+	    exit 1; \
+	fi
+	@$(DOXYGEN) docs/Doxyfile
+	@echo "docs: docs/output/html/index.html"
+
+.PHONY: docs-clean
+docs-clean:
+	@rm -rf docs/output
+
 # Coverage: builds the host gtest suite with gcov instrumentation, runs it,
 # and produces coverage/index.html via lcov+genhtml. Pin-tool coverage is
 # intentionally NOT collected -- Pin's runtime is a closed-source ELF that

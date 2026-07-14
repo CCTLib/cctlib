@@ -1,0 +1,176 @@
+# Doxyfile for CCTLib.
+#
+# Only overrides that matter for this project. Everything else uses
+# Doxygen's defaults. To regenerate the full template with all default
+# comments:
+#
+#   doxygen -g /tmp/Doxyfile.full
+#
+# Build the docs from the repo root with:
+#
+#   make docs
+#
+# Output lands in docs/output/html/index.html. Auto-published to
+# https://cctlib.github.io/cctlib/ by .github/workflows/docs.yml.
+
+# --- Project identity ---------------------------------------------------
+
+PROJECT_NAME           = "CCTLib"
+PROJECT_BRIEF          = "Calling-context and data-object attribution library for Intel Pin"
+PROJECT_LOGO           =
+
+# --- Input --------------------------------------------------------------
+
+INPUT                  = README.md \
+                         src/cctlib.H \
+                         src/cctlib.cpp \
+                         src/shadow_memory.H \
+                         src/rbtree.h \
+                         src/splay-macros.h \
+                         src/pin_isa_compat.H \
+                         clients \
+                         tests
+FILE_PATTERNS          = *.cpp *.C *.cxx *.c *.H *.h *.hpp
+RECURSIVE              = YES
+
+# Skip vendored deps + build outputs.
+EXCLUDE                = externals \
+                         obj \
+                         obj-intel64 \
+                         docs \
+                         .git \
+                         .github
+EXCLUDE_PATTERNS       = */obj-intel64/* */obj/* */obj-cov/*
+EXCLUDE_SYMBOLS        =
+
+# --- Extraction ---------------------------------------------------------
+
+# Extract everything: cctlib code is heavy on file-scope `static` helpers
+# and undocumented internals worth exposing in the reference (they
+# document the actual implementation, not just the public API surface).
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_PACKAGE        = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_ANON_NSPACES   = YES
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+INTERNAL_DOCS          = YES
+
+# Doxygen groups all files by dir by default; CCTLib benefits from this
+# (src/ vs clients/ vs tests/ have very different audience).
+SHOW_FILES             = YES
+SHOW_NAMESPACES        = YES
+SHOW_INCLUDE_FILES     = YES
+
+# --- Preprocessing ------------------------------------------------------
+
+# Turn on the preprocessor so Doxygen can resolve conditional code
+# (USE_TREE_BASED_FOR_DATA_CENTRIC, etc.) but do NOT try to expand
+# every macro -- Pin's headers use huge macro forests that make output
+# noisy and slow.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+EXPAND_ONLY_PREDEF     = NO
+SEARCH_INCLUDES        = YES
+PREDEFINED             = __x86_64__ \
+                         TARGET_LINUX \
+                         TARGET_IA32E \
+                         HOST_IA32E \
+                         PIN_CRT=1
+
+# --- Diagrams -----------------------------------------------------------
+
+# Graphviz-based collaboration + include graphs. Auto-disable if `dot`
+# is missing so a fresh checkout doesn't require graphviz.
+HAVE_DOT               = YES
+DOT_NUM_THREADS        = 0
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+GRAPHICAL_HIERARCHY    = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+
+# --- Output format ------------------------------------------------------
+
+OUTPUT_DIRECTORY       = docs/output
+
+# HTML only. LaTeX / RTF / man / XML off -- they double build time and
+# nobody reads them.
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_RTF           = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+GENERATE_DOCBOOK       = NO
+GENERATE_AUTOGEN_DEF   = NO
+GENERATE_PERLMOD       = NO
+
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+# HTML_COLORSTYLE was added in Doxygen 1.9.5; omitted here so 1.9.4
+# (Ubuntu 22.04's default) doesn't emit "unsupported tag" warnings.
+HTML_DYNAMIC_MENUS     = YES
+HTML_DYNAMIC_SECTIONS  = YES
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+
+# --- Landing page -------------------------------------------------------
+
+USE_MDFILE_AS_MAINPAGE = README.md
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+TOC_INCLUDE_HEADINGS   = 4
+
+# --- Source browser -----------------------------------------------------
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+REFERENCES_LINK_SOURCE = YES
+VERBATIM_HEADERS       = YES
+
+# --- Warnings + build behavior ------------------------------------------
+
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_INCOMPLETE_DOC = YES
+WARN_NO_PARAMDOC       = NO
+# Do NOT set WARN_AS_ERROR -- Doxygen 1.9's undocumented-parameter check
+# is aggressive and would fail CI on any missing @param, which the
+# codebase doesn't uniformly carry. Warnings are surfaced in the CI log
+# but do not block the build.
+WARN_AS_ERROR          = NO
+WARN_LOGFILE           =
+
+# --- Style tweaks -------------------------------------------------------
+
+JAVADOC_AUTOBRIEF      = YES
+JAVADOC_BANNER         = NO
+QT_AUTOBRIEF           = NO
+MULTILINE_CPP_IS_BRIEF = NO
+INHERIT_DOCS           = YES
+SEPARATE_MEMBER_PAGES  = NO
+TAB_SIZE               = 4
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    =
+BUILTIN_STL_SUPPORT    = YES
+CPP_CLI_SUPPORT        = NO
+
+# --- Aliases ------------------------------------------------------------
+
+ALIASES                =
+
+# --- Timestamp ---------------------------------------------------------
+
+HTML_TIMESTAMP         = YES

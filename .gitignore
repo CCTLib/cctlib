@@ -39,3 +39,6 @@ compile_commands.json
 tests/gtest/obj/
 tests/gtest/obj-cov/
 coverage/
+
+# Doxygen output
+docs/output/
