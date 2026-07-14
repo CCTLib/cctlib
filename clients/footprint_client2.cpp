@@ -130,10 +130,7 @@ inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr) {
     PIN_GetSourceLocation(curAddr, NULL, (INT32*)&lineNo2, &filePath2);
     PIN_UnlockClient();
 
-    if ((filePath1.compare(filePath2) == 0) && (lineNo1 <= lineNo2))
-        return true;
-    else
-        return false;
+    return static_cast<bool>((filePath1 == filePath2) && (lineNo1 <= lineNo2));
 }
 
 VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
@@ -222,7 +219,7 @@ void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHa
 
 
 inline bool FootPrintCompare(const struct sort_format_t& first, const struct sort_format_t& second) {
-    return first.footprint > second.footprint ? true : false;
+    return first.footprint > second.footprint;
 }
 
 void PrintTopFootPrintPath(THREADID threadid) {

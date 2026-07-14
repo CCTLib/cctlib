@@ -740,10 +740,7 @@ struct RedSpyAnalysis {
 
                 memcpy(prev, addr, AccessLen);
 
-                if ((*lowOld & 0xfff0) == (*lowNew & 0xfff0) && *upperNew == *upperOld) {
-                    return true;
-                }
-                return false;
+                return (*lowOld & 0xfff0) == (*lowNew & 0xfff0) && *upperNew == *upperOld;
             } else {
                 T newValue = *(static_cast<T*>(addr));
                 T oldValue = *((T*)(prev));
@@ -751,10 +748,7 @@ struct RedSpyAnalysis {
                 *((T*)(prev)) = *(static_cast<T*>(addr));
 
                 T rate = (newValue - oldValue) / oldValue;
-                if (rate <= delta && rate >= -delta)
-                    return true;
-                else
-                    return false;
+                return static_cast<bool>(rate <= delta && rate >= -delta);
             }
         } else {
             bool isRed = (*((T*)(prev)) == *(static_cast<T*>(addr)));
@@ -1111,7 +1105,7 @@ struct RedundacyData {
 };
 
 static inline bool RedundacyCompare(const struct RedundacyData& first, const struct RedundacyData& second) {
-    return first.frequency > second.frequency ? true : false;
+    return first.frequency > second.frequency;
 }
 
 static void PrintRedundancyPairs(THREADID threadId) {

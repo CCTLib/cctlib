@@ -858,7 +858,7 @@ struct DRedData {
 };
 
 static inline bool DRedundacyCompare(const struct DRedData& first, const struct DRedData& second) {
-    return first.frequency > second.frequency ? true : false;
+    return first.frequency > second.frequency;
 }
 
 #define LEVEL_1_RED_THRESHOLD 0.90

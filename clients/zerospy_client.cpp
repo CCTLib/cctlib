@@ -1541,10 +1541,10 @@ static void PrintCacheRedundancy(THREADID threadId) {
 }
 #endif
 static inline bool RedundacyCompare(const struct RedundacyData& first, const struct RedundacyData& second) {
-    return first.frequency > second.frequency ? true : false;
+    return first.frequency > second.frequency;
 }
 static inline bool ApproxRedundacyCompare(const struct ApproxRedundacyData& first, const struct ApproxRedundacyData& second) {
-    return first.all0freq > second.all0freq ? true : false;
+    return first.all0freq > second.all0freq;
 }
 //#define SKIP_SMALLACCESS
 #ifdef SKIP_SMALLACCESS

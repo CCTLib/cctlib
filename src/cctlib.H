@@ -117,7 +117,7 @@ int PinCCTLibInitForPostmortemAnalysis(FILE* logFile, const std::string& seriali
                     threadId: Pin's thread id of the asking thread.
                     opaqueHandle: handle passed by CCTLib to the client tool in its userCallback.
     */
-ContextHandle_t GetContextHandle(const THREADID threadId, const uint32_t opaqueHandle);
+ContextHandle_t GetContextHandle(const THREADID id, const uint32_t slot);
 
 /*
             Description:
@@ -148,7 +148,7 @@ VOID PrintFullCallingContext(const ContextHandle_t ctxtHandle);
                     ctxtHandle: is the context handle for which the full call path is requested.
                     contextVec: is a vector that will be populated with the full call path.
     */
-VOID GetFullCallingContext(const ContextHandle_t ctxtHandle, std::vector<Context>& contextVec);
+VOID GetFullCallingContext(const ContextHandle_t curCtxtHndle, std::vector<Context>& contextVec);
 
 /*
             Description:
@@ -167,7 +167,7 @@ void DottifyAllCCTs();
 
 #ifdef HAVE_METRIC_PER_IPNODE
 void TraverseCCTBottomUp(const THREADID threadid, void (*opFunc)(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void** myMetric, void** parentMetric));
-void** GetIPNodeMetric(const THREADID threadId, const uint32_t opaqueHandle);
+void** GetIPNodeMetric(const THREADID id, const uint32_t slot);
 #endif
 
 /*

@@ -15,16 +15,13 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-#include <stdio.h>
 #include <semaphore.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <iostream>
 #include <locale>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <iostream>
 #include <assert.h>
 #include <sys/mman.h>
 #include <exception>
@@ -232,7 +229,7 @@ uint64_t gTotalMTDead = 0;
 
 volatile uint32_t gClientNumThreads;
 
-VOID Instruction(INS ins, VOID* v, uint32_t slot);
+VOID Instruction(INS ins, VOID* v, const uint32_t opaqueHandle);
 
 // The following functions accummulates the number of bytes written in this basic block for the calling thread categorized by the write size.
 
@@ -1489,18 +1486,12 @@ struct MergedDeadInfo {
     uint32_t context2;
 
     bool operator==(const MergedDeadInfo& x) const {
-        if (this->context1 == x.context1 && this->context2 == x.context2)
-            return true;
-
-        return false;
+        return this->context1 == x.context1 && this->context2 == x.context2;
     }
 
     bool operator<(const MergedDeadInfo& x) const {
-        if ((this->context1 < x.context1) ||
-            (this->context1 == x.context1 && this->context2 < x.context2))
-            return true;
-
-        return false;
+        return (this->context1 < x.context1) ||
+               (this->context1 == x.context1 && this->context2 < x.context2);
     }
 };
 
@@ -1511,7 +1502,7 @@ struct DeadInfoForPresentation {
 
 
 inline bool MergedDeadInfoComparer(const DeadInfoForPresentation& first, const DeadInfoForPresentation& second) {
-    return first.count > second.count ? true : false;
+    return first.count > second.count;
 } // Returns true if the given deadinfo belongs to one of the loaded binaries
 inline bool IsValidIP(DeadInfo di) {
     bool res = false;

@@ -361,7 +361,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
     ;
 }
 
-void new_ARRAY_ANALYSIS_FN_NAME(char* name, void* addr, uint32_t typeSize, uint32_t stride, bool isApprox, THREADID threadId) {
+void new_ARRAY_ANALYSIS_FN_NAME(const char* name, void* addr, uint32_t typeSize, uint32_t stride, bool isApprox, THREADID threadId) {
     //printf("name:%s, addr:%p, type:%d, stride:%d\n",name,addr,typeSize,stride);
     string str(name);
 
@@ -498,7 +498,7 @@ static inline string ConvertListToString(list<uint32_t> inlist) {
 
 
 static inline bool RedundacyCompare(const struct RedundacyData& first, const struct RedundacyData& second) {
-    return first.frequency > second.frequency ? true : false;
+    return first.frequency > second.frequency;
 }
 
 static void PrintRedundancyPairs(THREADID threadId) {

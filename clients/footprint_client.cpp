@@ -177,10 +177,7 @@ static inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr) {
     PIN_GetSourceLocation(curAddr, NULL, (INT32*)&lineNo2, &filePath2);
     PIN_UnlockClient();
 
-    if ((filePath1.compare(filePath2) == 0) && (lineNo1 <= lineNo2))
-        return true;
-    else
-        return false;
+    return static_cast<bool>((filePath1 == filePath2) && (lineNo1 <= lineNo2));
 }
 
 #if 0
@@ -407,7 +404,7 @@ static void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, Co
 
 
 static inline bool FootPrintCompare(const struct AnalyzedMetric_t& first, const struct AnalyzedMetric_t& second) {
-    return first.footprint > second.footprint ? true : false;
+    return first.footprint > second.footprint;
 }
 
 static void PrintTopFootPrintPath(THREADID threadid) {

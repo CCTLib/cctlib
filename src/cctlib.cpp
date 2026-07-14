@@ -18,9 +18,7 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-#include <stdio.h>
 #include <semaphore.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <iostream>
@@ -28,7 +26,6 @@
 #include <locale>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <iostream>
 #include <assert.h>
 #include <sys/mman.h>
 #include <exception>
@@ -41,7 +38,6 @@
 #include <limits.h>
 #include <dirent.h>
 #include <unwind.h>
-#include <sys/time.h>
 #include <sys/resource.h>
 
 // CCTLib historically had an optional Boost dependency (guarded by USE_BOOST)
@@ -603,10 +599,7 @@ static bool IsCallInstruction(ADDRINT ip) {
     xed_decoded_inst_zero_set_mode(&xedd, &GLOBAL_STATE.cct_xed_state);
 
     if (XED_ERROR_NONE == xed_decode(&xedd, (const xed_uint8_t*)(ip), 15)) {
-        if (XED_CATEGORY_CALL == xed_decoded_inst_get_category(&xedd))
-            return true;
-        else
-            return false;
+        return XED_CATEGORY_CALL == xed_decoded_inst_get_category(&xedd);
     } else {
         assert(0 && "failed to disassemble instruction");
         return false;
@@ -1012,7 +1005,7 @@ static inline VOID GoUpCallChain(THREADID threadId) {
 // classifier) so the linear scan is trivially cheap and, per Pin
 // conventions, kept off the pointer-chasing path when possible.
 static inline VOID MaybeGoUpCallChain(ADDRINT retTarget,
-                                      ADDRINT* returnAddrs, uint32_t n,
+                                      const ADDRINT* returnAddrs, uint32_t n,
                                       THREADID threadId) {
     for (uint32_t i = 0; i < n; ++i) {
         if (returnAddrs[i] == retTarget)
@@ -1681,7 +1674,7 @@ static void DeserializeAllCCTs() {
     }
 }
 
-static void DottifyCCTNode(TraceNode* traceNode, uint64_t curDotId, FILE* const fp);
+static void DottifyCCTNode(TraceNode* traceNode, uint64_t parentDotId, FILE* const fp);
 
 static uint64_t gDotId;
 #if 0
@@ -1883,7 +1876,7 @@ static void DeserializeTraceIps() {
 
 
 void SerializeMetadata(const string& directoryForSerializationFiles) {
-    if (directoryForSerializationFiles != "") {
+    if (!directoryForSerializationFiles.empty()) {
         GLOBAL_STATE.serializationDirectory = directoryForSerializationFiles;
     } else {
         // construct one
@@ -2047,10 +2040,7 @@ static inline bool IsValidIP(ADDRINT ip) {
 // Returns true if the address in the given context node corresponds to a sinature (assembly code: ) that corresponds to a .PLT section
 // Sample PLt signatire : ff 25 c2 24 21 00       jmpq   *2172098(%rip)        # 614340 <quoting_style_args+0x2a0>
 static inline bool IsValidPLTSignature(const ADDRINT& ip) {
-    if ((*((unsigned char*)ip) == 0xff) && (*((unsigned char*)ip + 1) == 0x25))
-        return true;
-
-    return false;
+    return (*((unsigned char*)ip) == 0xff) && (*((unsigned char*)ip + 1) == 0x25);
 }
 
 
@@ -2710,7 +2700,7 @@ static void UpdateLockLessTree(THREADID threadId, const vector<PendingOps_t>& op
     static ThreadData dummyThreadData; // we use it when GLOBAL_STATE.applicationStarted is false
     ThreadData* tData;
 
-    if (GLOBAL_STATE.applicationStarted == false) {
+    if (!GLOBAL_STATE.applicationStarted) {
         tData = &dummyThreadData;
     } else {
         tData = CCTLibGetTLS(threadId);
@@ -3278,9 +3268,7 @@ bool IsSameSourceLine(ContextHandle_t ctxt1, ContextHandle_t ctxt2) {
     PIN_GetSourceLocation(ip1, NULL, (INT32*)&lineNo1, &filePath1);
     PIN_GetSourceLocation(ip2, NULL, (INT32*)&lineNo2, &filePath2);
 
-    if (filePath1 == filePath2 && lineNo1 == lineNo2)
-        return true;
-    return false;
+    return static_cast<bool>(filePath1 == filePath2 && lineNo1 == lineNo2);
 }
 
 /* ==================================hpcviewer support===================================*/
@@ -3529,7 +3517,7 @@ int hpcrun_fmt_hdr_fwrite(FILE* fs, const char* arg1, const char* arg2);
 int hpcrun_open_profile_file(int thread, const char* fileName);
 static int hpcrun_open_file(int thread, const char* suffix, int flags, const char* fileName);
 extern int fputs(const char* __restrict __s, FILE* __restrict __stream);
-int hpcrun_fmt_loadmap_fwrite(FILE* fs, const std::string& pathname);
+int hpcrun_fmt_loadmap_fwrite(FILE* fs, const std::string& filename);
 int hpcrun_fmt_epochHdr_fwrite(FILE* fs, epoch_flags_t flags,
                                uint64_t measurementGranularity, uint32_t raToCallsiteOfst);
 static void hpcrun_files_init();
@@ -3538,9 +3526,9 @@ const char* OSUtil_jobid();
 long OSUtil_hostid();
 void hpcrun_set_metric_info_w_fn(int metric_id, const char* name,
                                  MetricFlags_ValFmt_t valFmt, size_t period, FILE* fs);
-size_t hpcio_be2_fwrite(uint16_t* val, FILE* fs);
-size_t hpcio_be4_fwrite(uint32_t* val, FILE* fs);
-size_t hpcio_be8_fwrite(uint64_t* val, FILE* fs);
+size_t hpcio_be2_fwrite(const uint16_t* val, FILE* fs);
+size_t hpcio_be4_fwrite(const uint32_t* val, FILE* fs);
+size_t hpcio_be8_fwrite(const uint64_t* val, FILE* fs);
 size_t hpcio_beX_fwrite(uint8_t* val, size_t size, FILE* fs);
 //string GetFileName(std::string & pathname);
 // ******************************************************************************************
@@ -3949,7 +3937,7 @@ int hpcfmt_str_fwrite(const char* str, FILE* outfs) {
 }
 
 
-size_t hpcio_be2_fwrite(uint16_t* val, FILE* fs) {
+size_t hpcio_be2_fwrite(const uint16_t* val, FILE* fs) {
     uint16_t v = *val; // local copy of val
     int shift = 0, num_write = 0, c;
 
@@ -3967,7 +3955,7 @@ size_t hpcio_be2_fwrite(uint16_t* val, FILE* fs) {
 }
 
 
-size_t hpcio_be4_fwrite(uint32_t* val, FILE* fs) {
+size_t hpcio_be4_fwrite(const uint32_t* val, FILE* fs) {
     uint32_t v = *val; // local copy of val
     int shift = 0, num_write = 0, c;
 
@@ -3983,7 +3971,7 @@ size_t hpcio_be4_fwrite(uint32_t* val, FILE* fs) {
     return num_write;
 }
 
-size_t hpcio_be8_fwrite(uint64_t* val, FILE* fs) {
+size_t hpcio_be8_fwrite(const uint64_t* val, FILE* fs) {
     uint64_t v = *val; // local copy of val
     int shift = 0, num_write = 0, c;
 
@@ -4062,7 +4050,6 @@ void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t*
         }
     }
     tranverseIPs(curIPNode, childCtxtStartIdx->right, nodeCount);
-    return;
 }
 
 
@@ -4097,8 +4084,6 @@ void mergeIP(NewIPNode* prev, IPNode* cur, uint64_t* nodeCount) {
     if (cur->calleeTraceNodes) {
         tranverseIPs(prev, cur->calleeTraceNodes, nodeCount);
     }
-
-    return;
 }
 
 
@@ -4138,7 +4123,6 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
         for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
             hpcfmt_int8_fwrite(node->metricVal[i], fs);
     }
-    return;
 }
 
 
@@ -4147,7 +4131,7 @@ void IPNode_fwrite(NewIPNode* node, FILE* fs) {
 // the whole child vector on every recursive call and made hpcrun emission
 // quadratic in tree size.
 void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
-    if (nodes.size() == 0)
+    if (nodes.empty())
         return;
     std::size_t i;
 
@@ -4156,11 +4140,10 @@ void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
     }
 
     for (i = 0; i < nodes.size(); i++) {
-        if (nodes.at(i)->childIPNodes.size() != 0) {
+        if (!nodes.at(i)->childIPNodes.empty()) {
             tranverseNewCCT(nodes.at(i)->childIPNodes, fs);
         }
     }
-    return;
 }
 
 static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode** mainNode) {
@@ -4182,7 +4165,6 @@ static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode** 
         }
     }
     findMain(curIPNode, childCtxtStartIdx->right, mainNode);
-    return;
 }
 
 NewIPNode* findSameIPbyIP(vector<NewIPNode*> nodes, ADDRINT address) {

@@ -214,8 +214,8 @@ struct RedLogs {
 static unordered_map<uint64_t, RedLogs> RedMap[THREAD_MAX];
 static unordered_map<uint64_t, RedLogs> ApproxRedMap[THREAD_MAX];
 
-static inline void AddToRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, uint8_t redmap[32], uint32_t typesz, THREADID threadId) __attribute__((always_inline, flatten));
-static inline void AddToRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, uint8_t redmap[32], uint32_t typesz, THREADID threadId) {
+static inline void AddToRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, const uint8_t redmap[32], uint32_t typesz, THREADID threadId) __attribute__((always_inline, flatten));
+static inline void AddToRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, const uint8_t redmap[32], uint32_t typesz, THREADID threadId) {
 #ifdef MULTI_THREADED
     LOCK_RED_MAP();
 #endif
@@ -302,8 +302,8 @@ typedef union {
 } double_cast;
 #endif
 
-static inline void AddToApproximateRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, uint8_t redmap[32], uint32_t typesz, THREADID threadId) __attribute__((always_inline, flatten));
-static inline void AddToApproximateRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, uint8_t redmap[32], uint32_t typesz, THREADID threadId) {
+static inline void AddToApproximateRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, const uint8_t redmap[32], uint32_t typesz, THREADID threadId) __attribute__((always_inline, flatten));
+static inline void AddToApproximateRedTable(uint32_t addr, DataHandle_t data, ContextHandle_t cntxt, uint16_t value, uint16_t total, const uint8_t redmap[32], uint32_t typesz, THREADID threadId) {
 #ifdef MULTI_THREADED
     LOCK_RED_MAP();
 #endif
@@ -742,10 +742,8 @@ struct UnrolledConjunction<end, end, incr> {
         return 0;
     }
     static __attribute__((always_inline)) void BodyByteMap(uint8_t* addr, uint8_t redmap[32]) {
-        return;
     }
     static __attribute__((always_inline)) void BodyByteMapApprox(uint8_t* addr, uint8_t redmap[32]) {
-        return;
     }
 };
 
@@ -1121,7 +1119,7 @@ struct ObjRedundancy {
 };
 
 static inline bool ObjRedundancyCompare(const struct ObjRedundancy& first, const struct ObjRedundancy& second) {
-    return first.bytes > second.bytes ? true : false;
+    return first.bytes > second.bytes;
 }
 
 static inline void PrintSize(uint64_t size, char unit = 'B') {

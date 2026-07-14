@@ -1767,19 +1767,13 @@ struct RedSpyAnalysis {
                 uint16_t* lowOld = (uint16_t*)&(avPair->value[0]);
                 uint16_t* lowNew = (uint16_t*)&(newValue[0]);
 
-                if ((*lowOld & 0xfff0) == (*lowNew & 0xfff0) && *upperNew == *upperOld) {
-                    return true;
-                }
-                return false;
+                return (*lowOld & 0xfff0) == (*lowNew & 0xfff0) && *upperNew == *upperOld;
             } else {
                 T newValue = *(static_cast<T*>(avPair->address));
                 T oldValue = *((T*)(&avPair->value));
 
                 T rate = (newValue - oldValue) / oldValue;
-                if (rate <= delta && rate >= -delta)
-                    return true;
-                else
-                    return false;
+                return static_cast<bool>(rate <= delta && rate >= -delta);
             }
         } else {
             return *((T*)(&avPair->value)) == *(static_cast<T*>(avPair->address));
@@ -2298,7 +2292,7 @@ struct RedundacyData {
 };
 
 static inline bool RedundacyCompare(const struct RedundacyData& first, const struct RedundacyData& second) {
-    return first.frequency > second.frequency ? true : false;
+    return first.frequency > second.frequency;
 }
 
 static void PrintRedundancyPairs(THREADID threadId) {

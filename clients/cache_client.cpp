@@ -161,7 +161,7 @@ static inline void OnEvict(void** addr) {
 }
 
 static inline void HandleOneCacheLine(void** address, bool isWrite) {
-    if (!IS_VALID(address)) {
+    if (!IS_VALID(address)) { // NOLINT(readability-simplify-boolean-expr) -- macro expands to (a && b); the negated invocation is the readable form.
         // cache miss, allocate it.
         OnEvict(address);
     }

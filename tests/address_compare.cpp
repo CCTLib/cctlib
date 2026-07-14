@@ -58,7 +58,7 @@ void ClientInit(int argc, char* argv[]) {
     fprintf(gTraceFile, "\n");
 
 
-    xed_uint64_t watchpointRegisterValueCallback(xed_reg_enum_t reg, void* context, xed_bool_t* error);
+    xed_uint64_t watchpointRegisterValueCallback(xed_reg_enum_t reg, void* _ctxt, xed_bool_t* error);
 
     xed_tables_init();
     xed_state_init(&xedState, XED_MACHINE_MODE_LONG_64, XED_ADDRESS_WIDTH_64b, XED_ADDRESS_WIDTH_64b);

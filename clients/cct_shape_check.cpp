@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <map>
@@ -190,15 +191,15 @@ struct CctInventory {
         auto it = byLeafFn.find(fn);
         return it == byLeafFn.end() ? 0 : it->second.size();
     }
-    bool hasChain(vector<string> expected) const {
+    bool hasChain(const vector<string>& expected) const {
         return chains.count(expected) > 0;
     }
     bool hasFn(const string& fn) const {
         return byLeafFn.count(fn) > 0;
     }
     bool anyChainContainsFn(const string& fn) const {
-        for (auto& kv : chains) {
-            for (auto& n : kv.first)
+        for (const auto& kv : chains) {
+            for (const auto& n : kv.first)
                 if (n == fn)
                     return true;
         }
@@ -212,13 +213,10 @@ struct CctInventory {
         auto it = byLeafFn.find(leafFn);
         if (it == byLeafFn.end() || it->second.empty())
             return false;
-        for (const auto& chain : it->second) {
-            if (chain.size() < 2)
-                return false;
-            if (chain[chain.size() - 2] != expectedParent)
-                return false;
-        }
-        return true;
+        return std::all_of(it->second.begin(), it->second.end(),
+                           [&](const FnChain& chain) {
+                               return chain.size() >= 2 && chain[chain.size() - 2] == expectedParent;
+                           });
     }
     // Max number of times `fn` appears in any single chain. For a
     // routine we've direct-self-recursion-collapsed this is 1 (fn
@@ -248,8 +246,8 @@ struct CctInventory {
         return subByLeafFn.count(fn) > 0;
     }
     bool subAnyChainContainsFn(const string& fn) const {
-        for (auto& kv : subChains) {
-            for (auto& n : kv.first)
+        for (const auto& kv : subChains) {
+            for (const auto& n : kv.first)
                 if (n == fn)
                     return true;
         }
@@ -288,13 +286,10 @@ struct CctInventory {
         auto it = subByLeafFn.find(leafFn);
         if (it == subByLeafFn.end() || it->second.empty())
             return false;
-        for (const auto& chain : it->second) {
-            if (chain.size() < 2)
-                return false;
-            if (chain[chain.size() - 2] != expectedParent)
-                return false;
-        }
-        return true;
+        return std::all_of(it->second.begin(), it->second.end(),
+                           [&](const FnChain& chain) {
+                               return chain.size() >= 2 && chain[chain.size() - 2] == expectedParent;
+                           });
     }
 
     // True iff every chain containing `fn` at any position has NO
@@ -381,7 +376,7 @@ static void BuildInventoryFromThread(THREADID t, CctInventory& inv) {
     ContextHandle_t mainTraceStart =
         (td->mainCtxtHndl != 0) ? GetTraceStartHandle(td->mainCtxtHndl) : 0;
 
-    for (auto& kv : td->hits) {
+    for (const auto& kv : td->hits) {
         uint32_t h = kv.first;
         uint64_t hits = kv.second;
         vector<Context> chain;
@@ -504,7 +499,7 @@ struct AssertionRecorder {
         if (!inv.sentinelCounts.empty()) {
             ostringstream os;
             os << "FAIL " << checkName << ": sentinel frames appeared:";
-            for (auto& kv : inv.sentinelCounts) {
+            for (const auto& kv : inv.sentinelCounts) {
                 os << " [" << kv.first << " x" << kv.second << "]";
             }
             failures.push_back(os.str());
@@ -1060,7 +1055,7 @@ static void RunChecksAndExit(const string& check) {
                 continue;
             fprintf(stderr, "== thread %u has %zu handles\n", t, td->hits.size());
             int i = 0;
-            for (auto& kv : td->hits) {
+            for (const auto& kv : td->hits) {
                 if (i++ >= 5)
                     break;
                 fprintf(stderr, "-- handle %u --\n", kv.first);
@@ -1081,7 +1076,7 @@ static void RunChecksAndExit(const string& check) {
     if (!r.failures.empty()) {
         fprintf(stderr, "cct_shape_check[%s] %zu failure(s):\n",
                 check.c_str(), r.failures.size());
-        for (auto& f : r.failures)
+        for (const auto& f : r.failures)
             fprintf(stderr, "  %s\n", f.c_str());
     }
 
@@ -1091,7 +1086,7 @@ static void RunChecksAndExit(const string& check) {
         fprintf(stderr, "-- inventory summary [%s] --\n", check.c_str());
         fprintf(stderr, "distinct_chains=%zu total_distinct_handles=%zu max_depth=%zu\n",
                 inv.chains.size(), inv.totalDistinctHandles, inv.maxDepthObserved);
-        for (auto& kv : inv.byLeafFn) {
+        for (const auto& kv : inv.byLeafFn) {
             fprintf(stderr, "  leaf_fn '%s' chains=%zu hits=%llu\n",
                     kv.first.c_str(), kv.second.size(),
                     (unsigned long long)inv.hitsByLeafFn[kv.first]);
@@ -1099,9 +1094,9 @@ static void RunChecksAndExit(const string& check) {
         // If CCT_SHAPE_DUMP_CHAINS is set, dump every chain (root->leaf)
         // as "; "-separated for eyeballing structural anchoring.
         if (getenv("CCT_SHAPE_DUMP_CHAINS")) {
-            for (auto& kv : inv.chains) {
+            for (const auto& kv : inv.chains) {
                 fprintf(stderr, "  CHAIN hits=%llu :", (unsigned long long)kv.second);
-                for (auto& n : kv.first)
+                for (const auto& n : kv.first)
                     fprintf(stderr, " %s ;", n.c_str());
                 fprintf(stderr, "\n");
             }

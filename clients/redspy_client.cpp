@@ -575,7 +575,7 @@ struct RedundacyData {
 
 
 static inline bool RedundacyCompare(const struct RedundacyData& first, const struct RedundacyData& second) {
-    return first.frequency > second.frequency ? true : false;
+    return first.frequency > second.frequency;
 }
 
 static void PrintRedundancyPairs(THREADID threadId) {

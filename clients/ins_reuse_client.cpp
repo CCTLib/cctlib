@@ -254,10 +254,10 @@ static inline void UpdateBlockReuseStats(uint64_t distance, uint64_t count, uint
 static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData* tData, RBTree_t* rbt) {
     // Find how many RB-Tree nodes are to the right of this node.
     uint64_t reuseDist;
-    auto node = rbt->FindSumGreaterEqual(prevTick, &reuseDist);
+    auto* node = rbt->FindSumGreaterEqual(prevTick, &reuseDist);
     if (node) {
         //  Delete the node from RB-tree
-        auto retNode = rbt->Delete(node);
+        auto* retNode = rbt->Delete(node);
         // reinsert the node with new tick
         retNode->key = newTick;
         retNode->value = v;
@@ -271,10 +271,10 @@ static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTi
 static inline uint64_t ComputeBlockReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData* tData, RBTree_t* rbt) {
     // Find how many RB-Tree nodes are to the right of this node.
     uint64_t reuseDist;
-    auto node = rbt->FindSumGreaterThan(prevTick, &reuseDist);
+    auto* node = rbt->FindSumGreaterThan(prevTick, &reuseDist);
     if (node) {
         //  Delete the node from RB-tree
-        auto retNode = rbt->Delete(node);
+        auto* retNode = rbt->Delete(node);
         // reinsert the node with new tick
         retNode->key = newTick;
         retNode->value = v;
@@ -301,7 +301,7 @@ static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, THR
         tData->numInsExecuted += numInsInBBL;
         tData->footprint += numInsInBBL;
         // However, needs a new insertion
-        auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
+        auto* newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
         tData->insRBTree.Insert(newNode);
         *shadowMemAddr = tData->numInsExecuted;
     } else {
@@ -323,7 +323,7 @@ static inline void AnalyzeBlockLevelReuse(void* block, uint32_t numInsInBlock, T
     assert(1 == __builtin_popcountll(blockSize));
 
     InsReuseThreadData* tData = ClientGetTLS(threadId);
-    auto blockData = &(tData->blockData[blkIdx]);
+    auto* blockData = &(tData->blockData[blkIdx]);
 
     // Fast path: if block == prevBlock, simply increment the histo with 0 reuse distance and return
     if (blockData->prevBlock == block) {
@@ -340,7 +340,7 @@ static inline void AnalyzeBlockLevelReuse(void* block, uint32_t numInsInBlock, T
 
     if (prevTick == 0 /* first use */) {
         // needs a new insertion
-        auto newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(newTick, 1);
+        auto* newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(newTick, 1);
         blockData->rbTree.Insert(newNode);
         blockData->footprint++;
 

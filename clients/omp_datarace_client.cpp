@@ -12,16 +12,13 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-#include <stdio.h>
 #include <semaphore.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <iostream>
 #include <locale>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <iostream>
 #include <assert.h>
 #include <sys/mman.h>
 #include <exception>
@@ -539,10 +536,7 @@ static inline bool MaximizesExitRank(const Label* const newLabel, const Label* c
 
         if ((oldLabelSegment->offset % newLabelSegment->span != newLabelSegment->offset % newLabelSegment->span)) {
             // At the level where offsets diverge
-            if ((EXIT_RANK(newLabelSegment->phase) > EXIT_RANK(oldLabelSegment->phase))) {
-                return true;
-            }
-            return false;
+            return EXIT_RANK(newLabelSegment->phase) > EXIT_RANK(oldLabelSegment->phase);
         }
         // TODO(preexisting-bug): the original code re-called NextSegment()
         // here on both iterators, silently double-advancing per loop iteration
@@ -792,7 +786,6 @@ void new_DYNAMIC_END_FN_NAME(THREADID threadId) {
     Label* parentLabel = GetMyLabel(threadId);
     Label* myLabel = new Label(CREATE_AFTER_JOIN, *parentLabel);
     SetMyLabel(threadId, myLabel);
-    return;
     //myLabel->PrintLabel();
 }
 
@@ -802,7 +795,6 @@ void new_ORDERED_ENTER_FN_NAME(uint64_t region_id, THREADID threadId) {
     Label* parentLabel = GetMyLabel(threadId);
     Label* myLabel = new Label(CREATE_AFTER_ENTERING_ORDERED_SECTION, *parentLabel);
     SetMyLabel(threadId, myLabel);
-    return;
     //myLabel->PrintLabel();
 }
 
@@ -811,7 +803,6 @@ void new_ORDERED_EXIT_FN_NAME(uint64_t region_id, THREADID threadId) {
     Label* parentLabel = GetMyLabel(threadId);
     Label* myLabel = new Label(CREATE_AFTER_EXITING_ORDERED_SECTION, *parentLabel);
     SetMyLabel(threadId, myLabel);
-    return;
     //myLabel->PrintLabel();
 }
 

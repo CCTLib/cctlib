@@ -17,16 +17,13 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-#include <stdio.h>
 #include <semaphore.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <iostream>
 #include <locale>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <iostream>
 #include <assert.h>
 #include <sys/mman.h>
 #include <exception>
@@ -492,9 +489,7 @@ static inline void sortSvalues(uint64_t* svalues, int count) {
 
 /**/
 bool IsCommutativeOp(int opcode) {
-    if (opcode == XED_ICLASS_SUB || opcode == XED_ICLASS_DIV || opcode == XED_ICLASS_SHL || opcode == XED_ICLASS_SHR)
-        return false;
-    return true;
+    return opcode != XED_ICLASS_SUB && opcode != XED_ICLASS_DIV && opcode != XED_ICLASS_SHL && opcode != XED_ICLASS_SHR;
 }
 
 
@@ -1283,18 +1278,12 @@ struct MergedRedundantInfo {
     uint32_t context2;
 
     bool operator==(const MergedRedundantInfo& x) const {
-        if (this->context1 == x.context1 && this->context2 == x.context2)
-            return true;
-
-        return false;
+        return this->context1 == x.context1 && this->context2 == x.context2;
     }
 
     bool operator<(const MergedRedundantInfo& x) const {
-        if ((this->context1 < x.context1) ||
-            (this->context1 == x.context1 && this->context2 < x.context2))
-            return true;
-
-        return false;
+        return (this->context1 < x.context1) ||
+               (this->context1 == x.context1 && this->context2 < x.context2);
     }
 };
 
@@ -1305,7 +1294,7 @@ struct RedundantInfoForPresentation {
 
 
 inline bool MergedRedundantInfoComparer(const RedundantInfoForPresentation& first, const RedundantInfoForPresentation& second) {
-    return first.count > second.count ? true : false;
+    return first.count > second.count;
 }
 
 static void DumpInfo(uint32_t oldIndex, uint32_t newIndex) {
