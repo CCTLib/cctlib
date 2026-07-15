@@ -1,0 +1,20 @@
+var searchData=
+[
+  ['f_2483',['f',['../uniondouble__cast.html#af18d24d9ce3122a8dc78a826b4c848c4',1,'double_cast::f()'],['../unionfloat__cast.html#a015bc13a0aab9eb2b57324c7fd09cb5d',1,'float_cast::f()']]],
+  ['failures_2484',['failures',['../structAssertionRecorder.html#aa8aa9e81f27841c0d36e287cb58a26cd',1,'AssertionRecorder']]],
+  ['false_2485',['false',['../structArrayAnalysis.html#aa7eb98b9d97d25e5cd77cae6a0b25352',1,'ArrayAnalysis::false()'],['../structRedSpyAnalysis.html#a436da0b4de9dcf7cd06692f1a2c763d9',1,'RedSpyAnalysis::false()']]],
+  ['filename_2486',['filename',['../namespacePinCCTLib.html#ab82aef5572b163319f4c0ce4df0a8353',1,'PinCCTLib']]],
+  ['filepath_2487',['filePath',['../namespacePinCCTLib.html#ac06aeb96da4f0f373d69ed0ac7f3a4c7',1,'PinCCTLib']]],
+  ['files_5flock_2488',['files_lock',['../namespacePinCCTLib.html#a40b4f6f1c0330448bda8b79e0fc0df29',1,'PinCCTLib']]],
+  ['firstip_2489',['firstIP',['../structDeadInfo.html#a46430150f348bcfdd3c24d0f9b08928b',1,'DeadInfo']]],
+  ['flags_2490',['flags',['../namespacePinCCTLib.html#a3658270d5f55127f474b2938b06575ce',1,'PinCCTLib']]],
+  ['flatten_2491',['flatten',['../zerospy__spatial__client_8cpp.html#a74ca6c20f521223b3e1b4698d565a61c',1,'flatten():&#160;zerospy_spatial_client.cpp'],['../zerospy__client_8cpp.html#a74ca6c20f521223b3e1b4698d565a61c',1,'flatten():&#160;zerospy_client.cpp'],['../zerospy__cachepage_8cpp.html#a74ca6c20f521223b3e1b4698d565a61c',1,'flatten():&#160;zerospy_cachepage.cpp'],['../redspy__temporal__client_8cpp.html#a74ca6c20f521223b3e1b4698d565a61c',1,'flatten():&#160;redspy_temporal_client.cpp'],['../loadspy__client_8cpp.html#aaae65d0fb3ded145e4d91fff253340d7',1,'flatten():&#160;loadspy_client.cpp']]],
+  ['footprint_2492',['footprint',['../structInsReuseThreadData.html#aae62fc2a8155fd54c23ed5c70801ff3a',1,'InsReuseThreadData::footprint()'],['../structsort__format__t.html#a9f3f819a8cc8ddc5723de7487e90c8e2',1,'sort_format_t::footprint()'],['../ins__reuse__client_8cpp.html#a99b8b335dac26cba70bf3115cece3e4e',1,'footprint():&#160;ins_reuse_client.cpp'],['../structAnalyzedMetric__t.html#af41c68b92f8f0eeb1a1ba62ecdc320be',1,'AnalyzedMetric_t::footprint()']]],
+  ['format_2493',['format',['../namespacePinCCTLib.html#adf46660990cb49aa21661ed95821035e',1,'PinCCTLib']]],
+  ['formula_2494',['formula',['../namespacePinCCTLib.html#add1af94886c24eacdd35c6318861ef5d',1,'PinCCTLib']]],
+  ['forwarddependence_2495',['forwardDependence',['../structAnalyzedMetric__t.html#aef76a0d032415d7d209b6f66591ceb09',1,'AnalyzedMetric_t::forwardDependence()'],['../structRawMetric__t.html#a6436f5a01d199bd7fa7cfeae6aca4c98',1,'RawMetric_t::forwardDependence()']]],
+  ['fpnum_2496',['fpNum',['../structsort__format__t.html#ad44b1870e9efacb82187442195153ed9',1,'sort_format_t']]],
+  ['fred_2497',['fred',['../structApproxRedLogs.html#a1c84b438e27a6258993a920bfa8201d1',1,'ApproxRedLogs::fred()'],['../structRedLogs.html#af1f68be7e5031525967ff8238878c020',1,'RedLogs::fred()']]],
+  ['frequency_2498',['frequency',['../structDRedData.html#a649a0faf0f845759eee6b93ed25caedd',1,'DRedData::frequency()'],['../structRedundacyData.html#a362533bc9aa189d3b36dfbad7cdb9c82',1,'RedundacyData::frequency()']]],
+  ['ftot_2499',['ftot',['../structApproxRedundacyData.html#a06214fae466709b9b39ddca3e37a4716',1,'ApproxRedundacyData::ftot()'],['../structApproxRedLogs.html#a5d14747ce6477801fadca54b568a0fc3',1,'ApproxRedLogs::ftot()']]]
+];

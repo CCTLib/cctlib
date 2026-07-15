@@ -1,0 +1,21 @@
+var searchData=
+[
+  ['deadspy_5faddressing_5ftp_2ec_1718',['deadspy_addressing_tp.c',['../deadspy__addressing__tp_8c.html',1,'']]],
+  ['deadspy_5favx32_5ftp_2ec_1719',['deadspy_avx32_tp.c',['../deadspy__avx32__tp_8c.html',1,'']]],
+  ['deadspy_5fclient_2ecpp_1720',['deadspy_client.cpp',['../deadspy__client_8cpp.html',1,'']]],
+  ['deadspy_5fcmpxchg_5ftn_2ec_1721',['deadspy_cmpxchg_tn.c',['../deadspy__cmpxchg__tn_8c.html',1,'']]],
+  ['deadspy_5fcross_5fpage_5fqword_5ftp_2ec_1722',['deadspy_cross_page_qword_tp.c',['../deadspy__cross__page__qword__tp_8c.html',1,'']]],
+  ['deadspy_5fintegration_5ftest_2ecpp_1723',['deadspy_integration_test.cpp',['../deadspy__integration__test_8cpp.html',1,'']]],
+  ['deadspy_5fmovnti_5ftp_2ec_1724',['deadspy_movnti_tp.c',['../deadspy__movnti__tp_8c.html',1,'']]],
+  ['deadspy_5fpartial_5fqword_5fthen_5fbyte_5fhigh_5ftp_2ec_1725',['deadspy_partial_qword_then_byte_high_tp.c',['../deadspy__partial__qword__then__byte__high__tp_8c.html',1,'']]],
+  ['deadspy_5fpartial_5fqword_5fthen_5fbyte_5ftp_2ec_1726',['deadspy_partial_qword_then_byte_tp.c',['../deadspy__partial__qword__then__byte__tp_8c.html',1,'']]],
+  ['deadspy_5fprefetch_5ftp_2ec_1727',['deadspy_prefetch_tp.c',['../deadspy__prefetch__tp_8c.html',1,'']]],
+  ['deadspy_5fpushpop_5fdead_5ftp_2ec_1728',['deadspy_pushpop_dead_tp.c',['../deadspy__pushpop__dead__tp_8c.html',1,'']]],
+  ['deadspy_5frepstos_5ftp_2ec_1729',['deadspy_repstos_tp.c',['../deadspy__repstos__tp_8c.html',1,'']]],
+  ['deadspy_5fsse16_5ftp_2ec_1730',['deadspy_sse16_tp.c',['../deadspy__sse16__tp_8c.html',1,'']]],
+  ['deadspy_5ftn_5fsimple_2ec_1731',['deadspy_tn_simple.c',['../deadspy__tn__simple_8c.html',1,'']]],
+  ['deadspy_5ftp_5fminimal_2ec_1732',['deadspy_tp_minimal.c',['../deadspy__tp__minimal_8c.html',1,'']]],
+  ['deadspy_5ftp_5fsimple_2ec_1733',['deadspy_tp_simple.c',['../deadspy__tp__simple_8c.html',1,'']]],
+  ['deadspy_5ftp_5fsizes_2ec_1734',['deadspy_tp_sizes.c',['../deadspy__tp__sizes_8c.html',1,'']]],
+  ['deadspy_5fxchg_5ftn_2ec_1735',['deadspy_xchg_tn.c',['../deadspy__xchg__tn_8c.html',1,'']]]
+];

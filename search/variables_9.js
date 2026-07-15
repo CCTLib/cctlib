@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['id_2560',['ID',['../structPinCCTLib_1_1NewIPNode.html#ae7fa947cf2fd11b244ee9353fd9e8ba2',1,'PinCCTLib::NewIPNode']]],
+  ['id_2561',['id',['../structPinCCTLib_1_1ModuleInfo.html#a955f6578c1ed27f5cbcf798aa0d5501b',1,'PinCCTLib::ModuleInfo']]],
+  ['imgloadoffset_2562',['imgLoadOffset',['../structPinCCTLib_1_1ModuleInfo.html#a084f7d9106b1c4997b2335b716f860f4',1,'PinCCTLib::ModuleInfo']]],
+  ['immecount_2563',['immeCount',['../runtime__value__numbering__client_8cpp.html#a6d6a932bd225a7b959b8a80b8a7928a7',1,'runtime_value_numbering_client.cpp']]],
+  ['immediatemap_2564',['immediateMap',['../classThreadData__t.html#ae9572c498b01ee8fb45a9c214c3ea38d',1,'ThreadData_t']]],
+  ['immediatemapit_2565',['immediateMapIt',['../classThreadData__t.html#a4f7f7ded925b7e4ff905215d216d6e7e',1,'ThreadData_t']]],
+  ['immediates_2566',['immediates',['../runtime__value__numbering__client_8cpp.html#a1343a989d8949b595e424e29afd98722',1,'runtime_value_numbering_client.cpp']]],
+  ['index_2567',['index',['../structArrayAnalysis.html#a42fd7e8feb6f251c859d6113df91ed42',1,'ArrayAnalysis::index()'],['../structDRedData.html#ae8752ffdc64cde804b7f243e431831ef',1,'DRedData::index()']]],
+  ['ins_5fmetric_5fid_2568',['ins_metric_id',['../cct__metric__client_8cpp.html#a9f4f825741ded7be2c3f6fec49a619c1',1,'cct_metric_client.cpp']]],
+  ['insrbtree_2569',['insRBTree',['../structInsReuseThreadData.html#a8c3e3c3357891d640d22bf21b25f0e59',1,'InsReuseThreadData']]],
+  ['insreuseglobals_2570',['InsReuseGlobals',['../ins__reuse__client_8cpp.html#abd9d414e4ea35f68422ca88519d42123',1,'ins_reuse_client.cpp']]],
+  ['insreusehisto_2571',['insReuseHisto',['../structInsReuseThreadData.html#a3f38c83ba8adefad9ecce0b2aef8c4ae',1,'InsReuseThreadData::insReuseHisto()'],['../ins__reuse__client_8cpp.html#a3f0b419ae112d3b19a184ab0255b8c6f',1,'insReuseHisto():&#160;ins_reuse_client.cpp']]],
+  ['ip_2572',['ip',['../runtime__value__numbering__client_8cpp.html#a69ddb9c845da426f636d9dd0dbed4e7e',1,'ip():&#160;runtime_value_numbering_client.cpp'],['../namespacePinCCTLib.html#a56c0bd63b66e1547e54f6da32c43ebd2',1,'PinCCTLib::ip()']]],
+  ['ipaddress_2573',['IPAddress',['../structPinCCTLib_1_1NewIPNode.html#a0d2dc2a76e6c0eb5ba45892610a2d632',1,'PinCCTLib::NewIPNode']]],
+  ['is_5ffrequency_5fmetric_2574',['is_frequency_metric',['../namespacePinCCTLib.html#a9cc128dd9797fad727c099cec551620c',1,'PinCCTLib']]],
+  ['isaccesswithinpageboundary_2575',['isAccessWithinPageBoundary',['../structRedSpyAnalysis.html#ac49171f2c33bb814637abba580b777c3',1,'RedSpyAnalysis']]],
+  ['isdirty_2576',['isDirty',['../structCache__t.html#acf888ad575ebd30bd542599158c8c54a',1,'Cache_t']]],
+  ['isinuse_2577',['isInUse',['../structCache__t.html#a67017be74a933924e9d72ad9609001d0',1,'Cache_t']]],
+  ['isredundant_2578',['isRedundant',['../structHandleSpecialRegisters.html#a109ce56408cda6ad422fb13cc427c17d',1,'HandleSpecialRegisters']]],
+  ['isredundantread_2579',['isRedundantRead',['../structRedSpyAnalysis.html#a175c1a485da62bc88754a4150ec1fcb8',1,'RedSpyAnalysis']]],
+  ['isredundantwrite_2580',['isRedundantWrite',['../structRedSpyAnalysis.html#aeddf16b4eb3d4fd239f5d377b11e2bc7',1,'RedSpyAnalysis']]],
+  ['itlbfootprint_2581',['itlbFootprint',['../structInsReuseThreadData.html#a9f5e90cd1e5ff86a21f6465412f15c92',1,'InsReuseThreadData']]],
+  ['itlbrbtree_2582',['itlbRBTree',['../structInsReuseThreadData.html#a0b8ee86398a4f12d9a5af50764b649b6',1,'InsReuseThreadData']]],
+  ['itlbtick_2583',['itlbTick',['../structInsReuseThreadData.html#a7802f78ca2bdae8f9cbc3c95f1e57780',1,'InsReuseThreadData']]]
+];

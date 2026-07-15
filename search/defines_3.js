@@ -1,0 +1,26 @@
+var searchData=
+[
+  ['cache_5findex_5fbits_2953',['CACHE_INDEX_BITS',['../cache__client_8cpp.html#a501b01b16e243d01c78e6378cb402413',1,'cache_client.cpp']]],
+  ['cache_5fline_5fbase_2954',['CACHE_LINE_BASE',['../cache__client_8cpp.html#aff1815808fc09278a5af4ccda3f096f2',1,'cache_client.cpp']]],
+  ['cache_5fline_5fbits_2955',['CACHE_LINE_BITS',['../cache__client_8cpp.html#a4d2989e11ad00ad97b236b308ec22bdd',1,'cache_client.cpp']]],
+  ['cache_5fline_5findex_2956',['CACHE_LINE_INDEX',['../cache__client_8cpp.html#a3ae637ed87cb8df622a40e11b68449e6',1,'cache_client.cpp']]],
+  ['cache_5fline_5fmask_2957',['CACHE_LINE_MASK',['../cache__client_8cpp.html#ad137bfdd5c0588c9daa6a2693e96c4bc',1,'cache_client.cpp']]],
+  ['cache_5fline_5fsize_2958',['CACHE_LINE_SIZE',['../cctlib_8cpp.html#af89f60b07247176687889ade776c8e10',1,'CACHE_LINE_SIZE():&#160;cctlib.cpp'],['../zerospy__spatial__client_8cpp.html#af89f60b07247176687889ade776c8e10',1,'CACHE_LINE_SIZE():&#160;zerospy_spatial_client.cpp']]],
+  ['cache_5fline_5fsz_2959',['CACHE_LINE_SZ',['../cache__client_8cpp.html#a64af5f8d02cd21fdfbf5eff531876d55',1,'cache_client.cpp']]],
+  ['cache_5fnum_5flines_2960',['CACHE_NUM_LINES',['../cache__client_8cpp.html#a972de105fa05c9d3a89f37f3e09bba86',1,'cache_client.cpp']]],
+  ['cache_5fsz_2961',['CACHE_SZ',['../cache__client_8cpp.html#ac8609a424479d3821806cec7cf2524c7',1,'cache_client.cpp']]],
+  ['cache_5ftag_2962',['CACHE_TAG',['../cache__client_8cpp.html#a5cdd865a7900af91bfc51524077572be',1,'cache_client.cpp']]],
+  ['cache_5ftag_5fmask_2963',['CACHE_TAG_MASK',['../cache__client_8cpp.html#a86816842ebdd9e81b49c4d8214786ca0',1,'cache_client.cpp']]],
+  ['cacheline_5falignment_2964',['CACHELINE_ALIGNMENT',['../zerospy__cachepage_8cpp.html#a8eec67398fa8dbe4d253f0b2c7f51e1d',1,'zerospy_cachepage.cpp']]],
+  ['cacheline_5fbit_2965',['CACHELINE_BIT',['../ins__reuse__client_8cpp.html#a7ad0601e37a551be053b2622b897fe10',1,'ins_reuse_client.cpp']]],
+  ['cacheline_5fmask_2966',['CACHELINE_MASK',['../zerospy__cachepage_8cpp.html#a5b0ea28e9c08b9d947a5136e90a22b04',1,'CACHELINE_MASK():&#160;zerospy_cachepage.cpp'],['../zerospy__client_8cpp.html#a5b0ea28e9c08b9d947a5136e90a22b04',1,'CACHELINE_MASK():&#160;zerospy_client.cpp']]],
+  ['cacheline_5fsize_2967',['CACHELINE_SIZE',['../ins__reuse__client_8cpp.html#ae05da5eff6babaf91257a4accdf8e0b6',1,'ins_reuse_client.cpp']]],
+  ['calloc_5ffn_5fname_2968',['CALLOC_FN_NAME',['../cctlib_8cpp.html#a3cb16c3e2243215e15f8d015324b6c02',1,'cctlib.cpp']]],
+  ['cctlib_5fserialization_5fdefault_5fdir_5fname_2969',['CCTLIB_SERIALIZATION_DEFAULT_DIR_NAME',['../cctlib_8cpp.html#a501a0409d56345ad6752d7d90a001535',1,'cctlib.cpp']]],
+  ['check_5feq_2970',['CHECK_EQ',['../shadow__memory__unittest_8cpp.html#ae775068c81848e0a64939fdd22483b72',1,'shadow_memory_unittest.cpp']]],
+  ['compare_5fand_5fswap_2971',['compare_and_swap',['../cctlib_8cpp.html#a21014f7835a885a195da4786d150be37',1,'cctlib.cpp']]],
+  ['context_5fhash_5f128bits_5fto_5f64bits_2972',['CONTEXT_HASH_128BITS_TO_64BITS',['../deadspy__client_8cpp.html#a034c6e8683f695f32ce3f5b4f9ff51a7',1,'deadspy_client.cpp']]],
+  ['continuous_5fdeadinfo_2973',['CONTINUOUS_DEADINFO',['../deadspy__client_8cpp.html#a023e49ca0b43c20eadf9794585ba6c23',1,'deadspy_client.cpp']]],
+  ['critical_5fenter_5ffn_5fname_2974',['CRITICAL_ENTER_FN_NAME',['../omp__datarace__client_8cpp.html#ad84a5cf57998cc5880af0c23059bba5a',1,'omp_datarace_client.cpp']]],
+  ['critical_5fexit_5ffn_5fname_2975',['CRITICAL_EXIT_FN_NAME',['../omp__datarace__client_8cpp.html#a69be66cd89d1b113ac487fc59e9f44b0',1,'omp_datarace_client.cpp']]]
+];

@@ -1,0 +1,21 @@
+var searchData=
+[
+  ['name_2638',['name',['../structanonymous__namespace_02exception__integration__test_8cpp_03_1_1ToolSpec.html#a825bed8dcfe76058846f9baad3c157d9',1,'anonymous_namespace{exception_integration_test.cpp}::ToolSpec::name()'],['../structanonymous__namespace_02exception__integration__test_8cpp_03_1_1VictimSpec.html#af6b6939904fb9964188bd57574c27fc5',1,'anonymous_namespace{exception_integration_test.cpp}::VictimSpec::name()'],['../structanonymous__namespace_02exception__shape__test_8cpp_03_1_1VictimSpec.html#aae9df2be6d98f35b9acfe66416fbe03d',1,'anonymous_namespace{exception_shape_test.cpp}::VictimSpec::name()'],['../structanonymous__namespace_02recursion__integration__test_8cpp_03_1_1VictimSpec.html#a940b4c8ef9c2ec031af2eaf8e46dd40b',1,'anonymous_namespace{recursion_integration_test.cpp}::VictimSpec::name()'],['../structanonymous__namespace_02redspy__integration__test_8cpp_03_1_1RedspyIsaVictim.html#af5003ccd84f7e89c582f62e654a18577',1,'anonymous_namespace{redspy_integration_test.cpp}::RedspyIsaVictim::name()'],['../structanonymous__namespace_02deadspy__integration__test_8cpp_03_1_1IsaVictim.html#ad487ab045194f83b248909c9b809d639',1,'anonymous_namespace{deadspy_integration_test.cpp}::IsaVictim::name()']]],
+  ['newpair_2639',['newPair',['../structArrayAnalysis.html#a3c630f490ef1365365d2de7f930ef990',1,'ArrayAnalysis']]],
+  ['newvalue_2640',['newValue',['../structApproxGeneralRegisters.html#a45346f49f8dee9cfa325f4c06e1844ab',1,'ApproxGeneralRegisters']]],
+  ['nmetric_2641',['nmetric',['../structPinCCTLib_1_1CCT__LIB__GLOBAL__STATE.html#ade993ad645ef9593bb0a6174ed1a2846',1,'PinCCTLib::CCT_LIB_GLOBAL_STATE']]],
+  ['no_5fmore_5ftrace_5fnodes_5fin_5fsplay_5ftree_2642',['NO_MORE_TRACE_NODES_IN_SPLAY_TREE',['../namespacePinCCTLib.html#af594505ab892ec7ba70b8ae4f247d16f',1,'PinCCTLib']]],
+  ['nodecount_2643',['nodeCount',['../structPinCCTLib_1_1ThreadData.html#a58a478aa0e7912bc15a180d62d28397d',1,'PinCCTLib::ThreadData']]],
+  ['nreturnaddrs_2644',['nReturnAddrs',['../structPinCCTLib_1_1RtnInfo.html#aea5273a90c6b10eaecbd859b046b9830',1,'PinCCTLib::RtnInfo']]],
+  ['nslots_2645',['nSlots',['../structPinCCTLib_1_1TraceNode.html#a818592b271ac590c84ed55f5d1418436',1,'PinCCTLib::TraceNode::nSlots()'],['../structPinCCTLib_1_1SerializedTraceNode.html#ab29f5cc5d6c10e45f7caf8aaa2bbcf4c',1,'PinCCTLib::SerializedTraceNode::nSlots()']]],
+  ['num_5fins_2646',['Num_ins',['../runtime__value__numbering__client_8cpp.html#a3aa0db9964ff031a5fd37cece1baa624',1,'runtime_value_numbering_client.cpp']]],
+  ['num_5fins_2647',['NUM_INS',['../redspy__client_8cpp.html#a97e89d61664ce67b52f989e76b5de0a0',1,'redspy_client.cpp']]],
+  ['num_5finstructions_2648',['Num_instructions',['../runtime__value__numbering__client_8cpp.html#ac915eabb6ce2b202ab2ba807840d84b9',1,'runtime_value_numbering_client.cpp']]],
+  ['num_5fredundant_2649',['Num_redundant',['../runtime__value__numbering__client_8cpp.html#ab9a603c9cc7a667fad7c0197ce175189',1,'runtime_value_numbering_client.cpp']]],
+  ['numblockscounter_2650',['numBlocksCounter',['../ins__reuse__client_8cpp.html#a27629f37e9ba62324ffc950a77b92139',1,'numBlocksCounter():&#160;ins_reuse_client.cpp'],['../structInsReuseThreadData.html#acb7db0fbc083d9a256ceed79515518b8',1,'InsReuseThreadData::numBlocksCounter()']]],
+  ['numins_2651',['numIns',['../structRedSpyThreadData.html#a7c145dff1ab89352606c4c186318d66d',1,'RedSpyThreadData::numIns()'],['../structInsReuseThreadData.html#af5fd87af8ca11431586ca6190c72e0d8',1,'InsReuseThreadData::numIns()']]],
+  ['numinsexecuted_2652',['numInsExecuted',['../structInsReuseThreadData.html#ab77d844c50eb9ca813e1429e11c3f9d0',1,'InsReuseThreadData::numInsExecuted()'],['../ins__reuse__client_8cpp.html#adc18e0a4b427776d8e1cd37829c53784',1,'numInsExecuted():&#160;ins_reuse_client.cpp']]],
+  ['numthreads_2653',['numThreads',['../structPinCCTLib_1_1CCT__LIB__GLOBAL__STATE.html#a004861bb39d1dc74f1557578c79eac4d',1,'PinCCTLib::CCT_LIB_GLOBAL_STATE']]],
+  ['numuniquevalue_2654',['numUniqueValue',['../structArrayAnalysis.html#add2c74ab7b0e7d77918ea0f5d3894e17',1,'ArrayAnalysis']]],
+  ['numwinds_2655',['numWinds',['../structRedSpyThreadData.html#adbbfce2296d193cbf99d26a356c73a63',1,'RedSpyThreadData']]]
+];

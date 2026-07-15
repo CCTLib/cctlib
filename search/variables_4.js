@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['data_2449',['data',['../structDataObj.html#a3c64c7729010483dfa6279a87784b13d',1,'DataObj::data()'],['../omp__datarace__client_8cpp.html#a5f4fdb2e0387186a008356990576da8c',1,'data():&#160;omp_datarace_client.cpp']]],
+  ['dataobjectmap_2450',['DataObjectMap',['../cct__data__name_8cpp.html#ac3fca933f8b543d1c4678344a9c70443',1,'cct_data_name.cpp']]],
+  ['datathreadmap_2451',['DataThreadMap',['../cct__data__name_8cpp.html#a0a66d9da53508dcc5d0a10e29b183aa5',1,'cct_data_name.cpp']]],
+  ['datawindowmap_2452',['DataWindowMap',['../cct__data__name_8cpp.html#a96c69543ee1324d1f90239b534e61b4a',1,'cct_data_name.cpp']]],
+  ['dead_2453',['dead',['../structRedundacyData.html#ae351fd9051e1ce9103edc0a442f640cd',1,'RedundacyData']]],
+  ['deadmap_2454',['DeadMap',['../deadspy__client_8cpp.html#aa92b1ea6240ba44fb4708084f5f7d14f',1,'deadspy_client.cpp']]],
+  ['deadspyglobals_2455',['DeadSpyGlobals',['../deadspy__client_8cpp.html#aa8793a6e740fa5f13188aeb9fbc4a400',1,'deadspy_client.cpp']]],
+  ['default_5fmeasurement_5fgranularity_2456',['default_measurement_granularity',['../namespacePinCCTLib.html#a3fe570279f3b40e492bdb1a91ad1e392',1,'PinCCTLib']]],
+  ['default_5fra_5fto_5fcallsite_5fdistance_2457',['default_ra_to_callsite_distance',['../namespacePinCCTLib.html#af99cdf8ee8049c4c6ca87e79811d2b79',1,'PinCCTLib']]],
+  ['defaultextension_2458',['defaultExtension',['../omp__datarace__client_8cpp.html#a24ca9fa01a77e4e19629f06869f4d663',1,'omp_datarace_client.cpp']]],
+  ['dependentnum_2459',['dependentNum',['../structsort__format__t.html#a8af202c4479b7bfea9b92128058a737c',1,'sort_format_t::dependentNum()'],['../structnode__metric__t.html#ae63455f89d2ae0ee84fe89785ff8bf8d',1,'node_metric_t::dependentNum()']]],
+  ['description_2460',['description',['../namespacePinCCTLib.html#a4d98801e8d5fb928163c1baedb1b4f9e',1,'PinCCTLib']]],
+  ['deserializedccts_2461',['deserializedCCTs',['../structPinCCTLib_1_1CCT__LIB__GLOBAL__STATE.html#ae1ecaa71dd7866da4fa77d13ba220d91',1,'PinCCTLib::CCT_LIB_GLOBAL_STATE']]],
+  ['dirname_2462',['dirName',['../namespacePinCCTLib.html#a9b5cbd02355a8ab218cf3952e5477ead',1,'PinCCTLib']]],
+  ['dirtyevicts_2463',['dirtyEvicts',['../structStats__t.html#aca1d4d28463094d5753db227eb181945',1,'Stats_t']]],
+  ['disassembly_2464',['disassembly',['../namespacePinCCTLib.html#ab8290315eb18325fb39d3d18d1964161',1,'PinCCTLib']]],
+  ['disassemblybuff_2465',['disassemblyBuff',['../structPinCCTLib_1_1CCT__LIB__GLOBAL__STATE.html#a95e9169f3bdfde0941c6af9d15bb2269',1,'PinCCTLib::CCT_LIB_GLOBAL_STATE']]],
+  ['dodatacentric_2466',['doDataCentric',['../structPinCCTLib_1_1CCT__LIB__GLOBAL__STATE.html#ae9ff50a9bffb2dfa4e55ea0b16df48a5',1,'PinCCTLib::CCT_LIB_GLOBAL_STATE']]],
+  ['done_2467',['done',['../structPinCCTLib_1_1fileid.html#a92048d443e7f1dbbbae5faf6dfb440ae',1,'PinCCTLib::fileid']]],
+  ['dsize_2468',['dsize',['../structObjRedundancy.html#a60832212b49da99fc0a2bdd38942eb5a',1,'ObjRedundancy']]],
+  ['dslock_2469',['DSLock',['../structPinCCTLib_1_1CCT__LIB__GLOBAL__STATE.html#af3fde3418f29d9bdfdb52830dcbd74c0',1,'PinCCTLib::CCT_LIB_GLOBAL_STATE']]],
+  ['dst_2470',['dst',['../loadspy__repmovs__tp_8c.html#ac998358861072122f622f72cb3269546',1,'loadspy_repmovs_tp.c']]],
+  ['dummy1_2471',['dummy1',['../deadspy__client_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;deadspy_client.cpp'],['../zerospy__spatial__client_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;zerospy_spatial_client.cpp'],['../zerospy__client_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;zerospy_client.cpp'],['../zerospy__cachepage_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;zerospy_cachepage.cpp'],['../redspy__temporal__client_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;redspy_temporal_client.cpp'],['../loadspy__client_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;loadspy_client.cpp'],['../ins__reuse__client_8cpp.html#ab9c1f448a3c217c85d67e1da585a5df7',1,'dummy1():&#160;ins_reuse_client.cpp']]],
+  ['dummy2_2472',['dummy2',['../deadspy__client_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;deadspy_client.cpp'],['../ins__reuse__client_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;ins_reuse_client.cpp'],['../loadspy__client_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;loadspy_client.cpp'],['../redspy__temporal__client_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;redspy_temporal_client.cpp'],['../zerospy__cachepage_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;zerospy_cachepage.cpp'],['../zerospy__client_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;zerospy_client.cpp'],['../zerospy__spatial__client_8cpp.html#a37796a368ced379508da77489e4c622e',1,'dummy2():&#160;zerospy_spatial_client.cpp']]]
+];
