@@ -82,10 +82,8 @@ class RBTree {
         }
 
         TNKV* cur = root;
-        TNKV* parent = nullptr;
 
         while (cur) {
-            parent = cur;
             if (key < cur->key) {
                 *sum += cur->value + (cur->right ? cur->right->sum : 0);
                 cur = cur->left;
@@ -107,10 +105,8 @@ class RBTree {
         }
 
         TNKV* cur = root;
-        TNKV* parent = nullptr;
 
         while (cur) {
-            parent = cur;
             if (key < cur->key) {
                 *sum += cur->value + (cur->right ? cur->right->sum : 0);
                 cur = cur->left;
