@@ -30,7 +30,8 @@ jobs:
           sudo apt-get install -y \
               build-essential \
               autoconf automake libtool \
-              unzip
+              unzip \
+              libgtest-dev
 
       - name: Allow ptrace (required by Pin)
         run: |
@@ -60,10 +61,6 @@ jobs:
         run: |
           set -euxo pipefail
           ulimit -s 8192
+          # build.sh runs `make check` at the end; let it run the full
+          # build+test sequence in one shot.
           bash build.sh
-
-      - name: Run test suite (make check)
-        run: |
-          set -euxo pipefail
-          ulimit -s 8192
-          make check
