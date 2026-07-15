@@ -1,8 +1,12 @@
 # CCTLib
 
-[![build](https://github.com/CCTLib/cctlib/actions/workflows/build.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/build.yml)
+[![tests](https://github.com/CCTLib/cctlib/actions/workflows/build.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/build.yml)
 [![lint](https://github.com/CCTLib/cctlib/actions/workflows/lint.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/lint.yml)
 [![docs](https://github.com/CCTLib/cctlib/actions/workflows/docs.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/docs.yml)
+[![codecov](https://codecov.io/gh/CCTLib/cctlib/branch/master/graph/badge.svg)](https://codecov.io/gh/CCTLib/cctlib)
+[![license](https://img.shields.io/github/license/CCTLib/cctlib)](LICENSE.TXT)
+![platform](https://img.shields.io/badge/platform-linux%20x86__64-blue)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 
 CCTLib is a library that ubiquitously collects **calling contexts** for
 every instruction executed by an application, and attributes costs to

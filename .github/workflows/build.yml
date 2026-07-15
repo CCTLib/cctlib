@@ -1,4 +1,4 @@
-name: build
+name: tests
 
 on:
   push:
@@ -31,7 +31,8 @@ jobs:
               build-essential \
               autoconf automake libtool \
               unzip \
-              libgtest-dev
+              libgtest-dev \
+              lcov
 
       - name: Allow ptrace (required by Pin)
         run: |
@@ -64,3 +65,13 @@ jobs:
           # build.sh runs `make check` at the end; let it run the full
           # build+test sequence in one shot.
           bash build.sh
+
+      - name: Generate coverage report
+        run: make coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/filtered.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
