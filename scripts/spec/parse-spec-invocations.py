@@ -49,23 +49,27 @@ def parse_speccmds(path: str):
             line = line.rstrip("\n")
             if not line or line.startswith(("-E ", "-C ", "-r", "-N ")):
                 continue
-            # Format:  -o STDOUT -e STDERR CMD ARGS...  [> ... 2>> ...]
-            m = re.match(r"^-o\s+(\S+)\s+-e\s+(\S+)\s+(\S+)\s+(.*)$", line)
+            # Format:  [-i STDIN] -o STDOUT -e STDERR CMD ARGS...  [> ... 2>> ...]
+            m = re.match(r"^(?:-i\s+(\S+)\s+)?-o\s+(\S+)\s+-e\s+(\S+)\s+(\S+)\s+(.*)$", line)
             if not m:
                 continue
-            out_f, err_f, exe, args_str = m.groups()
+            in_f, out_f, err_f, exe, args_str = m.groups()
             # Strip trailing shell redirection SPEC appends
+            args_str = re.sub(r"\s*<\s*\S+\s*>\s*\S+\s*2>>?\s*\S+\s*$", "", args_str)
             args_str = re.sub(r"\s*>\s*\S+\s*2>>?\s*\S+\s*$", "", args_str)
             try:
                 args = shlex.split(args_str)
             except ValueError:
                 args = args_str.split()
-            invocs.append({
+            entry = {
                 "exe": os.path.basename(exe),
                 "args": args,
                 "stdout": out_f,
                 "stderr": err_f,
-            })
+            }
+            if in_f:
+                entry["stdin"] = in_f
+            invocs.append(entry)
     return invocs
 
 

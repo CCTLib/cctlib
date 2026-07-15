@@ -22,8 +22,9 @@ struct TreeNode {
     K key;
     V value;
     S sum;
+    uint32_t payload;
     TreeNode(K k, V v)
-        : key(k), value(v) {}
+        : key(k), value(v), payload(0) {}
 };
 
 template <class K, class V, class S>
@@ -575,6 +576,10 @@ class RBTree {
         node->value = curParent->value;
         curParent->value = tmp2;
 
+        auto tmp3 = node->payload;
+        node->payload = curParent->payload;
+        curParent->payload = tmp3;
+
         // Now, delete curParent
         return DeleteHelper(curParent);
     }
@@ -612,6 +617,10 @@ class RBTree {
         auto tmp2 = node->value;
         node->value = curParent->value;
         curParent->value = tmp2;
+
+        auto tmp3 = node->payload;
+        node->payload = curParent->payload;
+        curParent->payload = tmp3;
 
         // Now, delete curParent
         return WhichNodeToDelete(curParent);

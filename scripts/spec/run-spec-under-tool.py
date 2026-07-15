@@ -52,7 +52,12 @@ def free_mb() -> int:
 
 
 def parse_report(run_dir: str):
-    """Look for deadspy.out.*, redspy.out.*, redLoad.out.* and extract totals."""
+    """Look for tool output files and extract summary metrics.
+
+    Supports deadspy.out.*, redspy.out.*, redLoad.out.* (original)
+    and insReuse.out.* (instruction reuse client).
+    """
+    # Try deadspy/redspy first
     for prefix in ("deadspy.out.", "redspy.out.", "redLoad.out."):
         files = sorted(glob.glob(os.path.join(run_dir, prefix + "*")),
                        key=os.path.getmtime, reverse=True)
@@ -72,11 +77,43 @@ def parse_report(run_dir: str):
         except OSError:
             pass
         return gd, gw, pct
+
+    # Try ins_reuse_client JSON output
+    for prefix in ("insReuse.out.", "reuse."):
+        json_files = sorted(glob.glob(os.path.join(run_dir, prefix + "*.json")),
+                            key=os.path.getmtime, reverse=True)
+        if not json_files:
+            continue
+        try:
+            with open(json_files[0]) as f:
+                content = f.read()
+            decoder = json.JSONDecoder()
+            pos = 0
+            footprint = None
+            total_ins = None
+            while pos < len(content):
+                remaining = content[pos:].lstrip()
+                if not remaining:
+                    break
+                try:
+                    obj, end = decoder.raw_decode(remaining)
+                    pos += len(content) - len(remaining) - pos + end
+                    metric = obj.get("Metric", "")
+                    if metric == "InsReuseHisto":
+                        footprint = obj.get("Footprint", "?")
+                        total_ins = obj.get("TotalAccesses", "?")
+                except json.JSONDecodeError:
+                    break
+            return footprint, total_ins, "reuse"
+        except OSError:
+            pass
+
     return None, None, None
 
 
 def cleanup_reports(run_dir: str):
-    for prefix in ("deadspy.out.", "redspy.out.", "redLoad.out."):
+    for prefix in ("deadspy.out.", "redspy.out.", "redLoad.out.",
+                   "insReuse.out.", "reuse."):
         for f in glob.glob(os.path.join(run_dir, prefix + "*")):
             try:
                 os.remove(f)
@@ -86,18 +123,23 @@ def cleanup_reports(run_dir: str):
 
 class Worker:
     def __init__(self, bench, class_, idx, invoc, run_dir, tool, timeout,
-                 log_dir, results_tsv):
+                 log_dir, results_tsv, tool_args=None, perf_record=False,
+                 output_env=None):
         self.bench = bench
         self.class_ = class_
         self.idx = idx
         self.invoc = invoc
         self.run_dir = run_dir
         self.tool = tool
+        self.tool_args = tool_args or []
+        self.perf_record = perf_record
+        self.output_env = output_env or {}
         self.timeout = timeout
         self.log_dir = log_dir
         self.results_tsv = results_tsv
         self.proc = None
         self.start_ts = None
+        self.stdin_fh = None
 
     def spawn(self, pin_bin: str):
         cleanup_reports(self.run_dir)
@@ -111,22 +153,42 @@ class Worker:
             if os.path.exists(up_exe):
                 shutil.copy2(up_exe, exe_path)
         os.chmod(exe_path, 0o755)
-        cmdline = [pin_bin, "-t", self.tool, "--", "./" + exe, *args]
+        pin_cmd = [pin_bin, "-t", self.tool, *self.tool_args,
+                   "--", "./" + exe, *args]
+        stdin_path = self.invoc.get("stdin")
+        stdin_fh = None
+        if stdin_path:
+            stdin_fh = open(os.path.join(self.run_dir, stdin_path))
+        if self.perf_record:
+            perf_out = os.path.join(self.log_dir,
+                                    f"{self.bench}-{self.idx}.perf.data")
+            cmdline = ["perf", "record", "-o", perf_out, "-g",
+                       "--call-graph", "dwarf,8192", "-F", "99",
+                       "--"] + pin_cmd
+        else:
+            cmdline = pin_cmd
         stem = f"{self.bench}-{self.idx}"
         out = open(os.path.join(self.log_dir, f"{stem}.out"), "w")
         err = open(os.path.join(self.log_dir, f"{stem}.err"), "w")
         env = os.environ.copy()
+        env.update(self.output_env)
+        # Direct tool output to the log directory by default
+        if "INS_REUSE_CLIENT_OUTPUT_FILE" not in env:
+            env["INS_REUSE_CLIENT_OUTPUT_FILE"] = os.path.join(
+                self.log_dir, f"{self.bench}-{self.idx}.reuse.")
         # Force single-thread for OMP-enabled benchmarks (cctlib is
         # single-threaded).
         env["OMP_NUM_THREADS"] = "1"
         # Isolate from stray SIGINT if driver is Ctrl-C'd.
         self.proc = subprocess.Popen(
             cmdline, cwd=self.run_dir, stdout=out, stderr=err, env=env,
+            stdin=stdin_fh,
             preexec_fn=os.setpgrp,
         )
         self.start_ts = time.time()
         self.out = out
         self.err = err
+        self.stdin_fh = stdin_fh
 
     def poll(self):
         if self.proc is None:
@@ -144,6 +206,8 @@ class Worker:
                 return False
         elapsed = int(time.time() - self.start_ts)
         gd, gw, pct = parse_report(self.run_dir)
+        if gd is None:
+            gd, gw, pct = parse_report(self.log_dir)
         # Check for known error patterns.
         note = ""
         try:
@@ -161,8 +225,11 @@ class Worker:
         # exhausted", "Preallocated String Pool exhausted", etc.) to the
         # tool's own log file, NOT to stderr, so we peek there too.
         if not note and rc != 0:
-            for prefix in ("deadspy.out.", "redspy.out.", "redLoad.out."):
+            for prefix in ("deadspy.out.", "redspy.out.", "redLoad.out.",
+                           "insReuse.out.", "reuse."):
                 for f_ in sorted(glob.glob(os.path.join(self.run_dir, prefix + "*"))):
+                    if f_.endswith(".json"):
+                        continue
                     try:
                         with open(f_) as f:
                             log = f.read()
@@ -180,6 +247,8 @@ class Worker:
             f.write("\t".join(str(x) for x in row) + "\n")
         try:
             self.out.close(); self.err.close()
+            if self.stdin_fh:
+                self.stdin_fh.close()
         except Exception:
             pass
         return True
@@ -188,6 +257,14 @@ class Worker:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tool", required=True)
+    ap.add_argument("--tool-args", default="",
+                    help="Extra args for the Pin tool (between -t tool.so "
+                         "and --). E.g. '-cct 1 -topn 20'")
+    ap.add_argument("--perf-record", action="store_true",
+                    help="Wrap each invocation with perf record for profiling")
+    ap.add_argument("--output-env", default="",
+                    help="K=V pairs (comma-separated) added to child env. "
+                         "E.g. 'INS_REUSE_CLIENT_OUTPUT_FILE=out.'")
     ap.add_argument("--spec-dir", default=os.environ.get("SPEC",
                     "/home/user/speccpu2017-1.0.2"))
     ap.add_argument("--class", dest="class_", default="test")
@@ -202,6 +279,14 @@ def main():
                     help="Load pre-parsed schedule instead of scanning "
                          "--spec-dir. Overrides --spec-dir/--bench/etc.")
     args = ap.parse_args()
+
+    import shlex as _shlex
+    tool_args = _shlex.split(args.tool_args) if args.tool_args else []
+    output_env = {}
+    if args.output_env:
+        for pair in args.output_env.split(","):
+            k, v = pair.split("=", 1)
+            output_env[k.strip()] = v.strip()
 
     pin_root = os.environ.get("PIN_ROOT")
     if not pin_root:
@@ -241,10 +326,18 @@ def main():
     workers_todo = []
     for rec in recs:
         invocs = rec["invocations"] if args.invocations == "all" else rec["invocations"][:1]
+        per_bench_env = dict(output_env)
+        if output_env:
+            for k in list(per_bench_env.keys()):
+                per_bench_env[k] = per_bench_env[k].replace(
+                    "{bench}", rec["bench"])
         for i, inv in enumerate(invocs):
             workers_todo.append(Worker(rec["bench"], rec["class"], i, inv,
                                        rec["run_dir"], args.tool,
-                                       args.timeout, str(log_dir), str(tsv)))
+                                       args.timeout, str(log_dir), str(tsv),
+                                       tool_args=tool_args,
+                                       perf_record=args.perf_record,
+                                       output_env=per_bench_env))
     print(f"{time.strftime('%H:%M:%S')}  {len(workers_todo)} invocation(s) queued")
     print(f"{time.strftime('%H:%M:%S')}  jobs={args.jobs} min_free={args.min_free_mb}MB "
           f"timeout={args.timeout}s")

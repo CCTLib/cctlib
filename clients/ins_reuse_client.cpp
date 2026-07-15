@@ -119,8 +119,6 @@ struct InsReuseThreadData {
     ShadowMemory<uint64_t> smITLBPage;
 
     // CCT eviction pair tracking
-    unordered_map<uint64_t, ContextHandle_t> insTickToCtxt;
-    unordered_map<uint64_t, ContextHandle_t> itlbTickToCtxt;
     unordered_map<uint64_t, uint64_t> missPairs[NUM_CACHE_LEVELS];
 
     bool sampleFlag;
@@ -279,13 +277,14 @@ static inline void UpdateBlockReuseStats(uint64_t distance, uint64_t count, uint
     }
 }
 
-static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData* tData, RBTree_t* rbt) {
+static inline uint64_t ComputeInsReuseDistance(uint64_t prevTick, uint64_t newTick, uint32_t v, InsReuseThreadData* tData, RBTree_t* rbt, uint32_t payload = 0) {
     uint64_t reuseDist;
     auto* node = rbt->FindSumGreaterThan(prevTick, &reuseDist);
     if (node) {
         auto* retNode = rbt->Delete(node);
         retNode->key = newTick;
         retNode->value = v;
+        retNode->payload = payload;
         rbt->Insert(retNode);
         // reuseDist = instructions executed by *other* BBLs since last access.
         // Add (v-1) for the within-BBL instructions that also execute
@@ -308,7 +307,6 @@ static inline void RecordEvictionPair(ContextHandle_t victimCtxt, ContextHandle_
 }
 
 static inline void CheckEvictions(RBTree_t& tree,
-                                  unordered_map<uint64_t, ContextHandle_t>& tickToCtxt,
                                   ContextHandle_t curCtxt,
                                   uint64_t reuseDistance, bool isFirstUse,
                                   const uint64_t* capacities, int numLevels,
@@ -320,10 +318,7 @@ static inline void CheckEvictions(RBTree_t& tree,
         if (isMiss) {
             auto* victim = tree.FindNodeAtRankFromRight(capacities[lvl]);
             if (victim) {
-                auto it = tickToCtxt.find(victim->key);
-                if (it != tickToCtxt.end()) {
-                    RecordEvictionPair(it->second, curCtxt, missPairs[lvl]);
-                }
+                RecordEvictionPair(victim->payload, curCtxt, missPairs[lvl]);
             }
         }
     }
@@ -358,33 +353,31 @@ static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, uin
     uint64_t reuseDistance = FIRST_USE;
     bool isFirstUse = (prevTick == 0);
 
+    ContextHandle_t curCtxt = 0;
+    if (gCCTEnabled) {
+        curCtxt = GetContextHandle(threadId, slot);
+    }
+
     if (isFirstUse) {
         tData->numInsExecuted += numInsInBBL;
         tData->footprint += numInsInBBL;
         auto* newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(tData->numInsExecuted, numInsInBBL);
+        newNode->payload = curCtxt;
         tData->insRBTree.Insert(newNode);
         *shadowMemAddr = tData->numInsExecuted;
     } else {
         if (prevTick != newTick) {
             tData->numInsExecuted += numInsInBBL;
         }
-        reuseDistance = ComputeInsReuseDistance(prevTick, tData->numInsExecuted, numInsInBBL, tData, &tData->insRBTree);
+        reuseDistance = ComputeInsReuseDistance(prevTick, tData->numInsExecuted, numInsInBBL, tData, &tData->insRBTree, curCtxt);
         assert(FIRST_USE != reuseDistance);
         UpdateInsReuseStats(reuseDistance, numInsInBBL, tData);
         *shadowMemAddr = tData->numInsExecuted;
     }
 
     if (gCCTEnabled) {
-        ContextHandle_t curCtxt = GetContextHandle(threadId, slot);
-
-        // Update instruction tick→context mapping
-        if (!isFirstUse) {
-            tData->insTickToCtxt.erase(prevTick);
-        }
-        tData->insTickToCtxt[tData->numInsExecuted] = curCtxt;
-
         // Check L1i, L2, L3 evictions
-        CheckEvictions(tData->insRBTree, tData->insTickToCtxt, curCtxt,
+        CheckEvictions(tData->insRBTree, curCtxt,
                        reuseDistance, isFirstUse,
                        gCacheCapacities, 3, tData->missPairs);
 
@@ -401,6 +394,7 @@ static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, uin
         if (pageFirstUse) {
             tData->itlbFootprint++;
             auto* newNode = new TreeNode<uint64_t, uint32_t, uint64_t>(pageNewTick, 1);
+            newNode->payload = curCtxt;
             tData->itlbRBTree.Insert(newNode);
         } else {
             uint64_t pageReuseDist;
@@ -409,6 +403,7 @@ static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, uin
                 auto* retNode = tData->itlbRBTree.Delete(node);
                 retNode->key = pageNewTick;
                 retNode->value = 1;
+                retNode->payload = curCtxt;
                 tData->itlbRBTree.Insert(retNode);
             }
 
@@ -418,18 +413,11 @@ static inline void AnalyzeInsLevelReuse(void* insAddr, uint32_t numInsInBBL, uin
             if (itlbMiss) {
                 auto* victim = tData->itlbRBTree.FindNodeAtRankFromRight(itlbCap);
                 if (victim) {
-                    auto it = tData->itlbTickToCtxt.find(victim->key);
-                    if (it != tData->itlbTickToCtxt.end()) {
-                        RecordEvictionPair(it->second, curCtxt, tData->missPairs[3]);
-                    }
+                    RecordEvictionPair(victim->payload, curCtxt, tData->missPairs[3]);
                 }
             }
         }
 
-        if (!pageFirstUse) {
-            tData->itlbTickToCtxt.erase(pagePrevTick);
-        }
-        tData->itlbTickToCtxt[pageNewTick] = curCtxt;
         *pageShadow = pageNewTick;
     }
 }
