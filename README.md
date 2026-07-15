@@ -1,5 +1,6 @@
 # CCTLib
 
+[![build](https://github.com/CCTLib/cctlib/actions/workflows/build.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/build.yml)
 [![lint](https://github.com/CCTLib/cctlib/actions/workflows/lint.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/lint.yml)
 [![docs](https://github.com/CCTLib/cctlib/actions/workflows/docs.yml/badge.svg)](https://github.com/CCTLib/cctlib/actions/workflows/docs.yml)
 
