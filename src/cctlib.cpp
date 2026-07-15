@@ -678,9 +678,9 @@ static TraceNode* FindHandlerFrameForLandingPad(ADDRINT landingPadIp,
     }
     PIN_UnlockClient();
     if (lo == hi)
-        return NULL; // unrecognized image / stripped
+        return nullptr; // unrecognized image / stripped
 
-    TraceNode* best = NULL;
+    TraceNode* best = nullptr;
     TraceNode* cur = tData->tlsCurrentTraceNode;
     while (cur) {
         if (TraceIsInAddressRange(cur, lo, hi)) {
@@ -722,7 +722,7 @@ static VOID CaptureLandingPadTarget(VOID* /*exceptionCallerContext*/, ADDRINT la
         // stays put and the CCT for this unwind may be less precise
         // but is not corrupted.
         tData->tlsPendingLandingPadIp = 0;
-        tData->tlsPendingHandlerFrame = NULL;
+        tData->tlsPendingHandlerFrame = nullptr;
         tData->tlsPendingHandlerCtxt = 0;
         return;
     }
@@ -830,7 +830,7 @@ static inline void CCTLibInitThreadData(ThreadData* const tdata, CONTEXT* ctxt, 
     ipNode->calleeTraceNodes = new sparse_hash_map<ADDRINT, TraceNode*>();
 #endif
 #ifdef HAVE_METRIC_PER_IPNODE
-    ipNode->metric = NULL;
+    ipNode->metric = nullptr;
 #endif
     tdata->tlsThreadId = threadId;
     tdata->tlsRootTraceNode = t;
@@ -841,10 +841,10 @@ static inline void CCTLibInitThreadData(ThreadData* const tdata, CONTEXT* ctxt, 
     tdata->tlsInitiatedCall = true;
     tdata->curSlotNo = 0;
     tdata->tlsPendingLandingPadIp = 0;
-    tdata->tlsPendingHandlerFrame = NULL;
+    tdata->tlsPendingHandlerFrame = nullptr;
     tdata->tlsPendingHandlerCtxt = 0;
     // init the dummy root for hpcrun format
-    tdata->tlsHPCRunCCTRoot = NULL;
+    tdata->tlsHPCRunCCTRoot = nullptr;
 
     // Set stack sizes if data-centric is needed
     if (GLOBAL_STATE.doDataCentric) {
@@ -1214,7 +1214,7 @@ static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInteresti
         tData->tlsCurrentCtxtHndl = tData->tlsPendingHandlerCtxt;
         tData->tlsInitiatedCall = true; // NORMAL branch: landing pad becomes CHILD of handler
         tData->tlsPendingLandingPadIp = 0;
-        tData->tlsPendingHandlerFrame = NULL;
+        tData->tlsPendingHandlerFrame = nullptr;
         tData->tlsPendingHandlerCtxt = 0;
     }
 
@@ -1275,16 +1275,16 @@ static inline void InstrumentTraceEntry(uint32_t traceKey, uint32_t numInteresti
         GET_IPNODE_FROM_CONTEXT_HANDLE(tData->tlsCurrentCtxtHndl)->calleeTraceNodes = newNode;
 
         if (!found) {
-            newNode->left = NULL;
-            newNode->right = NULL;
+            newNode->left = nullptr;
+            newNode->right = nullptr;
         } else if (traceKey < found->key) {
             newNode->left = found->left;
             newNode->right = found;
-            found->left = NULL;
+            found->left = nullptr;
         } else { // addr > addr of found
             newNode->left = found;
             newNode->right = found->right;
-            found->right = NULL;
+            found->right = nullptr;
         }
 
         UpdateCurTraceAndIp(tData, newChild);
@@ -1463,7 +1463,7 @@ static void SerializeCCTNode(TraceNode* traceNode, FILE* const fp) {
     // Iterate over all IPNodes
     IPNode* ipNode = GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childCtxtStartIdx);
     for (uint32_t i = 0; i < traceNode->nSlots; i++) {
-        if ((ipNode[i]).calleeTraceNodes == NULL) {
+        if ((ipNode[i]).calleeTraceNodes == nullptr) {
             fwrite(&NO_MORE_TRACE_NODES_IN_SPLAY_TREE, sizeof(NO_MORE_TRACE_NODES_IN_SPLAY_TREE), 1, fp);
         } else {
             // Iterate over all decendent TraceNode of traceNode->childCtxtStartIdx[i]
@@ -1482,7 +1482,7 @@ static TraceNode* DeserializeCCTNode(ContextHandle_t parentCtxtHndl, FILE* const
     }
 
     if (noMoreTrace == NO_MORE_TRACE_NODES_IN_SPLAY_TREE) {
-        return NULL;
+        return nullptr;
     }
 
     // go back 4 bytes;
@@ -1508,7 +1508,7 @@ static TraceNode* DeserializeCCTNode(ContextHandle_t parentCtxtHndl, FILE* const
         while (true) {
             TraceNode* childTrace = DeserializeCCTNode(traceNode->childCtxtStartIdx + i, fp);
 
-            if (childTrace == NULL)
+            if (childTrace == nullptr)
                 break;
 
             // add childTrace to the splay tree at traceNode->childCtxtStartIdx[i]
@@ -1518,10 +1518,10 @@ static TraceNode* DeserializeCCTNode(ContextHandle_t parentCtxtHndl, FILE* const
 
             // if no children
             IPNode* childIPNode = GET_IPNODE_FROM_CONTEXT_HANDLE(traceNode->childCtxtStartIdx + i);
-            if (childIPNode->calleeTraceNodes == NULL) {
+            if (childIPNode->calleeTraceNodes == nullptr) {
                 childIPNode->calleeTraceNodes = newNode;
-                newNode->left = NULL;
-                newNode->right = NULL;
+                newNode->left = nullptr;
+                newNode->right = nullptr;
             } else {
                 TraceSplay* found = splay(childIPNode->calleeTraceNodes, childTrace->traceKey);
 
@@ -1534,11 +1534,11 @@ static TraceNode* DeserializeCCTNode(ContextHandle_t parentCtxtHndl, FILE* const
                 if (childTrace->traceKey < found->key) {
                     newNode->left = found->left;
                     newNode->right = found;
-                    found->left = NULL;
+                    found->left = nullptr;
                 } else { // addr > addr of found
                     newNode->left = found;
                     newNode->right = found->right;
-                    found->right = NULL;
+                    found->right = nullptr;
                 }
             }
         }
@@ -1555,7 +1555,7 @@ static void SerializeAllCCTs() {
         cctMapFilePath << GLOBAL_STATE.serializationDirectory << SERIALIZED_CCT_FILE_PREFIX << id << SERIALIZED_CCT_FILE_SUFFIX;
         FILE* fp = fopen(cctMapFilePath.str().c_str(), "wb");
 
-        if (fp == NULL) {
+        if (fp == nullptr) {
             fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", cctMapFilePath.str().c_str(), __LINE__);
             PIN_ExitProcess(-1);
         }
@@ -1591,7 +1591,7 @@ static void GetAllFilesInDirWithExtn(const string& root, const string& ext, vect
     char resolvedPath[PATH_MAX];
     realpath(root.c_str(), resolvedPath);
     DIR* dirp = opendir(resolvedPath);
-    if (NULL == dirp) {
+    if (nullptr == dirp) {
         // TODO(preexisting-bug): the original code throws here.
         // Pin's analysis-dispatch loop does not unwind through C++
         // exceptions even under `-fexceptions`; an unhandled throw
@@ -1603,7 +1603,7 @@ static void GetAllFilesInDirWithExtn(const string& root, const string& ext, vect
         throw string("Directory does not exits" + root);
     }
     struct dirent* dp;
-    while ((dp = readdir(dirp)) != NULL) {
+    while ((dp = readdir(dirp)) != nullptr) {
         char concatedPath[PATH_MAX];
         // Bounded concatenation of resolvedPath + "/" + dp->d_name.
         // snprintf always null-terminates and reports truncation via
@@ -1632,7 +1632,7 @@ static void DeserializeAllCCTs() {
         //fprintf(stderr, "\nexists = %d\n", 0);
         FILE* fp = fopen(cctMapFilePath.str().c_str(), "rb");
 
-        if (fp == NULL) {
+        if (fp == nullptr) {
             perror("fopen:");
             fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", cctMapFilePath.str().c_str(), __LINE__);
             PIN_ExitProcess(-1);
@@ -1694,7 +1694,7 @@ static uint64_t gDotId;
 
 // Visit all nodes of the splay tree of child traces.
 static void ListAllNodesOfSplayTree(TraceSplay* node, vector<TraceNode*>& childTraces) {
-    if (node == NULL)
+    if (node == nullptr)
         return;
 
     // visit left
@@ -1733,7 +1733,7 @@ void DottifyAllCCTs() {
     cctMapFilePath << GLOBAL_STATE.serializationDirectory << "./CCTMap.dot";
     FILE* fp = fopen(cctMapFilePath.str().c_str(), "w");
 
-    if (fp == NULL) {
+    if (fp == nullptr) {
         fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", cctMapFilePath.str().c_str(), __LINE__);
         PIN_ExitProcess(-1);
     }
@@ -1756,7 +1756,7 @@ static void SerializeMouleInfo() {
     string moduleFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_MODULE_MAP_SUFFIX;
     FILE* fp = fopen(moduleFilePath.c_str(), "w");
 
-    if (fp == NULL) {
+    if (fp == nullptr) {
         perror("Error:");
         fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", moduleFilePath.c_str(), __LINE__);
         PIN_ExitProcess(-1);
@@ -1776,7 +1776,7 @@ static void DeserializeMouleInfo() {
     string moduleFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_MODULE_MAP_SUFFIX;
     FILE* fp = fopen(moduleFilePath.c_str(), "r");
 
-    if (fp == NULL) {
+    if (fp == nullptr) {
         perror("Error");
         fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", moduleFilePath.c_str(), __LINE__);
         PIN_ExitProcess(-1);
@@ -1804,7 +1804,7 @@ static void SerializeTraceIps() {
     string traceMapFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_SHADOW_TRACE_IP_FILE_SUFFIX;
     FILE* fp = fopen(traceMapFilePath.c_str(), "wb");
 
-    if (fp == NULL) {
+    if (fp == nullptr) {
         fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", traceMapFilePath.c_str(), __LINE__);
         PIN_ExitProcess(-1);
     }
@@ -1839,7 +1839,7 @@ static void DeserializeTraceIps() {
     string traceMapFilePath = GLOBAL_STATE.serializationDirectory + SERIALIZED_SHADOW_TRACE_IP_FILE_SUFFIX;
     FILE* fp = fopen(traceMapFilePath.c_str(), "rb");
 
-    if (fp == NULL) {
+    if (fp == nullptr) {
         fprintf(stderr, "\n Failed to open %s in line %d. Exiting\n", traceMapFilePath.c_str(), __LINE__);
         PIN_ExitProcess(-1);
     }
@@ -2287,12 +2287,12 @@ static VOID GetFullCallingContextPostmortem(ContextHandle_t curCtxtHndle, vector
             uint32_t lineNo;
 
             if (setjmp(GLOBAL_STATE.env) == 0) {
-                if (fgets(functionName, MAX_FILE_PATH, fp) == NULL) {
+                if (fgets(functionName, MAX_FILE_PATH, fp) == nullptr) {
                     strcpy(functionName, "FAILED_TO_READ");
                     strcpy(fileName, "FAILED_TO_READ");
                     lineNo = 0;
                 } else {
-                    if (fgets(fileName, MAX_FILE_PATH, fp) == NULL) {
+                    if (fgets(fileName, MAX_FILE_PATH, fp) == nullptr) {
                         strcpy(fileName, "FAILED_TO_READ");
                         lineNo = 0;
                     } else {
@@ -2618,10 +2618,10 @@ static VOID CaptureReallocSize(void* ptr, size_t arg1, THREADID threadId) {
     }
 #else
 
-QNode* volatile MCSLock = NULL;
+QNode* volatile MCSLock = nullptr;
 
 static void MCSAcquire(QNode* volatile* L, QNode* I) {
-    I->next = NULL;
+    I->next = nullptr;
     I->status = LOCKED;
     QNode* pred = (QNode*)__sync_lock_test_and_set((uint64_t*)L, (uint64_t)I);
 
@@ -2634,11 +2634,11 @@ static void MCSAcquire(QNode* volatile* L, QNode* I) {
 }
 
 static void MCSRelease(QNode* volatile* L, QNode* I, uint8_t releaseVal) {
-    if (I->next == NULL) {
+    if (I->next == nullptr) {
         if (__sync_bool_compare_and_swap((uint64_t*)L, (uint64_t)I, (uint64_t)NULL))
             return;
 
-        while (I->next == NULL)
+        while (I->next == nullptr)
             ; // spin
 
         // wait till some successor
@@ -2817,7 +2817,7 @@ static void compute_static_var(char* filename, IMG img) {
         return;
     }
 
-    if ((base_ptr = (char*)malloc(elf_stats.st_size)) == NULL) {
+    if ((base_ptr = (char*)malloc(elf_stats.st_size)) == nullptr) {
         printf("could not malloc\n");
         close(fd);
         PIN_ExitProcess(-1);
@@ -2895,7 +2895,7 @@ static VOID ComputeVarBounds(IMG img, VOID* v) {
     char filename[PATH_MAX];
     char* result = realpath(IMG_Name(img).c_str(), filename);
 
-    if (result == NULL) {
+    if (result == nullptr) {
         fprintf(stderr, "\n failed to resolve path");
     }
 
@@ -3449,8 +3449,8 @@ struct fileid {
 extern const metric_desc_t metricDesc_NULL;
 
 const metric_desc_t metricDesc_NULL = {
-    NULL, // name
-    NULL, // description
+    nullptr, // name
+    nullptr, // description
     MetricFlags_Ty_NULL,
     MetricFlags_ValTy_NULL,
     MetricFlags_ValFmt_NULL,
@@ -3462,8 +3462,8 @@ const metric_desc_t metricDesc_NULL = {
     0, // period
     0, // properties.time
     0, // properties.cycles
-    NULL,
-    NULL,
+    nullptr,
+    nullptr,
 };
 
 
@@ -3553,7 +3553,7 @@ uint OSUtil_pid() {
 
 
 const char* OSUtil_jobid() {
-    char* jid = NULL;
+    char* jid = nullptr;
 
     // Cobalt
     jid = getenv("COBALT_JOB_ID");
@@ -3671,7 +3671,7 @@ static int hpcrun_files_next_id(struct fileid* id) {
             read(fd, &id->host, sizeof(id->host));
             close(fd);
         }
-        gettimeofday(&tv, NULL);
+        gettimeofday(&tv, nullptr);
         id->host += (tv.tv_sec << 20) + tv.tv_usec;
         id->host &= 0x00ffffffff;
     }
@@ -3767,8 +3767,8 @@ void hpcrun_set_metric_info_w_fn(int metric_id, const char* name, size_t period,
     mdesc.flags.fields.valFmt = valFmt;
     mdesc.flags.fields.show = true;
     mdesc.flags.fields.showPercent = true;
-    mdesc.formula = NULL;
-    mdesc.format = NULL;
+    mdesc.formula = nullptr;
+    mdesc.format = nullptr;
     mdesc.is_frequency_metric = false;
 
     hpcfmt_str_fwrite(mdesc.name, fs);
@@ -3805,8 +3805,8 @@ FILE* lazy_open_data_file(int tID, std::string* filename) {
     int fd = hpcrun_open_profile_file(tID, fileCharName);
     fs = fdopen(fd, "w");
 
-    if (fs == NULL)
-        return NULL;
+    if (fs == nullptr)
+        return nullptr;
 
     const char* jobIdStr = OSUtil_jobid();
 
@@ -4006,8 +4006,8 @@ size_t hpcio_beX_fwrite(uint8_t* val, size_t size, FILE* fs) {
 
 // Construct NewIPNode
 NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t parentID, uint64_t* nodeCount) {
-    if (NULL == oldIPNode)
-        return NULL;
+    if (nullptr == oldIPNode)
+        return nullptr;
 
     NewIPNode* curIP = new NewIPNode();
     curIP->parentIPNode = parentIP;
@@ -4029,7 +4029,7 @@ NewIPNode* constructIPNode(NewIPNode* parentIP, IPNode* oldIPNode, uint32_t pare
 
 // Inorder tranversal of the previous splay tree and create the new tree
 void tranverseIPs(NewIPNode* curIPNode, TraceSplay* childCtxtStartIdx, uint64_t* nodeCount) {
-    if (NULL == childCtxtStartIdx)
+    if (nullptr == childCtxtStartIdx)
         return;
 
     TraceNode* tNode = childCtxtStartIdx->value;
@@ -4063,7 +4063,7 @@ NewIPNode* findSameIP(vector<NewIPNode*> nodes, IPNode* node) {
             return nodes.at(i);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 // Merging the children of two nodes
@@ -4147,7 +4147,7 @@ void tranverseNewCCT(vector<NewIPNode*> nodes, FILE* fs) {
 }
 
 static void findMain(IPNode* curIPNode, TraceSplay* childCtxtStartIdx, IPNode** mainNode) {
-    if (NULL == childCtxtStartIdx)
+    if (nullptr == childCtxtStartIdx)
         return;
 
     TraceNode* tNode = childCtxtStartIdx->value;
@@ -4173,7 +4173,7 @@ NewIPNode* findSameIPbyIP(vector<NewIPNode*> nodes, ADDRINT address) {
         if (nodes.at(i)->IPAddress == address)
             return nodes.at(i);
     }
-    return NULL;
+    return nullptr;
 }
 
 // Construct NewIPNode
@@ -4183,9 +4183,9 @@ NewIPNode* constructIPNodeFromIP(NewIPNode* parentIP, ADDRINT address, uint64_t*
     curIP->parentIPNode = parentIP;
     curIP->IPAddress = address;
     curIP->parentID = parentIP->ID;
-    curIP->tmpSplay = NULL;
+    curIP->tmpSplay = nullptr;
     curIP->ID = GetID();
-    curIP->metric = NULL;
+    curIP->metric = nullptr;
     curIP->metricVal = new uint64_t[GLOBAL_STATE.nmetric];
     for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
         curIP->metricVal[i] = 0;
@@ -4299,7 +4299,7 @@ int newCCT_hpcrun_write(THREADID threadid) {
     vector<NewIPNode*> IPHandle;
 
     // find the main node (the entry point by the programmer)
-    IPNode* mainNode = NULL;
+    IPNode* mainNode = nullptr;
     if (GLOBAL_STATE.skip) {
         for (i = 0; i < cctlib->nSlots; i++) {
             IPNode* childNode = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i);
@@ -4319,12 +4319,12 @@ int newCCT_hpcrun_write(THREADID threadid) {
 #ifdef HAVE_METRIC_PER_IPNODE
         IPNode* rootIP = GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx);
         if (rootIP)
-            rootIP->metric = NULL;
+            rootIP->metric = nullptr;
 #endif
     }
 
     for (i = 0; i < cctlib->nSlots; i++) {
-        NewIPNode* nIP = constructIPNode(NULL, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), 0, &tdata->nodeCount);
+        NewIPNode* nIP = constructIPNode(nullptr, GET_IPNODE_FROM_CONTEXT_HANDLE_CHECKED(cctlib->childCtxtStartIdx + i), 0, &tdata->nodeCount);
         IPHandle.push_back(nIP);
 
         if (nIP->tmpSplay) {
@@ -4349,8 +4349,8 @@ int newCCT_hpcrun_build_cct(vector<HPCRunCCT_t*>& OldNodes, THREADID threadid) {
         tdata->tlsHPCRunCCTRoot->childIPNodes.clear();
         tdata->tlsHPCRunCCTRoot->IPAddress = 0;
         tdata->tlsHPCRunCCTRoot->ID = 0;
-        tdata->tlsHPCRunCCTRoot->tmpSplay = NULL;
-        tdata->tlsHPCRunCCTRoot->metric = NULL;
+        tdata->tlsHPCRunCCTRoot->tmpSplay = nullptr;
+        tdata->tlsHPCRunCCTRoot->metric = nullptr;
         tdata->tlsHPCRunCCTRoot->metricVal = new uint64_t[GLOBAL_STATE.nmetric];
         for (int i = 1; i < GLOBAL_STATE.nmetric; i++)
             tdata->tlsHPCRunCCTRoot->metricVal[i] = 0;

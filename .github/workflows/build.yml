@@ -1,0 +1,69 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: build + test (Pin ${{ matrix.pin-version }})
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        pin-version:
+          - pin-external-4.3-99850-gce5652921-gcc-linux
+    env:
+      PIN_VERSION: ${{ matrix.pin-version }}
+      PIN_URL: https://software.intel.com/sites/landingpage/pintool/downloads/${{ matrix.pin-version }}.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+              build-essential \
+              autoconf automake libtool \
+              unzip
+
+      - name: Allow ptrace (required by Pin)
+        run: |
+          echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+
+      - name: Cache Pin tarball
+        id: pin-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/pin-cache/${{ env.PIN_VERSION }}.tar.gz
+          key: ${{ env.PIN_VERSION }}
+
+      - name: Download Pin (cache miss only)
+        if: steps.pin-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/pin-cache
+          curl -fSL "$PIN_URL" -o ~/pin-cache/${PIN_VERSION}.tar.gz
+
+      - name: Extract Pin
+        run: |
+          mkdir -p ~/pin
+          tar -C ~/pin -xzf ~/pin-cache/${PIN_VERSION}.tar.gz
+          test -x ~/pin/${PIN_VERSION}/pin
+          echo "PIN_ROOT=$HOME/pin/${PIN_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Build cctlib (./build.sh)
+        run: |
+          set -euxo pipefail
+          ulimit -s 8192
+          bash build.sh
+
+      - name: Run test suite (make check)
+        run: |
+          set -euxo pipefail
+          ulimit -s 8192
+          make check

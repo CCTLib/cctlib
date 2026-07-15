@@ -710,7 +710,7 @@ int main(int argc, char* argv[]) {
     PinCCTLibInit(INTERESTING_INS_MEMORY_ACCESS, gTraceFile, InstrumentInsCallback, nullptr);
 
     // Init hpcrun format output
-    init_hpcrun_format(argc, argv, NULL, NULL, false);
+    init_hpcrun_format(argc, argv, nullptr, nullptr, false);
     // Create new metrics
     redspy_metric_id = hpcrun_create_metric("RED_STORES");
 

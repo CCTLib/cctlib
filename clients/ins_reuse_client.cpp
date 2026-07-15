@@ -755,7 +755,7 @@ int main(int argc, char* argv[]) {
     // Initialize CCTLib if -cct is enabled
     gCCTEnabled = KnobCCT.Value();
     if (gCCTEnabled) {
-        PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, 0);
+        PinCCTLibInit(INTERESTING_INS_ALL, gTraceFile, InstrumentInsCallback, nullptr);
         gCacheCapacities[0] = KnobL1iCap.Value();
         gCacheCapacities[1] = KnobL2Cap.Value();
         gCacheCapacities[2] = KnobL3Cap.Value();

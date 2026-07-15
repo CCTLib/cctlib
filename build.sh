@@ -70,3 +70,8 @@ make -j
 echo "*********YOU SUCCESSFULLY BUILT CCTLib***********"
 make check
 echo "*********YOU SUCCESSFULLY TESTED CCTLib***********"
+
+# Install git hooks if inside a git checkout
+if [ -d "$CUR_DIR/.git" ] || git -C "$CUR_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    make -C "$CUR_DIR" install-hooks 2>/dev/null || true
+fi

@@ -283,7 +283,7 @@ class LabelIterator {
 
     LabelSegment* NextSegment() {
         if (m_len == m_curLoc) {
-            return NULL;
+            return nullptr;
         }
         return m_label.GetSegmentAtIndex(m_curLoc++);
     }
@@ -299,7 +299,7 @@ class ThreadData_t {
 
   public:
     ThreadData_t(ADDRINT stackBaseAddress, ADDRINT stackEndAddress, ADDRINT stackCurrentFrameBaseAddress)
-        : m_curLable(NULL),
+        : m_curLable(nullptr),
           m_stackBaseAddress(stackBaseAddress),
           m_stackEndAddress(stackEndAddress),
           m_stackCurrentFrameBaseAddress(stackCurrentFrameBaseAddress) {}
@@ -448,7 +448,7 @@ static inline bool HappensBefore(const Label* const oldLabel, const Label* const
      */
 
     // If oldLabel is null, then this is the first access, hence return true
-    if (oldLabel == NULL)
+    if (oldLabel == nullptr)
         return true;
 
     // Case 1: oldLabel is a prefix of newLabel
@@ -456,16 +456,16 @@ static inline bool HappensBefore(const Label* const oldLabel, const Label* const
     LabelIterator newLabelIter = LabelIterator(*newLabel);
 
     // Special case TODO // if oldLabel == newLabel , return true;
-    LabelSegment* oldLabelSegment = NULL;
-    LabelSegment* newLabelSegment = NULL;
+    LabelSegment* oldLabelSegment = nullptr;
+    LabelSegment* newLabelSegment = nullptr;
 
     while (true) {
         oldLabelSegment = oldLabelIter.NextSegment();
         newLabelSegment = newLabelIter.NextSegment();
-        if (oldLabelSegment == NULL)
+        if (oldLabelSegment == nullptr)
             return true; // Found a prefix
 
-        if (newLabelSegment == NULL) {
+        if (newLabelSegment == nullptr) {
             assert(0 && "I don't expect this to happen");
             return false; // oldLabel is longer than newLabel
         }
@@ -496,7 +496,7 @@ static inline bool IsLeftOf(const Label* const newLabel, const Label* const oldL
     assert(newLabel && "newLabel can't be NULL");
 
     // If oldLabel is null, then this is the first access, hence return false
-    if (oldLabel == NULL)
+    if (oldLabel == nullptr)
         return false;
 
     LabelIterator oldLabelIter = LabelIterator(*oldLabel);
@@ -506,7 +506,7 @@ static inline bool IsLeftOf(const Label* const newLabel, const Label* const oldL
     while (true) {
         LabelSegment* oldLabelSegment = oldLabelIter.NextSegment();
         LabelSegment* newLabelSegment = newLabelIter.NextSegment();
-        if (oldLabelSegment == NULL || newLabelSegment == NULL)
+        if (oldLabelSegment == nullptr || newLabelSegment == nullptr)
             return false; // Found a prefix
 
         if ((oldLabelSegment->offset % newLabelSegment->span < newLabelSegment->offset % newLabelSegment->span)) {
@@ -522,7 +522,7 @@ static inline bool MaximizesExitRank(const Label* const newLabel, const Label* c
     assert(newLabel && "newLabel can't be NULL");
 
     // If oldLabel is null, then this is the first access, hence return false
-    if (oldLabel == NULL)
+    if (oldLabel == nullptr)
         return false;
 
     LabelIterator oldLabelIter = LabelIterator(*oldLabel);
@@ -531,7 +531,7 @@ static inline bool MaximizesExitRank(const Label* const newLabel, const Label* c
     while (true) {
         LabelSegment* oldLabelSegment = oldLabelIter.NextSegment();
         LabelSegment* newLabelSegment = newLabelIter.NextSegment();
-        if (oldLabelSegment == NULL || newLabelSegment == NULL)
+        if (oldLabelSegment == nullptr || newLabelSegment == nullptr)
             return false;
 
         if ((oldLabelSegment->offset % newLabelSegment->span != newLabelSegment->offset % newLabelSegment->span)) {
@@ -568,8 +568,8 @@ static inline void CheckRead(DataraceInfo_t* shadowAddress, Label* myLabel, uint
         DataraceInfo_t shadowData;
         ReadShadowMemory(shadowAddress, &shadowData);
         bool updated1 = false;
-        Label* oldR1Label = NULL;
-        Label* oldR2Label = NULL;
+        Label* oldR1Label = nullptr;
+        Label* oldR2Label = nullptr;
         bool updated2 = false;
 
         // If we have reported a data race originating from this read
@@ -678,7 +678,7 @@ static inline VOID CheckRace(VOID* addr, uint32_t accessLen, bool accessType, ui
     // Get my Label
     Label* myLabel = GetMyLabel(threadId);
     // if myLabel is NULL, then we are in the initial serial part of the program, hence we can skip the rest
-    if (myLabel == NULL)
+    if (myLabel == nullptr)
         return;
 
     DataraceInfo_t* status = get<0>(sm.GetOrCreateShadowBaseAddress((size_t)addr));
@@ -756,7 +756,7 @@ void new_MASTER_BEGIN_FN_NAME(uint64_t region_id, long span, THREADID threadid) 
     assert(gRegionIdToMasterLabelMap[region_id] == 0);
     Label* myLabel = GetMyLabel(threadid);
     // if the label was NULL, let us create a new initial label
-    if (myLabel == NULL) {
+    if (myLabel == nullptr) {
         myLabel = new Label();
         SetMyLabel(threadid, myLabel);
     }

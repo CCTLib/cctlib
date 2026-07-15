@@ -173,8 +173,8 @@ static inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr) {
     string filePath1, filePath2;
 
     PIN_LockClient();
-    PIN_GetSourceLocation(prevAddr, NULL, (INT32*)&lineNo1, &filePath1);
-    PIN_GetSourceLocation(curAddr, NULL, (INT32*)&lineNo2, &filePath2);
+    PIN_GetSourceLocation(prevAddr, nullptr, (INT32*)&lineNo1, &filePath1);
+    PIN_GetSourceLocation(curAddr, nullptr, (INT32*)&lineNo2, &filePath2);
     PIN_UnlockClient();
 
     return static_cast<bool>((filePath1 == filePath2) && (lineNo1 <= lineNo2));
@@ -217,7 +217,7 @@ static inline RawMetric_t* UpdateFootPrint(uint64_t address, THREADID threadId, 
     void** metricPtr = GetIPNodeMetric(threadId, 0);
     RawMetric_t* metric;
 
-    if (*metricPtr == NULL) {
+    if (*metricPtr == nullptr) {
         // use ctxthndl as the key to associate footprint with the trace
         ContextHandle_t ctxthndl = GetContextHandle(threadId, 0);
         *metricPtr = &(hmap_vector[threadId])[ctxthndl];
@@ -367,7 +367,7 @@ static VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t opaqueHandle)
 }
 
 static void DecodingFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void** myMetric, void** parentMetric) {
-    if (*myMetric == NULL)
+    if (*myMetric == nullptr)
         return;
     struct RawMetric_t* hset = static_cast<struct RawMetric_t*>(*myMetric);
     unordered_set<uint64_t>::iterator it;
@@ -383,11 +383,11 @@ static void DecodingFootPrint(const THREADID threadid, ContextHandle_t myHandle,
 }
 
 static void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void** myMetric, void** parentMetric) {
-    if (*myMetric == NULL)
+    if (*myMetric == nullptr)
         return;
     struct RawMetric_t* hset = static_cast<struct RawMetric_t*>(*myMetric);
 
-    if (*parentMetric == NULL) {
+    if (*parentMetric == nullptr) {
         *parentMetric = &((hmap_vector[threadid])[parentHandle]);
         (hmap_vector[threadid])[parentHandle].addressSetDecoded.insert(hset->addressSetDecoded.begin(), hset->addressSetDecoded.end());
         (hmap_vector[threadid])[parentHandle].accessNum += hset->accessNum;

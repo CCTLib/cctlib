@@ -84,7 +84,7 @@ VOID SimpleCCTQuery(THREADID id, const uint32_t slot) {
     GetContextHandle(id, slot);
     void** c_m = GetIPNodeMetric(id, slot);
     uint64_t* m;
-    if (*c_m == NULL) {
+    if (*c_m == nullptr) {
         m = (uint64_t*)malloc(sizeof(uint64_t));
         *m = 0;
         *c_m = (void*)m;

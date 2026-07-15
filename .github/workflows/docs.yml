@@ -3,6 +3,8 @@ name: docs
 on:
   push:
     branches: [master]
+  pull_request:
+    branches: [master]
   # Allow manual runs from the Actions UI.
   workflow_dispatch:
 
@@ -56,6 +58,7 @@ jobs:
 
   deploy:
     name: deploy to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-22.04
     environment:

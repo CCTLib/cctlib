@@ -1,37 +1,30 @@
 #!/usr/bin/env bash
-# CCTLib pre-commit hook: clang-format staged C/C++ files.
+# CCTLib pre-commit hook: auto-format and optionally lint staged C/C++ files.
 #
 # Installed via `make install-hooks` (which sets core.hooksPath=.githooks).
 # Bypass for a single commit with `git commit --no-verify`.
 #
-# Behavior:
-#   1. Collect the staged .cpp/.H/.h/.hpp files (added / copied / modified).
-#   2. Run clang-format on each; if any of them changes, re-stage the fixed
-#      file with `git add` and print what was reformatted.
-#   3. If clang-format itself fails (missing binary, parse error), block the
-#      commit with a non-zero exit and let the user resolve it.
+# Phase 1 — clang-format (always):
+#   Format staged .cpp/.H/.h/.hpp files; auto-re-stage any changes.
+#   If clang-format-15 is missing, print a hint and continue (non-blocking).
+#
+# Phase 2 — clang-tidy (when available):
+#   If compile_commands.json AND PIN_ROOT exist, run clang-tidy on staged
+#   files and attempt --fix. Auto-fixable issues are re-staged; unfixable
+#   diagnostics block the commit. Skipped silently when the toolchain is
+#   not set up.
 #
 # The hook only touches STAGED files. Unstaged modifications on the same
-# path are left alone: we call `clang-format -i` on the working tree, then
-# only `git add` the specific staged paths back, so any extra unstaged
-# hunks stay unstaged.
-#
-# The lint pass (clang-tidy) is deliberately NOT in this hook -- it needs
-# compile_commands.json (produced by `bear -- make`) and PIN_ROOT, both of
-# which are workstation-only. CI catches lint drift on push.
+# path are left alone.
 
 set -euo pipefail
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# ── Phase 1: clang-format ──────────────────────────────────────────────
+
 CLANG_FORMAT=${CLANG_FORMAT:-clang-format-15}
 
-if ! command -v "$CLANG_FORMAT" >/dev/null 2>&1; then
-    echo "pre-commit: $CLANG_FORMAT not found in PATH; skipping format check." >&2
-    echo "  install: sudo apt install clang-format-15  (or override with CLANG_FORMAT=...)" >&2
-    exit 0
-fi
-
-# Staged paths, filtered to formattable C/C++ sources. --diff-filter=ACM
-# = Added, Copied, Modified (skip deleted / renamed-without-content).
 mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACM \
                      | grep -E '\.(cpp|H|h|hpp)$' || true)
 
@@ -39,26 +32,108 @@ if [ ${#STAGED[@]} -eq 0 ]; then
     exit 0
 fi
 
-# Run clang-format on each staged path. Record which ones were actually
-# modified so we can (a) re-stage them and (b) tell the user what changed.
-REFORMATTED=()
+if command -v "$CLANG_FORMAT" >/dev/null 2>&1; then
+    REFORMATTED=()
+    for f in "${STAGED[@]}"; do
+        [ -f "$f" ] || continue
+        before=$(sha1sum "$f" | awk '{print $1}')
+        "$CLANG_FORMAT" -i "$f"
+        after=$(sha1sum "$f" | awk '{print $1}')
+        if [ "$before" != "$after" ]; then
+            REFORMATTED+=("$f")
+            git add "$f"
+        fi
+    done
+
+    if [ ${#REFORMATTED[@]} -gt 0 ]; then
+        echo "pre-commit: clang-format reformatted (auto-re-staged):" >&2
+        for f in "${REFORMATTED[@]}"; do
+            echo "  - $f" >&2
+        done
+    fi
+else
+    echo "pre-commit: $CLANG_FORMAT not found in PATH; skipping format check." >&2
+    echo "  install: sudo apt install clang-format-15  (or override with CLANG_FORMAT=...)" >&2
+fi
+
+# ── Phase 2: clang-tidy (optional) ─────────────────────────────────────
+
+CLANG_TIDY=${CLANG_TIDY:-clang-tidy-15}
+
+if ! command -v "$CLANG_TIDY" >/dev/null 2>&1; then
+    exit 0
+fi
+
+if [ ! -f "$REPO_ROOT/compile_commands.json" ]; then
+    exit 0
+fi
+
+if [ -z "${PIN_ROOT:-}" ]; then
+    exit 0
+fi
+
+CLANG_RESOURCE_DIR=${LINT_CLANG_RESOURCE_DIR:-}
+if [ -z "$CLANG_RESOURCE_DIR" ] && command -v clang-15 >/dev/null 2>&1; then
+    CLANG_RESOURCE_DIR=$(clang-15 -print-resource-dir 2>/dev/null || true)
+fi
+if [ -z "$CLANG_RESOURCE_DIR" ]; then
+    CLANG_RESOURCE_DIR=/usr/lib/llvm-15/lib/clang/15.0.6
+fi
+
+EXTRA_ARGS=(
+    --extra-arg=-Wno-unknown-warning-option
+    --extra-arg=-nostdinc
+    --extra-arg=-nostdinc++
+    --extra-arg=-isystem --extra-arg="$PIN_ROOT/intel64/pinrt/include/c++"
+    --extra-arg=-isystem --extra-arg="$PIN_ROOT/intel64/pinrt/include"
+    --extra-arg=-isystem --extra-arg="$PIN_ROOT/intel64/pinrt/include/pinos"
+    --extra-arg=-idirafter --extra-arg="$CLANG_RESOURCE_DIR/include"
+    --extra-arg=-DPIN_CRT=1 --extra-arg=-DPIN_RT
+    --extra-arg=-DTARGET_LINUX --extra-arg=-DTARGET_IA32E --extra-arg=-DHOST_IA32E
+    --extra-arg=-D_LIBCPP_HAS_MUSL_LIBC
+    --extra-arg=-D_LIBCPP_DISABLE_AVAILABILITY
+    --extra-arg=-D_arch_long=long
+)
+
+LINT_FAILURES=()
+LINT_FIXED=()
+
 for f in "${STAGED[@]}"; do
-    # Skip paths that were removed after `git add` (rare but possible).
     [ -f "$f" ] || continue
+    # Try auto-fix first
     before=$(sha1sum "$f" | awk '{print $1}')
-    "$CLANG_FORMAT" -i "$f"
+    "$CLANG_TIDY" -p "$REPO_ROOT" "${EXTRA_ARGS[@]}" --fix --fix-errors "$f" \
+        >/dev/null 2>&1 || true
     after=$(sha1sum "$f" | awk '{print $1}')
     if [ "$before" != "$after" ]; then
-        REFORMATTED+=("$f")
+        LINT_FIXED+=("$f")
         git add "$f"
+    fi
+
+    # Check for remaining unfixable warnings
+    remaining=$("$CLANG_TIDY" -p "$REPO_ROOT" "${EXTRA_ARGS[@]}" "$f" 2>&1 \
+        | grep -E ':[0-9]+:[0-9]+: (warning|error):' \
+        | grep -v 'pinrt_adaptor\|pinos\.h' || true)
+    if [ -n "$remaining" ]; then
+        LINT_FAILURES+=("$f")
+        echo "$remaining" >&2
     fi
 done
 
-if [ ${#REFORMATTED[@]} -gt 0 ]; then
-    echo "pre-commit: clang-format reformatted (auto-re-staged):" >&2
-    for f in "${REFORMATTED[@]}"; do
+if [ ${#LINT_FIXED[@]} -gt 0 ]; then
+    echo "pre-commit: clang-tidy auto-fixed (re-staged):" >&2
+    for f in "${LINT_FIXED[@]}"; do
         echo "  - $f" >&2
     done
+fi
+
+if [ ${#LINT_FAILURES[@]} -gt 0 ]; then
+    echo "pre-commit: clang-tidy found unfixable issues in:" >&2
+    for f in "${LINT_FAILURES[@]}"; do
+        echo "  - $f" >&2
+    done
+    echo "Fix the warnings above or bypass with: git commit --no-verify" >&2
+    exit 1
 fi
 
 exit 0

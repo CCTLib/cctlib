@@ -126,8 +126,8 @@ inline bool CheckDependence(uint64_t curAddr, uint64_t prevAddr) {
     string filePath1, filePath2;
 
     PIN_LockClient();
-    PIN_GetSourceLocation(prevAddr, NULL, (INT32*)&lineNo1, &filePath1);
-    PIN_GetSourceLocation(curAddr, NULL, (INT32*)&lineNo2, &filePath2);
+    PIN_GetSourceLocation(prevAddr, nullptr, (INT32*)&lineNo1, &filePath1);
+    PIN_GetSourceLocation(curAddr, nullptr, (INT32*)&lineNo2, &filePath2);
     PIN_UnlockClient();
 
     return static_cast<bool>((filePath1 == filePath2) && (lineNo1 <= lineNo2));
@@ -143,7 +143,7 @@ VOID MemFunc(THREADID id, void* addr, bool rwFlag, UINT32 refSize) {
     // at memory instruction record the footprint
     void** metric = GetIPNodeMetric(id, 0);
 
-    if (*metric == NULL) {
+    if (*metric == nullptr) {
         // use ctxthndl as the key to associate footprint with the trace
         ContextHandle_t ctxthndl = GetContextHandle(id, 0);
         *metric = &(hmap_vector[id])[ctxthndl];
@@ -183,7 +183,7 @@ VOID InstrumentInsCallback(INS ins, VOID* v, const uint32_t slot) {
 }
 
 void DecodingFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void** myMetric, void** parentMetric) {
-    if (*myMetric == NULL)
+    if (*myMetric == nullptr)
         return;
     struct node_metric_t* hset = static_cast<struct node_metric_t*>(*myMetric);
     unordered_set<uint64_t>::iterator it;
@@ -199,11 +199,11 @@ void DecodingFootPrint(const THREADID threadid, ContextHandle_t myHandle, Contex
 }
 
 void MergeFootPrint(const THREADID threadid, ContextHandle_t myHandle, ContextHandle_t parentHandle, void** myMetric, void** parentMetric) {
-    if (*myMetric == NULL)
+    if (*myMetric == nullptr)
         return;
     struct node_metric_t* hset = static_cast<struct node_metric_t*>(*myMetric);
 
-    if (*parentMetric == NULL) {
+    if (*parentMetric == nullptr) {
         *parentMetric = &((hmap_vector[threadid])[parentHandle]);
         (hmap_vector[threadid])[parentHandle].addressSetDecoded.insert(hset->addressSetDecoded.begin(), hset->addressSetDecoded.end());
         (hmap_vector[threadid])[parentHandle].addressSet.insert(hset->addressSet.begin(), hset->addressSet.end());
@@ -253,13 +253,13 @@ void PrintTopFootPrintPath(THREADID threadid) {
 }
 
 VOID ThreadFiniFunc(THREADID threadid, const CONTEXT* ctxt, INT32 code, VOID* v) {
-    gettimeofday(&tv2, NULL);
+    gettimeofday(&tv2, nullptr);
     // traverse CCT bottom to up
     // decode first
     TraverseCCTBottomUp(threadid, DecodingFootPrint);
     // merge second
     TraverseCCTBottomUp(threadid, MergeFootPrint);
-    gettimeofday(&tv3, NULL);
+    gettimeofday(&tv3, nullptr);
     // print the footprint for functions
     PIN_LockClient();
     PrintTopFootPrintPath(threadid);
@@ -272,7 +272,7 @@ VOID FiniFunc(INT32 code, VOID* v) {
 }
 
 int main(int argc, char* argv[]) {
-    gettimeofday(&tv1, NULL);
+    gettimeofday(&tv1, nullptr);
     // Initialize PIN
     if (PIN_Init(argc, argv))
         return Usage();

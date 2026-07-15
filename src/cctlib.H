@@ -207,7 +207,7 @@ void AppendLoadModulesToStream(std::iostream& ios);
 void LogContexts(std::iostream& ios, ContextHandle_t ctxt1, ContextHandle_t ctxt2);
 
 // write the output into hpcviewer's format
-int init_hpcrun_format(int argc, char* argv[], void (*mergeFunc)(void* des, void* src) = NULL, uint64_t (*computeMetricVal)(void* metric) = NULL, bool skip = false);
+int init_hpcrun_format(int argc, char* argv[], void (*mergeFunc)(void* des, void* src) = nullptr, uint64_t (*computeMetricVal)(void* metric) = nullptr, bool skip = false);
 int hpcrun_create_metric(const char* name);
 int newCCT_hpcrun_write(THREADID threadid);
 int newCCT_hpcrun_build_cct(std::vector<HPCRunCCT_t*>& OldNodes, THREADID threadid);
