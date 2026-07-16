@@ -805,7 +805,7 @@ check:
 	rm -rf cctlib-database-* DeadSpy-CCTLib-database
 	@echo "----UNITTEST: shadow_memory----" && $(MAKE) -C tests shadow_memory_unittest_run > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----UNITTEST: splay_deserialize----" && $(MAKE) -C tests splay_deserialize_test_run > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
-	@echo "----UNITTEST: gtest suite----" && $(MAKE) -C tests/gtest test > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
+	@echo "----UNITTEST: gtest suite----" && $(MAKE) -C tests/gtest test && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "-----Testing Pin---------" && $(PIN_ROOT)/pin -- echo hi > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST1----------" && $(PIN_ROOT)/pin -t tests/$(OBJDIR)/cct_client$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
 	@echo "----------TEST2----------" && $(PIN_ROOT)/pin -t tests/$(OBJDIR)/cct_client_mem_only$(PINTOOL_SUFFIX) -- ls > /dev/null && echo "----------PASSED---------" || (echo "----------FAILED---------"; exit -1)
@@ -869,6 +869,38 @@ format:
 .PHONY: format-check
 format-check:
 	@$(CLANG_FORMAT) --dry-run --Werror $(FORMAT_FILES)
+
+# Local git hooks: point core.hooksPath at .githooks/ so `git commit`
+# runs .githooks/pre-commit (which clang-formats staged files). See
+# .githooks/README.md. One-time setup per clone. Uninstall with
+# `git config --unset core.hooksPath`.
+.PHONY: install-hooks
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "hooks installed: core.hooksPath = .githooks"
+	@echo "  bypass a single commit with: git commit --no-verify"
+	@echo "  uninstall with: git config --unset core.hooksPath"
+
+# Doxygen: generate HTML API reference from src/ + clients/ + tests/
+# using docs/Doxyfile. Output lands in docs/output/html/index.html.
+# Auto-published to https://cctlib.github.io/cctlib/ by the
+# .github/workflows/docs.yml workflow.
+
+DOXYGEN ?= doxygen
+
+.PHONY: docs
+docs:
+	@if ! command -v $(DOXYGEN) >/dev/null 2>&1; then \
+	    echo "$(DOXYGEN): not found in PATH." >&2; \
+	    echo "  install: sudo apt install doxygen graphviz  (or your distro's equivalent)" >&2; \
+	    exit 1; \
+	fi
+	@$(DOXYGEN) docs/Doxyfile
+	@echo "docs: docs/output/html/index.html"
+
+.PHONY: docs-clean
+docs-clean:
+	@rm -rf docs/output
 
 # Coverage: builds the host gtest suite with gcov instrumentation, runs it,
 # and produces coverage/index.html via lcov+genhtml. Pin-tool coverage is

@@ -223,7 +223,7 @@ top_srcdir = @top_srcdir@
 #include ../Makefile.inc
 #PIN_ROOT=$(PIN_PATH)
 CONFIG_ROOT = $(PIN_ROOT)/source/tools/Config
-APP_ROOTS = deadWrites threaded  reuseApp
+APP_ROOTS = deadWrites threaded  reuseApp reuse_test cct_reuse_test cct_eviction_test
 ALLOW_UNUSED_BUT_SET = -Wno-unused-but-set-variable
 CCTLIB_TEST_FLAGS = $(CCTLIB_EXTRA_CXXFLAGS)  $(CCTLIB_EXTRA_CPPFLAGS) $(TOOL_CXXFLAGS) -I$(SPARSEHASH_PATH)/include -I../src/ $(ALLOW_UNUSED_BUT_SET)
 LIBELF_LD_FLAGS = -L$(LIBELF_PATH)/lib -Wl,-rpath $(LIBELF_PATH)/lib
